@@ -4,6 +4,7 @@ mod commands;
 mod db;
 mod ingest;
 mod listen;
+mod local_stt;
 mod model;
 mod sources;
 mod util;
@@ -94,6 +95,7 @@ pub fn run() {
             commands::set_assistant_model,
             commands::ask_assistant,
             commands::set_deepgram_key,
+            commands::set_stt_engine,
             commands::start_listening,
             commands::stop_listening,
         ])

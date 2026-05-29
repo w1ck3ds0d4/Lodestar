@@ -1,16 +1,15 @@
-//! System-audio (loopback) capture + cloud transcription for the live assistant.
+//! System-audio (loopback) capture + transcription for the live assistant.
 //!
-//! Captures whatever is playing through the default output device (the call or
-//! lecture audio) via WASAPI loopback. cpal enables loopback automatically when
-//! an input stream is built on an output device, so no whisper.cpp toolchain is
-//! needed. Audio is buffered into short chunks, each chunk is sent to Deepgram's
-//! pre-recorded endpoint, and the resulting transcript is emitted to the frontend
-//! as a `transcript` event.
+//! Captures the default output device via WASAPI loopback (cpal auto-enables
+//! loopback when an input stream is built on an output device). Audio is buffered
+//! into ~4s chunks and turned into text by the selected engine - Deepgram (cloud)
+//! or a local Whisper model (Candle, on-device). Each transcript is emitted to the
+//! frontend as a `transcript` event; progress/errors as `listen-status`/`listen-error`.
 //!
-//! This is chunked (a few seconds of latency), not word-by-word streaming; a
-//! streaming WebSocket path is a planned follow-up. Windows-first: loopback is
-//! native here. The captured audio is uploaded to Deepgram for transcription.
+//! Chunked (a few seconds of latency), not word-by-word streaming. Windows-first:
+//! loopback is native here.
 
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -20,17 +19,40 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter};
 
-/// Seconds of audio to accumulate before each transcription request.
+use crate::local_stt::LocalStt;
+
 const CHUNK_SECS: u64 = 4;
-/// Peak amplitude below which a chunk is treated as silence and skipped.
 const SILENCE_PEAK: f32 = 0.005;
+const WHISPER_RATE: u32 = 16000;
+
+/// Which transcription backend to use for a listening session.
+pub enum EngineConfig {
+    Deepgram { key: String },
+    Local { models_dir: PathBuf },
+}
 
 fn on_stream_error(err: cpal::StreamError) {
     tracing::warn!("audio capture stream error: {err}");
 }
 
+fn status(app: &AppHandle, msg: &str) {
+    let _ = app.emit("listen-status", msg.to_string());
+}
+
 /// Capture loopback audio and emit `transcript` events until `flag` is cleared.
-pub fn run(app: &AppHandle, http: reqwest::Client, key: &str, flag: Arc<AtomicBool>) -> Result<()> {
+pub fn run(
+    app: &AppHandle,
+    http: reqwest::Client,
+    engine: EngineConfig,
+    flag: Arc<AtomicBool>,
+) -> Result<()> {
+    // The local engine downloads + loads the model up front (slow on first run).
+    let mut local: Option<LocalStt> = None;
+    if let EngineConfig::Local { models_dir } = &engine {
+        local = Some(LocalStt::load(&http, models_dir, &|m| status(app, m))?);
+    }
+    status(app, "Listening");
+
     let host = cpal::default_host();
     let device = host
         .default_output_device()
@@ -42,10 +64,7 @@ pub fn run(app: &AppHandle, http: reqwest::Client, key: &str, flag: Arc<AtomicBo
     let config: cpal::StreamConfig = supported.config();
     let channels = config.channels.max(1) as usize;
 
-    // The cpal callback runs on its own audio thread and appends interleaved
-    // samples (as f32) here; the loop below drains it every CHUNK_SECS.
     let buffer: Arc<Mutex<Vec<f32>>> = Arc::new(Mutex::new(Vec::new()));
-
     let stream = match supported.sample_format() {
         cpal::SampleFormat::F32 => {
             let buf = buffer.clone();
@@ -63,8 +82,9 @@ pub fn run(app: &AppHandle, http: reqwest::Client, key: &str, flag: Arc<AtomicBo
             device.build_input_stream(
                 &config,
                 move |data: &[i16], _: &cpal::InputCallbackInfo| {
-                    let mut g = buf.lock().unwrap();
-                    g.extend(data.iter().map(|&s| s as f32 / 32768.0));
+                    buf.lock()
+                        .unwrap()
+                        .extend(data.iter().map(|&s| s as f32 / 32768.0));
                 },
                 on_stream_error,
                 None,
@@ -87,15 +107,29 @@ pub fn run(app: &AppHandle, http: reqwest::Client, key: &str, flag: Arc<AtomicBo
         if samples.is_empty() {
             continue;
         }
-        // Skip near-silent chunks so dead air doesn't burn transcription requests.
-        let peak = samples.iter().fold(0f32, |m, &s| m.max(s.abs()));
+        let mono = downmix_mono(&samples, channels);
+        // Skip near-silent chunks so dead air doesn't spend requests / CPU.
+        let peak = mono.iter().fold(0f32, |m, &s| m.max(s.abs()));
         if peak < SILENCE_PEAK {
             continue;
         }
-        let pcm = downmix_to_linear16(&samples, channels);
-        match tauri::async_runtime::block_on(transcribe(&http, key, sample_rate, pcm)) {
-            Ok(text) if !text.trim().is_empty() => {
-                let _ = app.emit("transcript", json!({ "text": text }));
+
+        let text = match &engine {
+            EngineConfig::Deepgram { key } => {
+                let pcm = mono_to_linear16(&mono);
+                tauri::async_runtime::block_on(transcribe_deepgram(&http, key, sample_rate, pcm))
+            }
+            EngineConfig::Local { .. } => {
+                let pcm16 = resample(&mono, sample_rate, WHISPER_RATE);
+                local
+                    .as_mut()
+                    .expect("local engine initialized above")
+                    .transcribe(&pcm16)
+            }
+        };
+        match text {
+            Ok(t) if !t.trim().is_empty() => {
+                let _ = app.emit("transcript", json!({ "text": t }));
             }
             Ok(_) => {}
             Err(e) => {
@@ -108,21 +142,46 @@ pub fn run(app: &AppHandle, http: reqwest::Client, key: &str, flag: Arc<AtomicBo
     Ok(())
 }
 
-/// Interleaved f32 frames -> mono signed 16-bit little-endian PCM bytes.
-fn downmix_to_linear16(samples: &[f32], channels: usize) -> Vec<u8> {
+/// Interleaved frames -> mono.
+fn downmix_mono(samples: &[f32], channels: usize) -> Vec<f32> {
     let ch = channels.max(1);
-    let mut out = Vec::with_capacity(samples.len() / ch * 2);
-    for frame in samples.chunks(ch) {
-        let avg = frame.iter().copied().sum::<f32>() / frame.len() as f32;
-        let s = (avg.clamp(-1.0, 1.0) * 32767.0) as i16;
-        out.extend_from_slice(&s.to_le_bytes());
+    samples
+        .chunks(ch)
+        .map(|f| f.iter().copied().sum::<f32>() / f.len() as f32)
+        .collect()
+}
+
+/// Mono f32 [-1,1] -> signed 16-bit little-endian PCM bytes.
+fn mono_to_linear16(mono: &[f32]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(mono.len() * 2);
+    for &s in mono {
+        out.extend_from_slice(&((s.clamp(-1.0, 1.0) * 32767.0) as i16).to_le_bytes());
+    }
+    out
+}
+
+/// Linear-interpolation resample of mono audio to `dst_rate`. Good enough for speech STT.
+fn resample(mono: &[f32], src_rate: u32, dst_rate: u32) -> Vec<f32> {
+    if src_rate == dst_rate || mono.is_empty() {
+        return mono.to_vec();
+    }
+    let ratio = dst_rate as f32 / src_rate as f32;
+    let out_len = (mono.len() as f32 * ratio) as usize;
+    let mut out = Vec::with_capacity(out_len);
+    for i in 0..out_len {
+        let pos = i as f32 / ratio;
+        let idx = pos as usize;
+        let frac = pos - idx as f32;
+        let a = mono.get(idx).copied().unwrap_or(0.0);
+        let b = mono.get(idx + 1).copied().unwrap_or(a);
+        out.push(a + (b - a) * frac);
     }
     out
 }
 
 /// POST a raw linear16 chunk to Deepgram's pre-recorded endpoint; returns the
-/// transcript text (empty string when nothing was recognised).
-async fn transcribe(
+/// transcript text (empty when nothing was recognised).
+async fn transcribe_deepgram(
     http: &reqwest::Client,
     key: &str,
     sample_rate: u32,
