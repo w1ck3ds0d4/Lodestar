@@ -7,6 +7,7 @@ import { ASSISTANT_MODELS } from "../types";
 export function AssistantView() {
   const [hasKey, setHasKey] = useState(false);
   const [hasSttKey, setHasSttKey] = useState(false);
+  const [sttEngine, setSttEngine] = useState("deepgram");
   const [model, setModel] = useState("claude-opus-4-8");
   const [keyInput, setKeyInput] = useState("");
   const [sttKeyInput, setSttKeyInput] = useState("");
@@ -14,6 +15,7 @@ export function AssistantView() {
   const [savingStt, setSavingStt] = useState(false);
 
   const [listening, setListening] = useState(false);
+  const [listenStatus, setListenStatus] = useState("");
   const [transcript, setTranscript] = useState("");
   const [listenError, setListenError] = useState("");
 
@@ -27,6 +29,7 @@ export function AssistantView() {
     const s = await api.getAssistantSettings();
     setHasKey(s.hasKey);
     setHasSttKey(s.hasSttKey);
+    setSttEngine(s.sttEngine);
     setModel(s.model);
   }, []);
   useEffect(() => {
@@ -39,11 +42,18 @@ export function AssistantView() {
     void listen<{ text: string }>("transcript", (e) => {
       setTranscript((t) => (t ? t + " " : "") + e.payload.text);
     }).then((u) => unlisteners.push(u));
+    void listen<string>("listen-status", (e) => setListenStatus(String(e.payload))).then((u) =>
+      unlisteners.push(u),
+    );
     void listen<string>("listen-error", (e) => {
       setListenError(String(e.payload));
       setListening(false);
+      setListenStatus("");
     }).then((u) => unlisteners.push(u));
-    void listen("listen-stopped", () => setListening(false)).then((u) => unlisteners.push(u));
+    void listen("listen-stopped", () => {
+      setListening(false);
+      setListenStatus("");
+    }).then((u) => unlisteners.push(u));
     return () => unlisteners.forEach((u) => u());
   }, []);
 
@@ -76,10 +86,16 @@ export function AssistantView() {
     await api.setAssistantModel(m);
   };
 
+  const changeEngine = async (e: string) => {
+    setSttEngine(e);
+    await api.setSttEngine(e);
+  };
+
   const toggleListen = async () => {
     if (listening) {
       await api.stopListening();
       setListening(false);
+      setListenStatus("");
       return;
     }
     setListenError("");
@@ -105,13 +121,15 @@ export function AssistantView() {
     }
   };
 
+  const needsDeepgramKey = sttEngine === "deepgram" && !hasSttKey;
+
   return (
     <div className="assistant">
       <div className="assistant-bar">
         <div className="assistant-title">
           <Bot size={18} /> Assistant
         </div>
-        <select value={model} onChange={(e) => void changeModel(e.target.value)} title="Model">
+        <select value={model} onChange={(e) => void changeModel(e.target.value)} title="Answer model">
           {ASSISTANT_MODELS.map((m) => (
             <option key={m.id} value={m.id}>
               {m.label} - {m.note}
@@ -146,14 +164,23 @@ export function AssistantView() {
         </div>
       ) : (
         <>
-          {!hasSttKey ? (
+          <div className="listen-engine">
+            <span className="muted sm">Transcription:</span>
+            <select value={sttEngine} onChange={(e) => void changeEngine(e.target.value)} disabled={listening}>
+              <option value="deepgram">Cloud (Deepgram)</option>
+              <option value="local">Local (Whisper, on-device)</option>
+            </select>
+          </div>
+
+          {needsDeepgramKey ? (
             <div className="add-source">
               <h3>
-                <Ear size={16} /> Listen to call audio (optional)
+                <Ear size={16} /> Deepgram API key
               </h3>
               <p className="muted sm">
-                Add a Deepgram API key to transcribe your computer's audio live. The captured audio is sent to
-                Deepgram for transcription, so it leaves your machine. Get a key at console.deepgram.com.
+                The Cloud engine sends captured audio to Deepgram to transcribe it, so audio leaves your
+                machine. Get a key at console.deepgram.com - or switch the engine to Local above to keep
+                everything on-device.
               </p>
               <div className="add-row">
                 <input
@@ -176,7 +203,12 @@ export function AssistantView() {
                 {listening ? <Square size={15} /> : <Ear size={15} />}
                 {listening ? "Stop listening" : "Listen to call"}
               </button>
-              {listening && <span className="muted sm pulse">Capturing computer audio...</span>}
+              {listening && <span className="muted sm pulse">{listenStatus || "Capturing..."}</span>}
+              {!listening && sttEngine === "local" && (
+                <span className="muted sm">
+                  Runs on your CPU, audio stays local. First run downloads a model (~290MB).
+                </span>
+              )}
               {transcript && (
                 <button className="link-btn" onClick={() => setTranscript("")}>
                   Clear

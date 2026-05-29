@@ -197,10 +197,23 @@ select:focus {
   font: inherit;
   text-decoration: underline;
 }
+.listen-engine {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.listen-engine select {
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 10px;
+}
 .listen-bar {
   display: flex;
   align-items: center;
   gap: 10px;
+  flex-wrap: wrap;
 }
 .btn-listen {
   display: inline-flex;

@@ -78,5 +78,6 @@ export const askAssistant = (question: string, context: string | null) =>
 
 // --- Live listening (system-audio capture -> Deepgram) ---
 export const setDeepgramKey = (key: string) => invoke<void>("set_deepgram_key", { key });
+export const setSttEngine = (engine: string) => invoke<void>("set_stt_engine", { engine });
 export const startListening = () => invoke<void>("start_listening");
 export const stopListening = () => invoke<void>("stop_listening");
