@@ -1,0 +1,37 @@
+{
+  "name": "jobradar",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Local-first desktop app that searches the job market.",
+  "keywords": ["job-search", "jobs", "tauri", "desktop", "aggregator"],
+  "author": "w1ck3ds0d4 <support@wickitlab.com>",
+  "license": "AGPL-3.0-or-later",
+  "homepage": "https://github.com/w1ck3ds0d4/JobRadar",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/w1ck3ds0d4/JobRadar"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2",
+    "@tauri-apps/plugin-notification": "^2",
+    "@tauri-apps/plugin-opener": "^2",
+    "lucide-react": "^1.11.0",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.5"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2",
+    "@types/react": "^19.2.15",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.1",
+    "typescript": "~5.6.3",
+    "vite": "^8.0.14"
+  }
+}

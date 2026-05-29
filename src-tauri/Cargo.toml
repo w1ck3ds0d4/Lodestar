@@ -1,0 +1,43 @@
+[package]
+name = "jobradar"
+version = "0.1.0"
+description = "JobRadar - a local-first desktop app that searches the job market"
+authors = ["w1ck3ds0d4 <support@wickitlab.com>"]
+edition = "2021"
+license = "AGPL-3.0-or-later"
+repository = "https://github.com/w1ck3ds0d4/JobRadar"
+homepage = "https://github.com/w1ck3ds0d4/JobRadar"
+readme = "../README.md"
+keywords = ["job-search", "jobs", "tauri", "aggregator", "desktop"]
+categories = ["gui"]
+
+[lib]
+name = "jobradar_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["devtools"] }
+tauri-plugin-opener = "2"
+tauri-plugin-notification = "2"
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "gzip"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
+regex = "1"
+
+[profile.release]
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+strip = true
+panic = "abort"
+incremental = false
