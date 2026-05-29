@@ -75,3 +75,8 @@ export const setApiKey = (key: string) => invoke<void>("set_api_key", { key });
 export const setAssistantModel = (model: string) => invoke<void>("set_assistant_model", { model });
 export const askAssistant = (question: string, context: string | null) =>
   invoke<string>("ask_assistant", { question, context });
+
+// --- Live listening (system-audio capture -> Deepgram) ---
+export const setDeepgramKey = (key: string) => invoke<void>("set_deepgram_key", { key });
+export const startListening = () => invoke<void>("start_listening");
+export const stopListening = () => invoke<void>("stop_listening");
