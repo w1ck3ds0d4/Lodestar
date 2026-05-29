@@ -3,20 +3,24 @@ mod career;
 mod commands;
 mod db;
 mod ingest;
+mod listen;
 mod model;
 mod sources;
 mod util;
 
+use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use rusqlite::Connection;
 use tauri::Manager;
 
-/// Shared application state: the database handle and a reusable HTTP client.
+/// Shared application state: the database handle, a reusable HTTP client, and a
+/// flag coordinating the live audio-capture thread.
 pub struct AppState {
     pub db: Arc<Mutex<Connection>>,
     pub http: reqwest::Client,
+    pub listening: Arc<AtomicBool>,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -46,6 +50,7 @@ pub fn run() {
             app.manage(AppState {
                 db: db.clone(),
                 http: http.clone(),
+                listening: Arc::new(AtomicBool::new(false)),
             });
 
             // Background scheduler: sync due sources, then poll on an interval.
@@ -88,6 +93,9 @@ pub fn run() {
             commands::set_api_key,
             commands::set_assistant_model,
             commands::ask_assistant,
+            commands::set_deepgram_key,
+            commands::start_listening,
+            commands::stop_listening,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
