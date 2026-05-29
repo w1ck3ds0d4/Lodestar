@@ -82,6 +82,7 @@ pub fn run() {
             commands::update_skill,
             commands::log_study,
             commands::remove_skill,
+            commands::set_screen_privacy,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

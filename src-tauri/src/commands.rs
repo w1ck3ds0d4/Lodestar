@@ -239,3 +239,17 @@ pub fn remove_skill(state: State<'_, AppState>, id: i64) -> Result<(), String> {
     let conn = state.db.lock().map_err(|_| "db poisoned")?;
     crate::career::remove_skill(&conn, id).map_err(|e| e.to_string())
 }
+
+// --- Screen privacy ---
+
+/// Toggle whether this window is excluded from screen capture and screen sharing.
+/// On Windows this maps to `SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE)`: the
+/// window stays fully visible on the local display but is omitted from anything that
+/// captures the screen (Zoom/Teams/Meet shares, OBS, recorders). No-op on platforms
+/// that do not support it.
+#[tauri::command]
+pub fn set_screen_privacy(window: tauri::WebviewWindow, enabled: bool) -> Result<(), String> {
+    window
+        .set_content_protected(enabled)
+        .map_err(|e| e.to_string())
+}
