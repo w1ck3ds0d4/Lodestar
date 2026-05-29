@@ -1,3 +1,4 @@
+mod career;
 mod commands;
 mod db;
 mod ingest;
@@ -69,6 +70,18 @@ pub fn run() {
             commands::add_alert,
             commands::remove_alert,
             commands::sync_now,
+            commands::list_tracked,
+            commands::add_tracked,
+            commands::update_tracked,
+            commands::remove_tracked,
+            commands::add_milestone,
+            commands::set_milestone,
+            commands::remove_milestone,
+            commands::list_skills,
+            commands::add_skill,
+            commands::update_skill,
+            commands::log_study,
+            commands::remove_skill,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

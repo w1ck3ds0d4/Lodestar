@@ -5,7 +5,8 @@ use serde_json::Value;
 use tauri::{AppHandle, State};
 
 use crate::db;
-use crate::model::{Alert, Job, Source};
+use crate::model::{Alert, Job, Skill, Source, Tracked};
+use crate::util::now_ms;
 use crate::AppState;
 
 #[derive(Serialize)]
@@ -107,4 +108,134 @@ pub fn sync_now(state: State<'_, AppState>, app: AppHandle) -> Result<(), String
         crate::ingest::sync_all(db, http, app, true).await;
     });
     Ok(())
+}
+
+// --- Career tracker: applications + programs ---
+
+#[tauri::command]
+pub fn list_tracked(
+    state: State<'_, AppState>,
+    kind: Option<String>,
+) -> Result<Vec<Tracked>, String> {
+    let conn = state.db.lock().map_err(|_| "db poisoned")?;
+    crate::career::list_tracked(&conn, kind.as_deref()).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub fn add_tracked(
+    state: State<'_, AppState>,
+    kind: String,
+    title: String,
+    org: String,
+    url: String,
+    status: String,
+    notes: String,
+    deadline: Option<String>,
+    source_job_id: Option<i64>,
+) -> Result<i64, String> {
+    let conn = state.db.lock().map_err(|_| "db poisoned")?;
+    crate::career::add_tracked(
+        &conn,
+        now_ms(),
+        &kind,
+        &title,
+        &org,
+        &url,
+        &status,
+        &notes,
+        deadline.as_deref(),
+        source_job_id,
+    )
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn update_tracked(
+    state: State<'_, AppState>,
+    id: i64,
+    status: String,
+    notes: String,
+    progress: i64,
+    deadline: Option<String>,
+) -> Result<(), String> {
+    let conn = state.db.lock().map_err(|_| "db poisoned")?;
+    crate::career::update_tracked(
+        &conn,
+        now_ms(),
+        id,
+        &status,
+        &notes,
+        progress,
+        deadline.as_deref(),
+    )
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn remove_tracked(state: State<'_, AppState>, id: i64) -> Result<(), String> {
+    let conn = state.db.lock().map_err(|_| "db poisoned")?;
+    crate::career::remove_tracked(&conn, id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn add_milestone(
+    state: State<'_, AppState>,
+    tracked_id: i64,
+    label: String,
+) -> Result<i64, String> {
+    let conn = state.db.lock().map_err(|_| "db poisoned")?;
+    crate::career::add_milestone(&conn, tracked_id, &label).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn set_milestone(state: State<'_, AppState>, id: i64, done: bool) -> Result<(), String> {
+    let conn = state.db.lock().map_err(|_| "db poisoned")?;
+    crate::career::set_milestone(&conn, id, done).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn remove_milestone(state: State<'_, AppState>, id: i64) -> Result<(), String> {
+    let conn = state.db.lock().map_err(|_| "db poisoned")?;
+    crate::career::remove_milestone(&conn, id).map_err(|e| e.to_string())
+}
+
+// --- Study / skills ---
+
+#[tauri::command]
+pub fn list_skills(state: State<'_, AppState>) -> Result<Vec<Skill>, String> {
+    let conn = state.db.lock().map_err(|_| "db poisoned")?;
+    crate::career::list_skills(&conn).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn add_skill(state: State<'_, AppState>, name: String, goal: String) -> Result<i64, String> {
+    let conn = state.db.lock().map_err(|_| "db poisoned")?;
+    crate::career::add_skill(&conn, now_ms(), &name, &goal).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn update_skill(
+    state: State<'_, AppState>,
+    id: i64,
+    name: String,
+    goal: String,
+    level: i64,
+    notes: String,
+) -> Result<(), String> {
+    let conn = state.db.lock().map_err(|_| "db poisoned")?;
+    crate::career::update_skill(&conn, now_ms(), id, &name, &goal, level, &notes)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn log_study(state: State<'_, AppState>, id: i64, hours: f64) -> Result<(), String> {
+    let conn = state.db.lock().map_err(|_| "db poisoned")?;
+    crate::career::log_study(&conn, now_ms(), id, hours).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn remove_skill(state: State<'_, AppState>, id: i64) -> Result<(), String> {
+    let conn = state.db.lock().map_err(|_| "db poisoned")?;
+    crate::career::remove_skill(&conn, id).map_err(|e| e.to_string())
 }

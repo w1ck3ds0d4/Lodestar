@@ -89,6 +89,41 @@ pub fn init(path: &Path) -> Result<Connection> {
             remote_only INTEGER NOT NULL DEFAULT 0,
             last_notified_at INTEGER
         );
+
+        CREATE TABLE IF NOT EXISTS tracked (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            kind TEXT NOT NULL,
+            title TEXT NOT NULL,
+            org TEXT NOT NULL DEFAULT '',
+            url TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL DEFAULT '',
+            notes TEXT NOT NULL DEFAULT '',
+            applied_at TEXT,
+            deadline TEXT,
+            progress INTEGER NOT NULL DEFAULT 0,
+            source_job_id INTEGER,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS milestones (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tracked_id INTEGER NOT NULL REFERENCES tracked(id) ON DELETE CASCADE,
+            label TEXT NOT NULL,
+            done INTEGER NOT NULL DEFAULT 0,
+            position INTEGER NOT NULL DEFAULT 0
+        );
+
+        CREATE TABLE IF NOT EXISTS skills (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            goal TEXT NOT NULL DEFAULT '',
+            level INTEGER NOT NULL DEFAULT 0,
+            hours REAL NOT NULL DEFAULT 0,
+            notes TEXT NOT NULL DEFAULT '',
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
         "#,
     )?;
     // Migrate databases created before the workplace/experience columns existed.
