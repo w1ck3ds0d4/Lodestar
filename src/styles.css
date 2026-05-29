@@ -109,6 +109,11 @@ select:focus {
   border-color: var(--accent);
 }
 
+.icon-btn.active {
+  border-color: var(--accent);
+  color: var(--accent-2);
+}
+
 .icon-btn.danger:hover {
   border-color: var(--danger);
   color: var(--danger);
