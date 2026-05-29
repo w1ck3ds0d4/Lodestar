@@ -124,6 +124,11 @@ pub fn init(path: &Path) -> Result<Connection> {
             created_at INTEGER NOT NULL,
             updated_at INTEGER NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        );
         "#,
     )?;
     // Migrate databases created before the workplace/experience columns existed.
@@ -148,6 +153,35 @@ fn ensure_column(conn: &Connection, table: &str, col: &str, decl: &str) -> Resul
     if !present {
         conn.execute(&format!("ALTER TABLE {table} ADD COLUMN {col} {decl}"), [])?;
     }
+    Ok(())
+}
+
+/// Read a value from the key-value settings table.
+pub fn get_setting(conn: &Connection, key: &str) -> Result<Option<String>> {
+    use rusqlite::OptionalExtension;
+    let v = conn
+        .query_row(
+            "SELECT value FROM settings WHERE key = ?1",
+            params![key],
+            |r| r.get::<_, String>(0),
+        )
+        .optional()?;
+    Ok(v)
+}
+
+/// Upsert a value into the key-value settings table.
+pub fn set_setting(conn: &Connection, key: &str, value: &str) -> Result<()> {
+    conn.execute(
+        "INSERT INTO settings(key, value) VALUES(?1, ?2) \
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        params![key, value],
+    )?;
+    Ok(())
+}
+
+/// Remove a key from the settings table (no-op if absent).
+pub fn delete_setting(conn: &Connection, key: &str) -> Result<()> {
+    conn.execute("DELETE FROM settings WHERE key = ?1", params![key])?;
     Ok(())
 }
 

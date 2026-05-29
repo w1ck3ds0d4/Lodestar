@@ -253,3 +253,72 @@ pub fn set_screen_privacy(window: tauri::WebviewWindow, enabled: bool) -> Result
         .set_content_protected(enabled)
         .map_err(|e| e.to_string())
 }
+
+// --- Assistant (Claude API) ---
+
+const DEFAULT_MODEL: &str = "claude-opus-4-8";
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AssistantSettings {
+    pub has_key: bool,
+    pub model: String,
+}
+
+#[tauri::command]
+pub fn get_assistant_settings(state: State<'_, AppState>) -> Result<AssistantSettings, String> {
+    let conn = state.db.lock().map_err(|_| "db poisoned")?;
+    let has_key = db::get_setting(&conn, "anthropic_api_key")
+        .map_err(|e| e.to_string())?
+        .map(|k| !k.trim().is_empty())
+        .unwrap_or(false);
+    let model = db::get_setting(&conn, "assistant_model")
+        .map_err(|e| e.to_string())?
+        .unwrap_or_else(|| DEFAULT_MODEL.to_string());
+    Ok(AssistantSettings { has_key, model })
+}
+
+/// Store (or, when blank, clear) the Anthropic API key in local SQLite.
+#[tauri::command]
+pub fn set_api_key(state: State<'_, AppState>, key: String) -> Result<(), String> {
+    let conn = state.db.lock().map_err(|_| "db poisoned")?;
+    let trimmed = key.trim();
+    if trimmed.is_empty() {
+        db::delete_setting(&conn, "anthropic_api_key").map_err(|e| e.to_string())
+    } else {
+        db::set_setting(&conn, "anthropic_api_key", trimmed).map_err(|e| e.to_string())
+    }
+}
+
+#[tauri::command]
+pub fn set_assistant_model(state: State<'_, AppState>, model: String) -> Result<(), String> {
+    let conn = state.db.lock().map_err(|_| "db poisoned")?;
+    db::set_setting(&conn, "assistant_model", &model).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn ask_assistant(
+    state: State<'_, AppState>,
+    question: String,
+    context: Option<String>,
+) -> Result<String, String> {
+    if question.trim().is_empty() {
+        return Err("Ask a question first.".into());
+    }
+    // Read the key + model under a brief lock, then drop it before the await.
+    let (key, model) = {
+        let conn = state.db.lock().map_err(|_| "db poisoned")?;
+        let key = db::get_setting(&conn, "anthropic_api_key").map_err(|e| e.to_string())?;
+        let model = db::get_setting(&conn, "assistant_model")
+            .map_err(|e| e.to_string())?
+            .unwrap_or_else(|| DEFAULT_MODEL.to_string());
+        (key, model)
+    };
+    let key = key
+        .filter(|k| !k.trim().is_empty())
+        .ok_or("No API key set. Add your Anthropic API key in the Assistant tab.")?;
+    let http = state.http.clone();
+    crate::assistant::ask(&http, &key, &model, &question, context.as_deref())
+        .await
+        .map_err(|e| e.to_string())
+}
