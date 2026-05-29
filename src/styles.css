@@ -114,6 +114,90 @@ select:focus {
   color: var(--accent-2);
 }
 
+/* Assistant */
+.assistant {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 860px;
+  width: 100%;
+  margin: 0 auto;
+}
+.assistant-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.assistant-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+.assistant-bar select {
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 10px;
+}
+.assistant-context,
+.assistant-ask textarea {
+  width: 100%;
+  resize: vertical;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px;
+  font: inherit;
+}
+.assistant-ask {
+  display: flex;
+  gap: 8px;
+}
+.assistant-ask textarea {
+  flex: 1;
+}
+.assistant-ask .btn-sync {
+  align-self: flex-end;
+  white-space: nowrap;
+}
+.assistant-hint {
+  margin-top: -4px;
+}
+.assistant-answer {
+  white-space: pre-wrap;
+  line-height: 1.55;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 8px;
+  padding: 14px 16px;
+}
+.assistant-error {
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid var(--danger);
+  color: var(--danger);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+.assistant-keyrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.link-btn {
+  background: none;
+  border: none;
+  color: var(--accent-2);
+  cursor: pointer;
+  padding: 0 2px;
+  font: inherit;
+  text-decoration: underline;
+}
+
 .icon-btn.danger:hover {
   border-color: var(--danger);
   color: var(--danger);

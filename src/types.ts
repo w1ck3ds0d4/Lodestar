@@ -199,3 +199,14 @@ export const CONFIG_FIELDS: Record<string, { key: string; label: string; placeho
   remotive: [],
   jobicy: [],
 };
+
+export interface AssistantSettings {
+  hasKey: boolean;
+  model: string;
+}
+
+export const ASSISTANT_MODELS: { id: string; label: string; note: string }[] = [
+  { id: "claude-opus-4-8", label: "Claude Opus 4.8", note: "most capable, slower" },
+  { id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6", note: "balanced" },
+  { id: "claude-haiku-4-5", label: "Claude Haiku 4.5", note: "fastest" },
+];

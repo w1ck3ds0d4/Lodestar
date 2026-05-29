@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { Bell, ClipboardList, Eye, EyeOff, GraduationCap, Radar, RefreshCw, Search, Settings } from "lucide-react";
+import { Bell, Bot, ClipboardList, Eye, EyeOff, GraduationCap, Radar, RefreshCw, Search, Settings } from "lucide-react";
 import * as api from "./api";
 import { KIND_LABELS, LEVELS, WORKPLACES, type Alert, type Job, type Source, type Stats } from "./types";
 import { JobCard } from "./components/JobCard";
@@ -8,8 +8,9 @@ import { SourcesPanel } from "./components/SourcesPanel";
 import { AlertsPanel } from "./components/AlertsPanel";
 import { TrackerView } from "./components/TrackerView";
 import { StudyView } from "./components/StudyView";
+import { AssistantView } from "./components/AssistantView";
 
-type View = "search" | "tracker" | "study";
+type View = "search" | "tracker" | "study" | "assistant";
 
 export default function App() {
   const [view, setView] = useState<View>("search");
@@ -114,6 +115,12 @@ export default function App() {
           </button>
           <button className={"nav-btn" + (view === "study" ? " active" : "")} onClick={() => setView("study")}>
             <GraduationCap size={15} /> Study
+          </button>
+          <button
+            className={"nav-btn" + (view === "assistant" ? " active" : "")}
+            onClick={() => setView("assistant")}
+          >
+            <Bot size={15} /> Assistant
           </button>
         </nav>
         <div className="spacer" />
@@ -227,7 +234,15 @@ export default function App() {
           </main>
         </>
       ) : (
-        <main className="results">{view === "tracker" ? <TrackerView onOpen={onOpen} /> : <StudyView />}</main>
+        <main className="results">
+          {view === "tracker" ? (
+            <TrackerView onOpen={onOpen} />
+          ) : view === "study" ? (
+            <StudyView />
+          ) : (
+            <AssistantView />
+          )}
+        </main>
       )}
 
       {panel === "sources" && (
