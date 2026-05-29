@@ -42,6 +42,90 @@ export interface Stats {
   companies: number;
 }
 
+export interface Milestone {
+  id: number;
+  trackedId: number;
+  label: string;
+  done: boolean;
+  position: number;
+}
+
+export interface Tracked {
+  id: number;
+  kind: string; // "application" | "program"
+  title: string;
+  org: string;
+  url: string;
+  status: string;
+  notes: string;
+  appliedAt: string | null;
+  deadline: string | null;
+  progress: number;
+  sourceJobId: number | null;
+  createdAt: number;
+  updatedAt: number;
+  milestones: Milestone[];
+}
+
+export interface Skill {
+  id: number;
+  name: string;
+  goal: string;
+  level: number;
+  hours: number;
+  notes: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export const APP_STATUSES = ["saved", "applied", "screen", "interview", "offer", "accepted", "rejected"] as const;
+export const APP_STATUS_LABELS: Record<string, string> = {
+  saved: "Saved",
+  applied: "Applied",
+  screen: "Phone screen",
+  interview: "Interview",
+  offer: "Offer",
+  accepted: "Accepted",
+  rejected: "Rejected",
+};
+
+export const PROGRAM_STATUSES = ["interested", "enrolled", "in_progress", "completed", "dropped"] as const;
+export const PROGRAM_STATUS_LABELS: Record<string, string> = {
+  interested: "Interested",
+  enrolled: "Enrolled",
+  in_progress: "In progress",
+  completed: "Completed",
+  dropped: "Dropped",
+};
+
+export interface CatalogProgram {
+  name: string;
+  org: string;
+  url: string;
+  tag: string;
+}
+
+// Pre-seeded programs/platforms the user can add to their tracker with one click.
+export const PROGRAM_CATALOG: CatalogProgram[] = [
+  { name: "Crossover", org: "Crossover", url: "https://www.crossover.com/", tag: "Remote marketplace" },
+  { name: "Turing", org: "Turing", url: "https://www.turing.com/", tag: "Remote marketplace" },
+  { name: "Andela", org: "Andela", url: "https://www.andela.com/", tag: "Remote marketplace" },
+  { name: "Toptal", org: "Toptal", url: "https://www.toptal.com/", tag: "Remote marketplace" },
+  { name: "Arc.dev", org: "Arc", url: "https://arc.dev/", tag: "Remote marketplace" },
+  { name: "LinkedIn REACH", org: "LinkedIn", url: "https://careers.linkedin.com/reach", tag: "Paid apprenticeship" },
+  {
+    name: "Amazon Technical Academy",
+    org: "Amazon",
+    url: "https://www.amazon.jobs/content/en/teams/amazon-web-services/technical-apprenticeships",
+    tag: "Paid apprenticeship",
+  },
+  { name: "Microsoft LEAP", org: "Microsoft", url: "https://leap.microsoft.com/", tag: "Paid apprenticeship" },
+  { name: "Multiverse", org: "Multiverse", url: "https://www.multiverse.io/", tag: "Apprenticeships" },
+  { name: "Year Up", org: "Year Up United", url: "https://www.yearup.org/", tag: "Free + stipend" },
+  { name: "Per Scholas", org: "Per Scholas", url: "https://perscholas.org/", tag: "Free + stipend" },
+  { name: "apprenticeship.gov", org: "US DOL", url: "https://www.apprenticeship.gov/", tag: "Registered apprenticeships" },
+];
+
 export const SOURCE_KINDS = [
   "greenhouse",
   "lever",
