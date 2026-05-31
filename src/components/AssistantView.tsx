@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { Bot, Ear, KeyRound, Send, Square } from "lucide-react";
+import { Bot, Ear, KeyRound, Monitor, ScanSearch, Send, Square } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import "katex/dist/katex.min.css";
 import * as api from "../api";
-import { ASSISTANT_MODELS, type AudioDevices } from "../types";
+import { ASSISTANT_MODELS, type AudioDevices, type MonitorInfo } from "../types";
 
 interface QA {
   id: number;
@@ -67,6 +67,12 @@ export function AssistantView() {
   const [listenError, setListenError] = useState("");
   const [autoAnswer, setAutoAnswer] = useState(true);
 
+  const [monitors, setMonitors] = useState<MonitorInfo[]>([]);
+  const [screenMonitor, setScreenMonitor] = useState(0);
+  const [watchingScreen, setWatchingScreen] = useState(false);
+  const [screenError, setScreenError] = useState("");
+  const screenBusy = useRef(false);
+
   const [question, setQuestion] = useState("");
   const [context, setContext] = useState("");
   const [qa, setQa] = useState<QA[]>([]);
@@ -94,7 +100,39 @@ export function AssistantView() {
   useEffect(() => {
     void loadSettings();
     void api.listAudioDevices().then(setDevices).catch(() => {});
+    void api.listMonitors().then(setMonitors).catch(() => {});
   }, [loadSettings]);
+
+  // Capture the chosen screen and append any answer to the Q&A feed. `force`
+  // answers even an unchanged screen (manual button); auto-watch passes false so
+  // a static screen costs nothing. A busy guard prevents overlapping calls.
+  const runScreen = useCallback(
+    async (force: boolean) => {
+      if (screenBusy.current) return;
+      screenBusy.current = true;
+      try {
+        const res = await api.answerScreen(screenMonitor, force);
+        const a = res.answer.trim();
+        if (res.changed && a && a.toUpperCase() !== "NONE") {
+          setQa((prev) => [{ id: ++idRef.current, q: "From your screen", a, pending: false }, ...prev]);
+        }
+        setScreenError("");
+      } catch (e) {
+        setScreenError(String(e));
+      } finally {
+        screenBusy.current = false;
+      }
+    },
+    [screenMonitor],
+  );
+
+  // Auto-watch: poll the chosen screen while the toggle is on.
+  useEffect(() => {
+    if (!watchingScreen) return;
+    void runScreen(false);
+    const t = setInterval(() => void runScreen(false), 6000);
+    return () => clearInterval(t);
+  }, [watchingScreen, runScreen]);
 
   // Ask the assistant; result is appended to the Q&A feed (newest first).
   const ask = useCallback(async (q: string, ctx: string | null) => {
@@ -380,6 +418,39 @@ export function AssistantView() {
           )}
 
           {listenError && <div className="assistant-error">{listenError}</div>}
+
+          <div className="listen-bar screen-bar">
+            <span className="muted sm">
+              <Monitor size={14} /> Screen:
+            </span>
+            <select
+              value={screenMonitor}
+              onChange={(e) => setScreenMonitor(Number(e.target.value))}
+              disabled={watchingScreen}
+              title="Which monitor to read questions from"
+            >
+              {monitors.length === 0 ? (
+                <option value={0}>Primary display</option>
+              ) : (
+                monitors.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name}
+                  </option>
+                ))
+              )}
+            </select>
+            <button
+              className={"btn-listen" + (watchingScreen ? " on" : "")}
+              onClick={() => setWatchingScreen((v) => !v)}
+            >
+              {watchingScreen ? <Square size={15} /> : <ScanSearch size={15} />}
+              {watchingScreen ? "Stop watching" : "Watch screen"}
+            </button>
+            <button className="btn-ghost" onClick={() => void runScreen(true)} disabled={watchingScreen}>
+              Answer screen now
+            </button>
+          </div>
+          {screenError && <div className="assistant-error">{screenError}</div>}
 
           {(listening || transcript) && (
             <div className="transcript">
