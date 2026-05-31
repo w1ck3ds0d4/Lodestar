@@ -104,6 +104,9 @@ export const setAnswerEngine = (engine: string) => invoke<void>("set_answer_engi
 export const setOllamaModel = (model: string) => invoke<void>("set_ollama_model", { model });
 export const setOllamaUrl = (url: string) => invoke<void>("set_ollama_url", { url });
 export const listOllamaModels = () => invoke<string[]>("list_ollama_models");
+// Interview/study context (role, resume, notes) used to tailor answers.
+export const setInterviewContext = (role: string, resume: string, notes: string) =>
+  invoke<void>("set_interview_context", { role, resume, notes });
 // Streamed answer chunks from `ask_assistant` (over a Tauri channel).
 export type AnswerChunk =
   | { kind: "delta"; text: string }

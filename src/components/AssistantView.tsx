@@ -106,6 +106,11 @@ export function AssistantView() {
   const [opacity, setOpacity] = useState(1);
   const [onTop, setOnTop] = useState(false);
 
+  const [contextRole, setContextRole] = useState("");
+  const [contextResume, setContextResume] = useState("");
+  const [contextNotes, setContextNotes] = useState("");
+  const [contextSaved, setContextSaved] = useState(false);
+
   const [question, setQuestion] = useState("");
   const [context, setContext] = useState("");
   const [qa, setQa] = useState<QA[]>([]);
@@ -142,10 +147,19 @@ export function AssistantView() {
       setModel(s.model);
       setAnswerEngine(s.answerEngine);
       setOllamaModel(s.ollamaModel);
+      setContextRole(s.contextRole);
+      setContextResume(s.contextResume);
+      setContextNotes(s.contextNotes);
     } finally {
       setLoaded(true);
     }
   }, []);
+
+  const saveContext = async () => {
+    await api.setInterviewContext(contextRole, contextResume, contextNotes);
+    setContextSaved(true);
+    setTimeout(() => setContextSaved(false), 1500);
+  };
   const refreshOllamaModels = useCallback(() => {
     void api
       .listOllamaModels()
@@ -695,6 +709,40 @@ export function AssistantView() {
             </label>
             <div className="muted sm">Dims the whole window (this UI too); min 30%.</div>
           </div>
+
+          <details className="context-card">
+            <summary className="setup-title">Interview context</summary>
+            <p className="muted sm">Fed to the assistant so answers fit you and the role.</p>
+            <div className="setup-field">
+              <span className="setup-label">Target role / focus</span>
+              <input
+                value={contextRole}
+                onChange={(e) => setContextRole(e.target.value)}
+                placeholder="e.g. Senior Backend Engineer"
+              />
+            </div>
+            <div className="setup-field">
+              <span className="setup-label">Resume / background</span>
+              <textarea
+                rows={4}
+                value={contextResume}
+                onChange={(e) => setContextResume(e.target.value)}
+                placeholder="Paste your resume or a short summary…"
+              />
+            </div>
+            <div className="setup-field">
+              <span className="setup-label">Notes / materials</span>
+              <textarea
+                rows={3}
+                value={contextNotes}
+                onChange={(e) => setContextNotes(e.target.value)}
+                placeholder="Job description, talking points, anything to tailor answers…"
+              />
+            </div>
+            <button className="btn-open" onClick={() => void saveContext()}>
+              {contextSaved ? "Saved ✓" : "Save context"}
+            </button>
+          </details>
           </section>
 
           <section className="assistant-col col-dialog">

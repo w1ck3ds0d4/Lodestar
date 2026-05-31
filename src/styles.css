@@ -402,6 +402,43 @@ select:focus {
   border: 2px solid var(--bg);
 }
 
+/* Interview context card (collapsible). */
+.context-card {
+  display: block;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+.context-card > summary {
+  cursor: pointer;
+  list-style: revert;
+}
+.context-card > *:not(summary) {
+  margin-top: 10px;
+}
+.setup-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.context-card textarea {
+  width: 100%;
+  background: var(--bg-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font: inherit;
+  resize: vertical;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+.context-card textarea:focus {
+  border-color: var(--accent);
+  box-shadow: var(--ring);
+  outline: none;
+}
+
 @media (max-width: 1399px) {
   .assistant-body {
     grid-template-columns: 320px minmax(0, 1fr);

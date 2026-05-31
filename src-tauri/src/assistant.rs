@@ -44,6 +44,18 @@ fn supports_adaptive_thinking(model: &str) -> bool {
     model.starts_with("claude-opus-4") || model == "claude-sonnet-4-6"
 }
 
+/// Append the user's interview/study profile (role, resume, notes) to a base system
+/// prompt so answers are tailored to them and the role. No-op when empty.
+fn with_profile(base: &str, profile: Option<&str>) -> String {
+    match profile.map(str::trim).filter(|p| !p.is_empty()) {
+        Some(p) => format!(
+            "{base}\n\nUSER PROFILE & CONTEXT (use this to tailor answers to this person and the \
+             role they are targeting; never read it aloud or repeat it verbatim):\n{p}"
+        ),
+        None => base.to_string(),
+    }
+}
+
 /// Shared Messages API call: send a system prompt + user message, return the text.
 /// When `on_token` is `Some`, the response is streamed and each text delta is passed
 /// to the callback as it arrives (the full text is still returned at the end).
@@ -183,6 +195,7 @@ pub async fn ask(
     engine: &Engine,
     question: &str,
     context: Option<&str>,
+    profile: Option<&str>,
     on_token: Option<&(dyn Fn(&str) + Send + Sync)>,
 ) -> Result<String> {
     let user_text = match context {
@@ -191,12 +204,13 @@ pub async fn ask(
         ),
         _ => question.to_string(),
     };
+    let system = with_profile(SYSTEM_PROMPT, profile);
     match engine {
         Engine::Claude { api_key, model } => {
-            complete(http, api_key, model, SYSTEM_PROMPT, user_text, on_token).await
+            complete(http, api_key, model, &system, user_text, on_token).await
         }
         Engine::Ollama { url, model } => {
-            ollama_chat(http, url, model, SYSTEM_PROMPT, user_text, None, on_token).await
+            ollama_chat(http, url, model, &system, user_text, None, on_token).await
         }
     }
 }
@@ -208,15 +222,17 @@ pub async fn auto_answer(
     engine: &Engine,
     transcript: &str,
     latest: &str,
+    profile: Option<&str>,
 ) -> Result<String> {
     let user_text =
         format!("Earlier transcript (context):\n{transcript}\n\nNew text to consider:\n{latest}");
+    let system = with_profile(AUTO_PROMPT, profile);
     match engine {
         Engine::Claude { api_key, model } => {
-            complete(http, api_key, model, AUTO_PROMPT, user_text, None).await
+            complete(http, api_key, model, &system, user_text, None).await
         }
         Engine::Ollama { url, model } => {
-            ollama_chat(http, url, model, AUTO_PROMPT, user_text, None, None).await
+            ollama_chat(http, url, model, &system, user_text, None, None).await
         }
     }
 }
@@ -236,8 +252,10 @@ pub async fn answer_screen(
     http: &reqwest::Client,
     engine: &Engine,
     png_base64: &str,
+    profile: Option<&str>,
 ) -> Result<String> {
     let prompt = "Find and answer any question or problem visible on this screen.";
+    let system = with_profile(SCREEN_PROMPT, profile);
     match engine {
         Engine::Claude { api_key, model } => {
             let content = json!([
@@ -247,14 +265,14 @@ pub async fn answer_screen(
                 },
                 { "type": "text", "text": prompt }
             ]);
-            complete_content(http, api_key, model, SCREEN_PROMPT, content, None).await
+            complete_content(http, api_key, model, &system, content, None).await
         }
         Engine::Ollama { url, model } => {
             ollama_chat(
                 http,
                 url,
                 model,
-                SCREEN_PROMPT,
+                &system,
                 prompt.to_string(),
                 Some(png_base64),
                 None,
