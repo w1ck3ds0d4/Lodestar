@@ -264,6 +264,7 @@ pub struct AssistantSettings {
     pub has_key: bool,
     pub has_stt_key: bool,
     pub stt_engine: String,
+    pub capture_source: String,
     pub model: String,
 }
 
@@ -281,6 +282,9 @@ pub fn get_assistant_settings(state: State<'_, AppState>) -> Result<AssistantSet
     let stt_engine = db::get_setting(&conn, "stt_engine")
         .map_err(|e| e.to_string())?
         .unwrap_or_else(|| "deepgram".to_string());
+    let capture_source = db::get_setting(&conn, "capture_source")
+        .map_err(|e| e.to_string())?
+        .unwrap_or_else(|| "system".to_string());
     let model = db::get_setting(&conn, "assistant_model")
         .map_err(|e| e.to_string())?
         .unwrap_or_else(|| DEFAULT_MODEL.to_string());
@@ -288,6 +292,7 @@ pub fn get_assistant_settings(state: State<'_, AppState>) -> Result<AssistantSet
         has_key,
         has_stt_key,
         stt_engine,
+        capture_source,
         model,
     })
 }
@@ -359,6 +364,13 @@ pub fn set_stt_engine(state: State<'_, AppState>, engine: String) -> Result<(), 
     db::set_setting(&conn, "stt_engine", &engine).map_err(|e| e.to_string())
 }
 
+/// Which audio to capture: "system" (loopback), "mic", or "both".
+#[tauri::command]
+pub fn set_capture_source(state: State<'_, AppState>, source: String) -> Result<(), String> {
+    let conn = state.db.lock().map_err(|_| "db poisoned")?;
+    db::set_setting(&conn, "capture_source", &source).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub fn start_listening(state: State<'_, AppState>, app: AppHandle) -> Result<(), String> {
     use std::sync::atomic::Ordering;
@@ -390,6 +402,15 @@ pub fn start_listening(state: State<'_, AppState>, app: AppHandle) -> Result<(),
         crate::listen::EngineConfig::Deepgram { key }
     };
 
+    let capture = {
+        let conn = state.db.lock().map_err(|_| "db poisoned")?;
+        crate::listen::CaptureSource::parse(
+            &db::get_setting(&conn, "capture_source")
+                .map_err(|e| e.to_string())?
+                .unwrap_or_else(|| "system".to_string()),
+        )
+    };
+
     if state.listening.swap(true, Ordering::SeqCst) {
         return Ok(()); // already running
     }
@@ -397,7 +418,7 @@ pub fn start_listening(state: State<'_, AppState>, app: AppHandle) -> Result<(),
     let flag = state.listening.clone();
     std::thread::spawn(move || {
         use tauri::Emitter;
-        if let Err(e) = crate::listen::run(&app, http, engine, flag.clone()) {
+        if let Err(e) = crate::listen::run(&app, http, engine, capture, flag.clone()) {
             let _ = app.emit("listen-error", e.to_string());
         }
         flag.store(false, Ordering::SeqCst);
