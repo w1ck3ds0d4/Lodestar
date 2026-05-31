@@ -604,6 +604,36 @@ select:focus {
 .acc-body.is-listening select {
   pointer-events: none;
 }
+
+/* Usage & cost rows */
+.usage-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.usage-name {
+  color: var(--text);
+  font-weight: 600;
+}
+.usage-val {
+  color: var(--accent-2);
+  font-variant-numeric: tabular-nums;
+  font-size: 15px;
+  font-weight: 700;
+}
+.usage-line {
+  margin-top: -6px;
+}
+.usage-actions {
+  display: flex;
+  gap: 14px;
+}
+.usage-sep {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 2px 0;
+}
 .setup-field {
   display: flex;
   flex-direction: column;

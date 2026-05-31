@@ -265,8 +265,35 @@ export const STT_LANGUAGES: { code: string; label: string }[] = [
   { code: "zh", label: "Chinese" },
 ];
 
-export const ASSISTANT_MODELS: { id: string; label: string; note: string }[] = [
-  { id: "claude-opus-4-8", label: "Claude Opus 4.8", note: "most capable, slower" },
-  { id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6", note: "balanced" },
-  { id: "claude-haiku-4-5", label: "Claude Haiku 4.5", note: "fastest" },
+// `inPrice`/`outPrice` are USD per million tokens, for the in-app cost estimate.
+// Approximate published Claude pricing; the real bill lives in the Anthropic console.
+export const ASSISTANT_MODELS: { id: string; label: string; note: string; inPrice: number; outPrice: number }[] = [
+  { id: "claude-opus-4-8", label: "Claude Opus 4.8", note: "most capable, slower", inPrice: 15, outPrice: 75 },
+  { id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6", note: "balanced", inPrice: 3, outPrice: 15 },
+  { id: "claude-haiku-4-5", label: "Claude Haiku 4.5", note: "fastest", inPrice: 1, outPrice: 5 },
 ];
+
+export interface ClaudeUsageItem {
+  model: string;
+  input: number;
+  output: number;
+}
+
+export interface ClaudeUsage {
+  since: number | null; // unix seconds the tally started
+  items: ClaudeUsageItem[];
+}
+
+export interface DeepgramBalance {
+  amount: number;
+  units: string;
+  project: string;
+}
+
+// Estimated USD cost of one usage row. Unknown models fall back to Sonnet pricing.
+export function estimateCost(item: ClaudeUsageItem): number {
+  const m = ASSISTANT_MODELS.find((x) => x.id === item.model);
+  const inPrice = m?.inPrice ?? 3;
+  const outPrice = m?.outPrice ?? 15;
+  return (item.input / 1_000_000) * inPrice + (item.output / 1_000_000) * outPrice;
+}

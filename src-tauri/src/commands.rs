@@ -827,6 +827,137 @@ pub fn set_deepgram_key(state: State<'_, AppState>, key: String) -> Result<(), S
     }
 }
 
+// --- Usage / cost ---
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClaudeUsageItem {
+    pub model: String,
+    pub input: u64,
+    pub output: u64,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClaudeUsage {
+    /// Unix seconds when the tally started, or null if nothing recorded yet.
+    pub since: Option<i64>,
+    pub items: Vec<ClaudeUsageItem>,
+}
+
+/// Locally-tracked Claude token usage per model (Anthropic has no balance endpoint for
+/// a normal key, so the frontend turns these into an approximate cost).
+#[tauri::command]
+pub fn get_claude_usage(state: State<'_, AppState>) -> Result<ClaudeUsage, String> {
+    let conn = state.db.lock().map_err(|_| "db poisoned")?;
+    let since = db::get_setting(&conn, "claude_usage_since")
+        .map_err(|e| e.to_string())?
+        .and_then(|s| s.parse::<i64>().ok());
+    let items = db::get_setting(&conn, "claude_usage")
+        .map_err(|e| e.to_string())?
+        .and_then(|s| serde_json::from_str::<Value>(&s).ok())
+        .and_then(|v| v.as_object().cloned())
+        .map(|map| {
+            map.into_iter()
+                .map(|(model, v)| ClaudeUsageItem {
+                    model,
+                    input: v["input"].as_u64().unwrap_or(0),
+                    output: v["output"].as_u64().unwrap_or(0),
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    Ok(ClaudeUsage { since, items })
+}
+
+/// Reset the Claude usage tally (clears the per-model counts and the start time).
+#[tauri::command]
+pub fn reset_claude_usage(state: State<'_, AppState>) -> Result<(), String> {
+    let conn = state.db.lock().map_err(|_| "db poisoned")?;
+    db::delete_setting(&conn, "claude_usage").map_err(|e| e.to_string())?;
+    db::delete_setting(&conn, "claude_usage_since").map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeepgramBalance {
+    pub amount: f64,
+    pub units: String,
+    pub project: String,
+}
+
+/// Query Deepgram for the remaining credit on the project tied to the stored key.
+/// Uses Deepgram's Management API (`/v1/projects` then `/v1/projects/{id}/balances`).
+#[tauri::command]
+pub async fn deepgram_balance(state: State<'_, AppState>) -> Result<DeepgramBalance, String> {
+    // Read the key under the lock, then drop it before any await.
+    let key = {
+        let conn = state.db.lock().map_err(|_| "db poisoned")?;
+        db::get_setting(&conn, "deepgram_api_key")
+            .map_err(|e| e.to_string())?
+            .filter(|k| !k.trim().is_empty())
+            .ok_or("No Deepgram API key set.")?
+    };
+    let http = state.http.clone();
+    let auth = format!("Token {}", key.trim());
+
+    let projects = http
+        .get("https://api.deepgram.com/v1/projects")
+        .header("Authorization", &auth)
+        .send()
+        .await
+        .map_err(|e| format!("Could not reach Deepgram: {e}"))?;
+    if !projects.status().is_success() {
+        return Err(match projects.status().as_u16() {
+            401 | 403 => "This Deepgram key can't read usage (needs a member/owner key).".into(),
+            c => format!("Deepgram returned {c} listing projects."),
+        });
+    }
+    let projects: Value = projects
+        .json()
+        .await
+        .map_err(|e| format!("Unexpected Deepgram response: {e}"))?;
+    let project = &projects["projects"][0];
+    let pid = project["project_id"]
+        .as_str()
+        .ok_or("No Deepgram project found for this key.")?;
+    let pname = project["name"].as_str().unwrap_or("").to_string();
+
+    let balances = http
+        .get(format!(
+            "https://api.deepgram.com/v1/projects/{pid}/balances"
+        ))
+        .header("Authorization", &auth)
+        .send()
+        .await
+        .map_err(|e| format!("Could not reach Deepgram: {e}"))?;
+    if !balances.status().is_success() {
+        return Err(format!(
+            "Deepgram returned {} reading the balance.",
+            balances.status().as_u16()
+        ));
+    }
+    let balances: Value = balances
+        .json()
+        .await
+        .map_err(|e| format!("Unexpected Deepgram response: {e}"))?;
+    let arr = balances["balances"].as_array();
+    let amount = arr
+        .map(|b| b.iter().filter_map(|x| x["amount"].as_f64()).sum())
+        .unwrap_or(0.0);
+    let units = arr
+        .and_then(|b| b.first())
+        .and_then(|b| b["units"].as_str())
+        .unwrap_or("usd")
+        .to_string();
+    Ok(DeepgramBalance {
+        amount,
+        units,
+        project: pname,
+    })
+}
+
 /// Start capturing computer audio on a background thread. Transcripts arrive on
 /// the frontend as `transcript` events; failures as `listen-error`.
 #[tauri::command]

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Channel } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { Bot, Crop, Ear, KeyRound, Monitor, ScanSearch, Send, Square } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -8,7 +9,15 @@ import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import "katex/dist/katex.min.css";
 import * as api from "../api";
-import { ASSISTANT_MODELS, STT_LANGUAGES, type AudioDevices, type MonitorInfo } from "../types";
+import {
+  ASSISTANT_MODELS,
+  STT_LANGUAGES,
+  estimateCost,
+  type AudioDevices,
+  type ClaudeUsage,
+  type DeepgramBalance,
+  type MonitorInfo,
+} from "../types";
 
 interface QA {
   id: number;
@@ -234,6 +243,11 @@ export function AssistantView() {
   const [contextResume, setContextResume] = useState("");
   const [contextNotes, setContextNotes] = useState("");
   const [contextSaved, setContextSaved] = useState(false);
+
+  const [claudeUsage, setClaudeUsage] = useState<ClaudeUsage | null>(null);
+  const [dgBalance, setDgBalance] = useState<DeepgramBalance | null>(null);
+  const [dgError, setDgError] = useState("");
+  const [dgLoading, setDgLoading] = useState(false);
 
   const [question, setQuestion] = useState("");
   const [context, setContext] = useState("");
@@ -544,6 +558,35 @@ export function AssistantView() {
     setSttDiarize(on);
     await api.setSttDiarize(on);
   };
+
+  // Lazily loaded when the Usage accordion is opened (and on Refresh).
+  const refreshUsage = useCallback(async () => {
+    void api.getClaudeUsage().then(setClaudeUsage).catch(() => {});
+    if (!hasSttKey) {
+      setDgBalance(null);
+      setDgError("Add a Deepgram key to see your balance.");
+      return;
+    }
+    setDgLoading(true);
+    setDgError("");
+    try {
+      setDgBalance(await api.deepgramBalance());
+    } catch (e) {
+      setDgBalance(null);
+      setDgError(String(e));
+    } finally {
+      setDgLoading(false);
+    }
+  }, [hasSttKey]);
+
+  const resetUsage = async () => {
+    await api.resetClaudeUsage();
+    setClaudeUsage(await api.getClaudeUsage());
+  };
+
+  const claudeCost = (claudeUsage?.items ?? []).reduce((s, it) => s + estimateCost(it), 0);
+  const claudeTokens = (claudeUsage?.items ?? []).reduce((s, it) => s + it.input + it.output, 0);
+  const modelLabel = (id: string) => ASSISTANT_MODELS.find((m) => m.id === id)?.label ?? id;
 
   const changeOutputDevice = async (name: string) => {
     setOutputDevice(name);
@@ -1029,6 +1072,72 @@ export function AssistantView() {
             <div className="muted sm">
               Uses the model's own knowledge + what you enter (no live web lookup), so verify specifics.
             </div>
+            </div>
+          </details>
+
+          <details
+            className="acc"
+            onToggle={(e) => {
+              if ((e.target as HTMLDetailsElement).open) void refreshUsage();
+            }}
+          >
+            <summary>Usage &amp; cost</summary>
+            <div className="acc-body">
+              <div className="usage-row">
+                <span className="usage-name">Claude (estimate)</span>
+                <span className="usage-val">${claudeCost.toFixed(2)}</span>
+              </div>
+              <div className="muted sm">
+                {claudeUsage?.since
+                  ? `~${(claudeTokens / 1000).toFixed(0)}k tokens since ${new Date(
+                      claudeUsage.since * 1000,
+                    ).toLocaleDateString()}`
+                  : "No Claude usage tracked yet."}
+              </div>
+              {(claudeUsage?.items ?? []).map((it) => (
+                <div key={it.model} className="muted sm usage-line">
+                  {modelLabel(it.model)}: {(it.input / 1000).toFixed(0)}k in / {(it.output / 1000).toFixed(0)}k out
+                </div>
+              ))}
+              <div className="usage-actions">
+                <button className="link-btn" onClick={() => void resetUsage()}>
+                  Reset
+                </button>
+                <button
+                  className="link-btn"
+                  onClick={() => void openUrl("https://console.anthropic.com/settings/usage")}
+                >
+                  Open Anthropic console
+                </button>
+              </div>
+              <div className="muted sm">
+                Estimated from token counts and list prices - the exact bill lives in the Anthropic console.
+              </div>
+
+              <hr className="usage-sep" />
+
+              <div className="usage-row">
+                <span className="usage-name">Deepgram credit</span>
+                <span className="usage-val">
+                  {dgLoading ? "…" : dgBalance ? `$${dgBalance.amount.toFixed(2)}` : "—"}
+                </span>
+              </div>
+              {dgError ? (
+                <div className="muted sm">{dgError}</div>
+              ) : dgBalance?.project ? (
+                <div className="muted sm">Project: {dgBalance.project}</div>
+              ) : null}
+              <div className="usage-actions">
+                <button className="link-btn" onClick={() => void refreshUsage()} disabled={dgLoading}>
+                  Refresh
+                </button>
+                <button className="link-btn" onClick={() => void openUrl("https://console.deepgram.com/")}>
+                  Open Deepgram console
+                </button>
+              </div>
+
+              <hr className="usage-sep" />
+              <div className="muted sm">Local (Ollama / Whisper): free - runs on your machine.</div>
             </div>
           </details>
           </section>

@@ -8,6 +8,7 @@ mod local_stt;
 mod model;
 mod screen;
 mod sources;
+mod usage;
 mod util;
 mod window_fx;
 
@@ -46,6 +47,8 @@ pub fn run() {
             let db_path = dir.join("jobradar.db");
             let conn = db::init(&db_path).expect("failed to initialize database");
             let db = Arc::new(Mutex::new(conn));
+            // Make the DB reachable from the deep Claude call site for token tallying.
+            usage::init(db.clone());
 
             let http = reqwest::Client::builder()
                 .user_agent("JobRadar/0.1 (+personal job search)")
@@ -111,6 +114,9 @@ pub fn run() {
             commands::ask_assistant,
             commands::auto_answer,
             commands::set_deepgram_key,
+            commands::get_claude_usage,
+            commands::reset_claude_usage,
+            commands::deepgram_balance,
             commands::set_stt_engine,
             commands::set_stt_language,
             commands::set_stt_diarize,
