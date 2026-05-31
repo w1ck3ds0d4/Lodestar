@@ -43,10 +43,13 @@ const TARGET_RATE: u32 = 16000;
 pub enum EngineConfig {
     /// `language` is a Deepgram language code (e.g. "en", "pt", "es") or "multi" for
     /// the multilingual/code-switching model. Streaming has no auto-detect, so the
-    /// language must be chosen up front (default "multi").
+    /// language must be chosen up front (default "multi"). `diarize` splits the system
+    /// side into "Speaker 1/2/..."; off by default since streaming diarization is
+    /// unstable and tends to mislabel one person as several on a 1-on-1 call.
     Deepgram {
         key: String,
         language: String,
+        diarize: bool,
     },
     Local {
         models_dir: PathBuf,
@@ -264,8 +267,12 @@ pub fn run(
     // streams stay alive (held in `streams`) on this thread; both drivers only touch
     // the shared sample buffers, which fill from the audio callbacks meanwhile.
     match engine {
-        EngineConfig::Deepgram { key, language } => {
-            run_deepgram(app, &key, &language, &sources, &flag);
+        EngineConfig::Deepgram {
+            key,
+            language,
+            diarize,
+        } => {
+            run_deepgram(app, &key, &language, diarize, &sources, &flag);
         }
         EngineConfig::Local { .. } => {
             let local = local.expect("local engine initialized above");
@@ -284,6 +291,7 @@ fn run_deepgram(
     app: &AppHandle,
     key: &str,
     language: &str,
+    diarize: bool,
     sources: &[Source],
     flag: &Arc<AtomicBool>,
 ) {
@@ -309,7 +317,7 @@ fn run_deepgram(
             let language = language.to_string();
             let flag = flag.clone();
             async move {
-                if let Err(e) = stream_source(&app, &key, &language, &meta, &flag).await {
+                if let Err(e) = stream_source(&app, &key, &language, diarize, &meta, &flag).await {
                     let _ = app.emit("listen-error", e.to_string());
                 }
             }
@@ -332,18 +340,22 @@ async fn stream_source(
     app: &AppHandle,
     key: &str,
     language: &str,
+    diarize_enabled: bool,
     meta: &SrcMeta,
     flag: &Arc<AtomicBool>,
 ) -> Result<()> {
-    let diarize = meta.kind == SrcKind::System;
+    // Only diarize the system side, and only when the user asked for it.
+    let diarize = diarize_enabled && meta.kind == SrcKind::System;
     let lang = if language.trim().is_empty() {
         "multi"
     } else {
         language.trim()
     };
+    // endpointing=500: wait ~0.5s of silence before ending an utterance, so brief
+    // mid-sentence pauses in fast speech don't split a phrase into separate bubbles.
     let mut url = format!(
         "wss://api.deepgram.com/v1/listen?model=nova-2&encoding=linear16&sample_rate={TARGET_RATE}\
-         &channels=1&punctuate=true&interim_results=true&endpointing=400&language={lang}"
+         &channels=1&punctuate=true&interim_results=true&endpointing=500&language={lang}"
     );
     if diarize {
         url.push_str("&diarize=true");
@@ -434,8 +446,12 @@ async fn stream_source(
 }
 
 /// Parse one Deepgram streaming `Results` message and emit `transcript` events.
-/// Interim results (`final: false`) update the live line; final results commit it,
-/// split by speaker when diarization is on.
+///
+/// The frontend accumulates a whole utterance into one live bubble, so the events
+/// carry two flags: `final` (this span won't change) and `speechFinal` (the speaker
+/// paused, so the bubble can be committed). Interim spans update the live tail; final
+/// spans extend it; a speech-final span closes it. This keeps fast speech in one
+/// flowing line instead of chopping a sentence into pieces at every internal finalize.
 fn emit_results(app: &AppHandle, text: &str, diarize: bool, role: &str) {
     let payload: Value = match serde_json::from_str(text) {
         Ok(v) => v,
@@ -446,16 +462,17 @@ fn emit_results(app: &AppHandle, text: &str, diarize: bool, role: &str) {
         return;
     }
     let is_final = payload["is_final"].as_bool().unwrap_or(false);
+    let speech_final = payload["speech_final"].as_bool().unwrap_or(false);
     let alt = &payload["channel"]["alternatives"][0];
     let transcript = alt["transcript"].as_str().unwrap_or("").trim().to_string();
     let role_speaker = if role == "them" { "Them" } else { "You" };
 
     if transcript.is_empty() {
-        // An endpoint with no new words: clear the live line.
-        if is_final {
+        // An endpoint with no new words: close the live line if one is open.
+        if is_final && speech_final {
             let _ = app.emit(
                 "transcript",
-                json!({ "role": role, "speaker": role_speaker, "text": "", "final": true }),
+                json!({ "role": role, "speaker": role_speaker, "text": "", "final": true, "speechFinal": true }),
             );
         }
         return;
@@ -469,8 +486,8 @@ fn emit_results(app: &AppHandle, text: &str, diarize: bool, role: &str) {
         return;
     }
 
-    // Final result. For the system side, split into per-speaker utterances when
-    // diarization gave word-level speaker indices.
+    // Final span. With diarization on, split it by speaker and commit each piece
+    // immediately (speechFinal) so distinct speakers never merge into one bubble.
     if diarize {
         if let Some(words) = alt["words"].as_array().filter(|w| !w.is_empty()) {
             let emit_seg = |spk: i64, buf: &str| {
@@ -482,6 +499,7 @@ fn emit_results(app: &AppHandle, text: &str, diarize: bool, role: &str) {
                             "speaker": format!("Speaker {}", spk + 1),
                             "text": buf.trim(),
                             "final": true,
+                            "speechFinal": true,
                         }),
                     );
                 }
@@ -511,9 +529,10 @@ fn emit_results(app: &AppHandle, text: &str, diarize: bool, role: &str) {
         }
     }
 
+    // No diarization: extend the live line, and let `speechFinal` decide when to commit.
     let _ = app.emit(
         "transcript",
-        json!({ "role": role, "speaker": role_speaker, "text": transcript, "final": true }),
+        json!({ "role": role, "speaker": role_speaker, "text": transcript, "final": true, "speechFinal": speech_final }),
     );
 }
 

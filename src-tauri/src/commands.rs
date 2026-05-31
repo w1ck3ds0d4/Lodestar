@@ -437,6 +437,7 @@ pub struct AssistantSettings {
     pub has_stt_key: bool,
     pub stt_engine: String,
     pub stt_language: String,
+    pub stt_diarize: bool,
     pub capture_source: String,
     pub model: String,
     pub input_device: String,
@@ -473,6 +474,10 @@ pub fn get_assistant_settings(state: State<'_, AppState>) -> Result<AssistantSet
         .map_err(|e| e.to_string())?
         .filter(|s| !s.trim().is_empty())
         .unwrap_or_else(|| "multi".to_string());
+    let stt_diarize = db::get_setting(&conn, "stt_diarize")
+        .map_err(|e| e.to_string())?
+        .map(|v| v == "true")
+        .unwrap_or(false);
     let capture_source = db::get_setting(&conn, "capture_source")
         .map_err(|e| e.to_string())?
         .unwrap_or_else(|| "system".to_string());
@@ -494,6 +499,7 @@ pub fn get_assistant_settings(state: State<'_, AppState>) -> Result<AssistantSet
         has_stt_key,
         stt_engine,
         stt_language,
+        stt_diarize,
         capture_source,
         model,
         input_device: get("input_device")?,
@@ -837,6 +843,16 @@ pub fn set_stt_language(state: State<'_, AppState>, language: String) -> Result<
     db::set_setting(&conn, "stt_language", &language).map_err(|e| e.to_string())
 }
 
+/// Whether to separate the system side into "Speaker 1/2/..." (Deepgram diarization).
+/// Off by default - streaming diarization is unstable and mislabels one person on a
+/// 1-on-1 call; only worth turning on for genuine multi-person audio.
+#[tauri::command]
+pub fn set_stt_diarize(state: State<'_, AppState>, diarize: bool) -> Result<(), String> {
+    let conn = state.db.lock().map_err(|_| "db poisoned")?;
+    db::set_setting(&conn, "stt_diarize", if diarize { "true" } else { "false" })
+        .map_err(|e| e.to_string())
+}
+
 /// Which audio to capture: "system" (loopback), "mic", or "both".
 #[tauri::command]
 pub fn set_capture_source(state: State<'_, AppState>, source: String) -> Result<(), String> {
@@ -872,14 +888,23 @@ pub fn start_listening(state: State<'_, AppState>, app: AppHandle) -> Result<(),
         let key = key.filter(|k| !k.trim().is_empty()).ok_or(
             "No Deepgram API key set. Add it in the Assistant tab, or switch the engine to Local.",
         )?;
-        let language = {
+        let (language, diarize) = {
             let conn = state.db.lock().map_err(|_| "db poisoned")?;
-            db::get_setting(&conn, "stt_language")
+            let language = db::get_setting(&conn, "stt_language")
                 .map_err(|e| e.to_string())?
                 .filter(|s| !s.trim().is_empty())
-                .unwrap_or_else(|| "multi".to_string())
+                .unwrap_or_else(|| "multi".to_string());
+            let diarize = db::get_setting(&conn, "stt_diarize")
+                .map_err(|e| e.to_string())?
+                .map(|v| v == "true")
+                .unwrap_or(false);
+            (language, diarize)
         };
-        crate::listen::EngineConfig::Deepgram { key, language }
+        crate::listen::EngineConfig::Deepgram {
+            key,
+            language,
+            diarize,
+        }
     };
 
     let (capture, devices) = {

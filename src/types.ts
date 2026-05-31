@@ -218,6 +218,7 @@ export interface AssistantSettings {
   hasSttKey: boolean;
   sttEngine: string;
   sttLanguage: string;
+  sttDiarize: boolean;
   captureSource: string;
   model: string;
   inputDevice: string;
