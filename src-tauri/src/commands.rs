@@ -326,6 +326,8 @@ pub struct AssistantSettings {
     pub stt_engine: String,
     pub capture_source: String,
     pub model: String,
+    pub input_device: String,
+    pub output_device: String,
 }
 
 #[tauri::command]
@@ -336,6 +338,11 @@ pub fn get_assistant_settings(state: State<'_, AppState>) -> Result<AssistantSet
             .map_err(|e| e.to_string())?
             .map(|v| !v.trim().is_empty())
             .unwrap_or(false))
+    };
+    let get = |k: &str| -> Result<String, String> {
+        Ok(db::get_setting(&conn, k)
+            .map_err(|e| e.to_string())?
+            .unwrap_or_default())
     };
     let has_key = present("anthropic_api_key")?;
     let has_stt_key = present("deepgram_api_key")?;
@@ -354,7 +361,45 @@ pub fn get_assistant_settings(state: State<'_, AppState>) -> Result<AssistantSet
         stt_engine,
         capture_source,
         model,
+        input_device: get("input_device")?,
+        output_device: get("output_device")?,
     })
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AudioDevices {
+    pub inputs: Vec<String>,
+    pub outputs: Vec<String>,
+}
+
+/// List the available microphone (input) and speaker (output) device names.
+#[tauri::command]
+pub fn list_audio_devices() -> Result<AudioDevices, String> {
+    let (inputs, outputs) = crate::listen::list_devices();
+    Ok(AudioDevices { inputs, outputs })
+}
+
+/// Select the microphone to capture (blank = system default).
+#[tauri::command]
+pub fn set_input_device(state: State<'_, AppState>, name: String) -> Result<(), String> {
+    let conn = state.db.lock().map_err(|_| "db poisoned")?;
+    if name.trim().is_empty() {
+        db::delete_setting(&conn, "input_device").map_err(|e| e.to_string())
+    } else {
+        db::set_setting(&conn, "input_device", name.trim()).map_err(|e| e.to_string())
+    }
+}
+
+/// Select the output device to capture via loopback (blank = system default).
+#[tauri::command]
+pub fn set_output_device(state: State<'_, AppState>, name: String) -> Result<(), String> {
+    let conn = state.db.lock().map_err(|_| "db poisoned")?;
+    if name.trim().is_empty() {
+        db::delete_setting(&conn, "output_device").map_err(|e| e.to_string())
+    } else {
+        db::set_setting(&conn, "output_device", name.trim()).map_err(|e| e.to_string())
+    }
 }
 
 /// Store (or, when blank, clear) the Anthropic API key in local SQLite.
@@ -490,13 +535,18 @@ pub fn start_listening(state: State<'_, AppState>, app: AppHandle) -> Result<(),
         crate::listen::EngineConfig::Deepgram { key }
     };
 
-    let capture = {
+    let (capture, devices) = {
         let conn = state.db.lock().map_err(|_| "db poisoned")?;
-        crate::listen::CaptureSource::parse(
+        let capture = crate::listen::CaptureSource::parse(
             &db::get_setting(&conn, "capture_source")
                 .map_err(|e| e.to_string())?
                 .unwrap_or_else(|| "system".to_string()),
-        )
+        );
+        let devices = crate::listen::DeviceChoice {
+            input: db::get_setting(&conn, "input_device").map_err(|e| e.to_string())?,
+            output: db::get_setting(&conn, "output_device").map_err(|e| e.to_string())?,
+        };
+        (capture, devices)
     };
 
     if state.listening.swap(true, Ordering::SeqCst) {
@@ -506,7 +556,7 @@ pub fn start_listening(state: State<'_, AppState>, app: AppHandle) -> Result<(),
     let flag = state.listening.clone();
     std::thread::spawn(move || {
         use tauri::Emitter;
-        if let Err(e) = crate::listen::run(&app, http, engine, capture, flag.clone()) {
+        if let Err(e) = crate::listen::run(&app, http, engine, capture, devices, flag.clone()) {
             let _ = app.emit("listen-error", e.to_string());
         }
         flag.store(false, Ordering::SeqCst);

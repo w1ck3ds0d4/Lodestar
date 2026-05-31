@@ -100,6 +100,9 @@ pub fn run() {
             commands::set_deepgram_key,
             commands::set_stt_engine,
             commands::set_capture_source,
+            commands::list_audio_devices,
+            commands::set_input_device,
+            commands::set_output_device,
             commands::start_listening,
             commands::stop_listening,
         ])

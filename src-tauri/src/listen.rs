@@ -56,6 +56,49 @@ impl CaptureSource {
     }
 }
 
+/// Chosen capture devices by name; `None` means use the system default.
+#[derive(Clone, Default)]
+pub struct DeviceChoice {
+    pub input: Option<String>,
+    pub output: Option<String>,
+}
+
+/// Enumerate available input and output device names for the device pickers.
+pub fn list_devices() -> (Vec<String>, Vec<String>) {
+    let host = cpal::default_host();
+    let inputs = host
+        .input_devices()
+        .map(|ds| ds.filter_map(|d| d.name().ok()).collect())
+        .unwrap_or_default();
+    let outputs = host
+        .output_devices()
+        .map(|ds| ds.filter_map(|d| d.name().ok()).collect())
+        .unwrap_or_default();
+    (inputs, outputs)
+}
+
+/// Find a device by name among the host's input or output devices; fall back to
+/// the corresponding default when no name is given or no match is found.
+fn pick_device(host: &cpal::Host, name: Option<&str>, input: bool) -> Option<Device> {
+    if let Some(name) = name.filter(|n| !n.trim().is_empty()) {
+        let listed = if input {
+            host.input_devices()
+        } else {
+            host.output_devices()
+        };
+        if let Ok(mut devs) = listed {
+            if let Some(d) = devs.find(|d| d.name().map(|n| n == name).unwrap_or(false)) {
+                return Some(d);
+            }
+        }
+    }
+    if input {
+        host.default_input_device()
+    } else {
+        host.default_output_device()
+    }
+}
+
 /// One captured source: its accumulation buffer plus native format.
 struct Source {
     buffer: Arc<Mutex<Vec<f32>>>,
@@ -111,6 +154,7 @@ pub fn run(
     http: reqwest::Client,
     engine: EngineConfig,
     capture: CaptureSource,
+    devices: DeviceChoice,
     flag: Arc<AtomicBool>,
 ) -> Result<()> {
     // The local engine downloads + loads the model up front (slow on first run).
@@ -124,8 +168,7 @@ pub fn run(
     let mut sources: Vec<Source> = Vec::new();
 
     if capture.system() {
-        let device = host
-            .default_output_device()
+        let device = pick_device(&host, devices.output.as_deref(), false)
             .ok_or_else(|| anyhow!("No audio output device found to capture."))?;
         let supported = device
             .default_output_config()
@@ -141,8 +184,7 @@ pub fn run(
         });
     }
     if capture.mic() {
-        let device = host
-            .default_input_device()
+        let device = pick_device(&host, devices.input.as_deref(), true)
             .ok_or_else(|| anyhow!("No microphone found to capture."))?;
         let supported = device
             .default_input_config()

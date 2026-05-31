@@ -7,7 +7,7 @@ import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import "katex/dist/katex.min.css";
 import * as api from "../api";
-import { ASSISTANT_MODELS } from "../types";
+import { ASSISTANT_MODELS, type AudioDevices } from "../types";
 
 interface QA {
   id: number;
@@ -52,6 +52,9 @@ export function AssistantView() {
   const [hasSttKey, setHasSttKey] = useState(false);
   const [sttEngine, setSttEngine] = useState("deepgram");
   const [captureSource, setCaptureSource] = useState("system");
+  const [devices, setDevices] = useState<AudioDevices>({ inputs: [], outputs: [] });
+  const [inputDevice, setInputDevice] = useState("");
+  const [outputDevice, setOutputDevice] = useState("");
   const [model, setModel] = useState("claude-opus-4-8");
   const [keyInput, setKeyInput] = useState("");
   const [sttKeyInput, setSttKeyInput] = useState("");
@@ -70,6 +73,13 @@ export function AssistantView() {
 
   const idRef = useRef(0);
   const answeredIdx = useRef(0);
+  const transcriptRef = useRef<HTMLTextAreaElement>(null);
+
+  // Keep the live transcript field pinned to the newest text.
+  useEffect(() => {
+    const el = transcriptRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [transcript]);
 
   const loadSettings = useCallback(async () => {
     const s = await api.getAssistantSettings();
@@ -77,10 +87,13 @@ export function AssistantView() {
     setHasSttKey(s.hasSttKey);
     setSttEngine(s.sttEngine);
     setCaptureSource(s.captureSource);
+    setInputDevice(s.inputDevice);
+    setOutputDevice(s.outputDevice);
     setModel(s.model);
   }, []);
   useEffect(() => {
     void loadSettings();
+    void api.listAudioDevices().then(setDevices).catch(() => {});
   }, [loadSettings]);
 
   // Ask the assistant; result is appended to the Q&A feed (newest first).
@@ -185,6 +198,16 @@ export function AssistantView() {
     await api.setCaptureSource(s);
   };
 
+  const changeOutputDevice = async (name: string) => {
+    setOutputDevice(name);
+    await api.setOutputDevice(name);
+  };
+
+  const changeInputDevice = async (name: string) => {
+    setInputDevice(name);
+    await api.setInputDevice(name);
+  };
+
   const toggleListen = async () => {
     if (listening) {
       await api.stopListening();
@@ -276,6 +299,44 @@ export function AssistantView() {
             </select>
           </div>
 
+          {captureSource !== "mic" && (
+            <div className="listen-engine">
+              <span className="muted sm">Output device:</span>
+              <select
+                value={outputDevice}
+                onChange={(e) => void changeOutputDevice(e.target.value)}
+                disabled={listening}
+                title="Which speaker/output to capture (its sound is recorded via loopback)"
+              >
+                <option value="">Default output</option>
+                {devices.outputs.map((d) => (
+                  <option key={d} value={d}>
+                    {d}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {captureSource !== "system" && (
+            <div className="listen-engine">
+              <span className="muted sm">Input device:</span>
+              <select
+                value={inputDevice}
+                onChange={(e) => void changeInputDevice(e.target.value)}
+                disabled={listening}
+                title="Which microphone to capture"
+              >
+                <option value="">Default microphone</option>
+                {devices.inputs.map((d) => (
+                  <option key={d} value={d}>
+                    {d}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
           {needsDeepgramKey ? (
             <div className="add-source">
               <h3>
@@ -337,15 +398,18 @@ export function AssistantView() {
                   )}
                 </span>
               </div>
-              <div className="transcript-text">
-                {transcript || (
-                  <span className="muted">
-                    {sttEngine === "local"
-                      ? "Waiting for the model and for system audio to play..."
-                      : "Waiting for system audio to play..."}
-                  </span>
-                )}
-              </div>
+              <textarea
+                ref={transcriptRef}
+                className="transcript-field"
+                readOnly
+                rows={6}
+                value={transcript}
+                placeholder={
+                  sttEngine === "local"
+                    ? "The conversation will appear here as it is transcribed (waiting for the model and for audio to play)..."
+                    : "The conversation will appear here as it is transcribed (waiting for audio to play)..."
+                }
+              />
             </div>
           )}
 

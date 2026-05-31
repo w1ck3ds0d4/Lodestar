@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { Alert, AssistantSettings, Job, Skill, Source, Stats, Tracked } from "./types";
+import type { Alert, AssistantSettings, AudioDevices, Job, Skill, Source, Stats, Tracked } from "./types";
 
 export const searchJobs = (
   query: string,
@@ -97,5 +97,8 @@ export const autoAnswer = (transcript: string, latest: string) =>
 export const setDeepgramKey = (key: string) => invoke<void>("set_deepgram_key", { key });
 export const setSttEngine = (engine: string) => invoke<void>("set_stt_engine", { engine });
 export const setCaptureSource = (source: string) => invoke<void>("set_capture_source", { source });
+export const listAudioDevices = () => invoke<AudioDevices>("list_audio_devices");
+export const setInputDevice = (name: string) => invoke<void>("set_input_device", { name });
+export const setOutputDevice = (name: string) => invoke<void>("set_output_device", { name });
 export const startListening = () => invoke<void>("start_listening");
 export const stopListening = () => invoke<void>("stop_listening");
