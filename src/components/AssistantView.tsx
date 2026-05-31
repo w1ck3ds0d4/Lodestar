@@ -33,7 +33,7 @@ const QUESTION_START =
   /^(what'?s?|how|why|when|where|who|whose|which|can you|could you|would you|do you|does|is|are|solve|calculate|compute|evaluate|simplify|factor|find|derive|prove|explain|define|describe|convert|translate|write|implement|debug|fix|show|give|list|summari[sz]e)\b/i;
 function isQuestionLike(s: string): boolean {
   const t = s.trim();
-  return t.endsWith("?") || QUESTION_START.test(t);
+  return t.endsWith("?") || t.includes("¿") || QUESTION_START.test(t);
 }
 
 export function AssistantView() {
