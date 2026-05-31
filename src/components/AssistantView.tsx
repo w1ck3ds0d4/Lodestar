@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { Bot, Ear, KeyRound, Monitor, ScanSearch, Send, Square } from "lucide-react";
 import ReactMarkdown from "react-markdown";
@@ -319,6 +319,8 @@ export function AssistantView() {
 
   const needsDeepgramKey = sttEngine === "deepgram" && !hasSttKey;
   const codeMathQa = qa.filter((e) => !e.pending && !e.error && hasCodeOrMath(e.a));
+  // Fill the opacity track exactly to the value (native accent-color leaves a gap at 100%).
+  const opacityPct = Math.round(((opacity - 0.3) / 0.7) * 100);
 
   return (
     <div className="assistant three-col">
@@ -571,7 +573,7 @@ export function AssistantView() {
           </div>
           {screenError && <div className="assistant-error">{screenError}</div>}
 
-          <div className="setup-card">
+          <div className="setup-card overlay-card">
             <div className="setup-title">Overlay</div>
             <div className="overlay-row">
               <span className="setup-label">Opacity</span>
@@ -583,6 +585,11 @@ export function AssistantView() {
                 value={opacity}
                 onChange={(e) => setOpacity(Number(e.target.value))}
                 title="Make the window translucent so it sits over a call (Windows)"
+                style={
+                  {
+                    "--range-fill": `linear-gradient(to right, var(--accent) ${opacityPct}%, var(--border) ${opacityPct}%)`,
+                  } as CSSProperties
+                }
               />
               <span className="muted sm">{Math.round(opacity * 100)}%</span>
             </div>
