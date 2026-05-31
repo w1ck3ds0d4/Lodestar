@@ -17,6 +17,14 @@ interface QA {
   error?: string;
 }
 
+// One captured audio source reported by the backend for the diagnostics panel.
+interface CaptureDevice {
+  role: string;
+  name: string;
+  rate: number;
+  channels: number;
+}
+
 function Answer({ text }: { text: string }) {
   return (
     <div className="assistant-answer">
@@ -66,6 +74,8 @@ export function AssistantView() {
   const [transcript, setTranscript] = useState("");
   const [listenError, setListenError] = useState("");
   const [autoAnswer, setAutoAnswer] = useState(true);
+  const [captureInfo, setCaptureInfo] = useState<CaptureDevice[]>([]);
+  const [level, setLevel] = useState<{ peak: number; buffered: number }>({ peak: 0, buffered: 0 });
 
   const [question, setQuestion] = useState("");
   const [context, setContext] = useState("");
@@ -126,10 +136,14 @@ export function AssistantView() {
     );
     add(listen<string>("listen-status", (e) => setListenStatus(String(e.payload))));
     add(listen<string>("listen-error", (e) => setListenError(String(e.payload))));
+    add(listen<CaptureDevice[]>("listen-device", (e) => setCaptureInfo(e.payload)));
+    add(listen<{ peak: number; buffered: number }>("listen-level", (e) => setLevel(e.payload)));
     add(
       listen("listen-stopped", () => {
         setListening(false);
         setListenStatus("");
+        setCaptureInfo([]);
+        setLevel({ peak: 0, buffered: 0 });
       }),
     );
     return () => {
@@ -380,6 +394,37 @@ export function AssistantView() {
           )}
 
           {listenError && <div className="assistant-error">{listenError}</div>}
+
+          {listening && (
+            <div className="capture-diag">
+              <div className="capture-diag-head">
+                <span className="muted sm">Capture diagnostics</span>
+                <span className="muted sm">
+                  peak {level.peak.toFixed(3)} · {Math.round(level.buffered / 1000)}k buffered
+                </span>
+              </div>
+              <div className="level-track">
+                <div
+                  className={"level-fill" + (level.peak >= 0.005 ? " live" : "")}
+                  style={{ width: `${Math.min(100, Math.round(level.peak * 140))}%` }}
+                />
+              </div>
+              {captureInfo.length === 0 ? (
+                <div className="muted sm">Opening capture device…</div>
+              ) : (
+                captureInfo.map((d) => (
+                  <div key={d.role} className="muted sm">
+                    {d.role}: <strong>{d.name}</strong> · {Math.round(d.rate / 1000)}kHz · {d.channels}ch
+                  </div>
+                ))
+              )}
+              <div className="muted sm">
+                {level.peak < 0.005
+                  ? "No sound reaching this device. If capturing System audio, set the Output device above to the one your call plays through."
+                  : "Audio is being captured. If nothing transcribes, it's the transcription engine, not capture."}
+              </div>
+            </div>
+          )}
 
           {(listening || transcript) && (
             <div className="transcript">
