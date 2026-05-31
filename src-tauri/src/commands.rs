@@ -342,6 +342,34 @@ pub async fn ask_assistant(
         .map_err(|e| e.to_string())
 }
 
+/// Auto-answer the newest transcript segment if it is a question/problem (any
+/// language); returns the answer or the literal "NONE".
+#[tauri::command]
+pub async fn auto_answer(
+    state: State<'_, AppState>,
+    transcript: String,
+    latest: String,
+) -> Result<String, String> {
+    if latest.trim().is_empty() {
+        return Ok("NONE".into());
+    }
+    let (key, model) = {
+        let conn = state.db.lock().map_err(|_| "db poisoned")?;
+        let key = db::get_setting(&conn, "anthropic_api_key").map_err(|e| e.to_string())?;
+        let model = db::get_setting(&conn, "assistant_model")
+            .map_err(|e| e.to_string())?
+            .unwrap_or_else(|| DEFAULT_MODEL.to_string());
+        (key, model)
+    };
+    let key = key
+        .filter(|k| !k.trim().is_empty())
+        .ok_or("No API key set. Add your Anthropic API key in the Assistant tab.")?;
+    let http = state.http.clone();
+    crate::assistant::auto_answer(&http, &key, &model, &transcript, &latest)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 // --- Live listening (system-audio loopback capture -> Deepgram) ---
 
 /// Store (or, when blank, clear) the Deepgram API key in local SQLite.

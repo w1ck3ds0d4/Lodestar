@@ -94,6 +94,7 @@ pub fn run() {
             commands::set_api_key,
             commands::set_assistant_model,
             commands::ask_assistant,
+            commands::auto_answer,
             commands::set_deepgram_key,
             commands::set_stt_engine,
             commands::set_capture_source,

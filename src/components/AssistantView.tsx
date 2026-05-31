@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { listen } from "@tauri-apps/api/event";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { Bot, Ear, KeyRound, Send, Square } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -27,13 +27,24 @@ function Answer({ text }: { text: string }) {
   );
 }
 
-// A sentence looks like a question/request if it ends with "?" or opens with an
-// interrogative or an imperative ("solve", "calculate", "explain", ...).
-const QUESTION_START =
-  /^(what'?s?|how|why|when|where|who|whose|which|can you|could you|would you|do you|does|is|are|solve|calculate|compute|evaluate|simplify|factor|find|derive|prove|explain|define|describe|convert|translate|write|implement|debug|fix|show|give|list|summari[sz]e)\b/i;
-function isQuestionLike(s: string): boolean {
-  const t = s.trim();
-  return t.endsWith("?") || t.includes("¿") || QUESTION_START.test(t);
+// True if an answer contains a fenced code block or LaTeX math.
+function hasCodeOrMath(a: string): boolean {
+  return a.includes("```") || a.includes("$$") || /\$[^$\n]+\$/.test(a);
+}
+
+function QaCard({ e }: { e: QA }) {
+  return (
+    <div className="qa">
+      <div className="qa-q">{e.q}</div>
+      {e.pending ? (
+        <div className="muted sm">Thinking...</div>
+      ) : e.error ? (
+        <div className="assistant-error">{e.error}</div>
+      ) : (
+        <Answer text={e.a} />
+      )}
+    </div>
+  );
 }
 
 export function AssistantView() {
@@ -86,44 +97,54 @@ export function AssistantView() {
     }
   }, []);
 
-  // Live transcript + listen lifecycle events from the Rust capture loop.
+  // Live transcript + listen lifecycle events from the Rust capture loop. The
+  // `cancelled` guard prevents duplicate listeners under React StrictMode: the async
+  // listen() would otherwise resolve after cleanup and leak a second listener, so
+  // every transcript event would be handled (and appended) twice.
   useEffect(() => {
-    const unlisteners: Array<() => void> = [];
-    void listen<{ text: string }>("transcript", (e) => {
-      setTranscript((t) => (t ? t + " " : "") + e.payload.text);
-    }).then((u) => unlisteners.push(u));
-    void listen<string>("listen-status", (e) => setListenStatus(String(e.payload))).then((u) =>
-      unlisteners.push(u),
+    let cancelled = false;
+    const unlisteners: UnlistenFn[] = [];
+    const add = (p: Promise<UnlistenFn>) =>
+      void p.then((u) => (cancelled ? u() : unlisteners.push(u)));
+    add(
+      listen<{ text: string }>("transcript", (e) =>
+        setTranscript((t) => (t ? t + " " : "") + e.payload.text),
+      ),
     );
-    void listen<string>("listen-error", (e) => {
-      setListenError(String(e.payload));
-      setListening(false);
-      setListenStatus("");
-    }).then((u) => unlisteners.push(u));
-    void listen("listen-stopped", () => {
-      setListening(false);
-      setListenStatus("");
-    }).then((u) => unlisteners.push(u));
-    return () => unlisteners.forEach((u) => u());
+    add(listen<string>("listen-status", (e) => setListenStatus(String(e.payload))));
+    add(listen<string>("listen-error", (e) => setListenError(String(e.payload))));
+    add(
+      listen("listen-stopped", () => {
+        setListening(false);
+        setListenStatus("");
+      }),
+    );
+    return () => {
+      cancelled = true;
+      unlisteners.forEach((u) => u());
+    };
   }, []);
 
-  // Auto-answer: scan newly-completed sentences and answer ones that look like a
-  // question or a request (ends with "?", or opens with what/how/solve/calculate/...).
+  // Auto-answer: send each new transcript segment to the model, which answers it if
+  // it is a question or problem (in any language) and replies "NONE" otherwise. This
+  // replaces brittle keyword matching, so e.g. "um mais um" (Portuguese math) is caught.
   useEffect(() => {
     if (!autoAnswer || !listening) return;
-    const pending = transcript.slice(answeredIdx.current);
-    const sentenceRe = /[^.!?]*[.!?]/g;
-    let m: RegExpExecArray | null;
-    let consumed = 0;
-    while ((m = sentenceRe.exec(pending)) !== null) {
-      const sentence = m[0].trim();
-      consumed = m.index + m[0].length;
-      if (sentence.length >= 4 && isQuestionLike(sentence)) {
-        void ask(sentence, transcript.slice(0, answeredIdx.current + consumed));
+    const latest = transcript.slice(answeredIdx.current).trim();
+    if (latest.length < 2) return;
+    const ctx = transcript.slice(0, answeredIdx.current);
+    answeredIdx.current = transcript.length;
+    void (async () => {
+      try {
+        const a = (await api.autoAnswer(ctx, latest)).trim();
+        if (a && a.toUpperCase() !== "NONE") {
+          setQa((prev) => [{ id: ++idRef.current, q: latest, a, pending: false }, ...prev]);
+        }
+      } catch {
+        /* ignore transient auto-answer errors so the loop keeps going */
       }
-    }
-    answeredIdx.current += consumed;
-  }, [transcript, autoAnswer, listening, ask]);
+    })();
+  }, [transcript, autoAnswer, listening]);
 
   const saveKey = async () => {
     if (!keyInput.trim()) return;
@@ -351,18 +372,26 @@ export function AssistantView() {
             </div>
           )}
 
-          {qa.map((e) => (
-            <div className="qa" key={e.id}>
-              <div className="qa-q">{e.q}</div>
-              {e.pending ? (
-                <div className="muted sm">Thinking...</div>
-              ) : e.error ? (
-                <div className="assistant-error">{e.error}</div>
-              ) : (
-                <Answer text={e.a} />
-              )}
+          {qa.length > 0 && (
+            <div className="assistant-panes">
+              <div className="pane">
+                <div className="pane-title">History</div>
+                {qa.map((e) => (
+                  <QaCard key={e.id} e={e} />
+                ))}
+              </div>
+              <div className="pane">
+                <div className="pane-title">Code &amp; Math</div>
+                {qa.some((e) => !e.pending && !e.error && hasCodeOrMath(e.a)) ? (
+                  qa
+                    .filter((e) => !e.pending && !e.error && hasCodeOrMath(e.a))
+                    .map((e) => <QaCard key={e.id} e={e} />)
+                ) : (
+                  <div className="muted sm">Code snippets and equations from answers show up here.</div>
+                )}
+              </div>
             </div>
-          ))}
+          )}
         </>
       )}
     </div>
