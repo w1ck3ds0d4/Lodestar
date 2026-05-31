@@ -300,6 +300,26 @@ pub fn remove_skill(state: State<'_, AppState>, id: i64) -> Result<(), String> {
     crate::career::remove_skill(&conn, id).map_err(|e| e.to_string())
 }
 
+/// Generate an AI study plan for a skill (uses the configured answer engine + profile).
+#[tauri::command]
+pub async fn study_plan(
+    state: State<'_, AppState>,
+    skill: String,
+    goal: String,
+) -> Result<String, String> {
+    if skill.trim().is_empty() {
+        return Err("Add a skill name first.".into());
+    }
+    let (engine, profile) = {
+        let conn = state.db.lock().map_err(|_| "db poisoned")?;
+        (build_engine(&conn)?, interview_profile(&conn))
+    };
+    let http = state.http.clone();
+    crate::assistant::study_plan(&http, &engine, &skill, &goal, profile.as_deref())
+        .await
+        .map_err(|e| e.to_string())
+}
+
 // --- Screen privacy ---
 
 /// Toggle whether this window is excluded from screen capture and screen sharing.

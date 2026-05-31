@@ -96,6 +96,7 @@ pub fn run() {
             commands::update_skill,
             commands::log_study,
             commands::remove_skill,
+            commands::study_plan,
             commands::set_screen_privacy,
             commands::get_assistant_settings,
             commands::set_api_key,

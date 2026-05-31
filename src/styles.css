@@ -1736,10 +1736,32 @@ textarea:focus {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
 }
 
 .skill-hours input {
   width: 72px;
+}
+
+.study-plan {
+  margin-top: 4px;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+.study-plan > summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.study-plan .assistant-answer {
+  margin-top: 8px;
+  max-height: 360px;
+  overflow-y: auto;
+  font-size: 13px;
+}
+
+/* A skill that has a plan spans the full grid width so the plan is readable. */
+.skill-list .skill-row:has(.study-plan) {
+  grid-column: 1 / -1;
 }
 
 /* Scrollbar */
