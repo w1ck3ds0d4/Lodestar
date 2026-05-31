@@ -1,0 +1,42 @@
+//! Translucent-overlay + always-on-top window controls, so the assistant can sit
+//! discreetly over a call. Commands return `Result<(), String>` to match the rest of
+//! JobRadar's Tauri commands. Opacity is Windows-only; a no-op success elsewhere.
+
+/// Make the webview window translucent. `opacity` is 0.0..=1.0 (1.0 = fully opaque).
+#[tauri::command]
+pub fn set_window_opacity(window: tauri::WebviewWindow, opacity: f64) -> Result<(), String> {
+    let alpha = (opacity.clamp(0.0, 1.0) * 255.0).round() as u8;
+    set_opacity_impl(&window, alpha)
+}
+
+/// Keep the window above other windows (overlay mode). Cross-platform via Tauri.
+#[tauri::command]
+pub fn set_window_always_on_top(window: tauri::WebviewWindow, on_top: bool) -> Result<(), String> {
+    window
+        .set_always_on_top(on_top)
+        .map_err(|e| format!("set_always_on_top: {e}"))
+}
+
+#[cfg(windows)]
+fn set_opacity_impl(window: &tauri::WebviewWindow, alpha: u8) -> Result<(), String> {
+    use windows::Win32::Foundation::{COLORREF, HWND};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GetWindowLongPtrW, SetLayeredWindowAttributes, SetWindowLongPtrW, GWL_EXSTYLE, LWA_ALPHA,
+        WS_EX_LAYERED,
+    };
+    // Reconstruct an HWND in our own windows-rs version from the raw pointer, so the
+    // version Tauri uses internally is irrelevant.
+    let hwnd = HWND(window.hwnd().map_err(|e| format!("hwnd: {e}"))?.0);
+    unsafe {
+        let ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex | (WS_EX_LAYERED.0 as isize));
+        SetLayeredWindowAttributes(hwnd, COLORREF(0), alpha, LWA_ALPHA)
+            .map_err(|e| format!("SetLayeredWindowAttributes: {e}"))?;
+    }
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn set_opacity_impl(_window: &tauri::WebviewWindow, _alpha: u8) -> Result<(), String> {
+    Ok(())
+}

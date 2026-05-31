@@ -118,3 +118,8 @@ export const stopListening = () => invoke<void>("stop_listening");
 export const listMonitors = () => invoke<MonitorInfo[]>("list_monitors");
 export const answerScreen = (monitor: number, force: boolean) =>
   invoke<ScreenAnswer>("answer_screen", { monitor, force });
+
+// --- Overlay window controls (translucency + always-on-top; Windows-backed) ---
+export const setWindowOpacity = (opacity: number) => invoke<void>("set_window_opacity", { opacity });
+export const setWindowAlwaysOnTop = (onTop: boolean) =>
+  invoke<void>("set_window_always_on_top", { onTop });

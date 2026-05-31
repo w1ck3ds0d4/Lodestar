@@ -25,6 +25,21 @@ interface CaptureDevice {
   channels: number;
 }
 
+// One attributed line of the live dialog: who said it and what.
+interface DialogSegment {
+  id: number;
+  role: "you" | "them";
+  speaker: string;
+  text: string;
+}
+
+// Stable colour bucket for a speaker name (so each speaker keeps one chip hue).
+function chipClass(speaker: string): string {
+  let h = 0;
+  for (const c of speaker) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  return "seg-chip--c" + (h % 5);
+}
+
 function Answer({ text }: { text: string }) {
   return (
     <div className="assistant-answer">
@@ -71,7 +86,7 @@ export function AssistantView() {
 
   const [listening, setListening] = useState(false);
   const [listenStatus, setListenStatus] = useState("");
-  const [transcript, setTranscript] = useState("");
+  const [segments, setSegments] = useState<DialogSegment[]>([]);
   const [listenError, setListenError] = useState("");
   const [autoAnswer, setAutoAnswer] = useState(true);
   const [captureInfo, setCaptureInfo] = useState<CaptureDevice[]>([]);
@@ -83,19 +98,32 @@ export function AssistantView() {
   const [screenError, setScreenError] = useState("");
   const screenBusy = useRef(false);
 
+  const [opacity, setOpacity] = useState(1);
+  const [onTop, setOnTop] = useState(false);
+
   const [question, setQuestion] = useState("");
   const [context, setContext] = useState("");
   const [qa, setQa] = useState<QA[]>([]);
 
   const idRef = useRef(0);
+  const segIdRef = useRef(0);
   const answeredIdx = useRef(0);
-  const transcriptRef = useRef<HTMLTextAreaElement>(null);
 
-  // Keep the live transcript field pinned to the newest text.
+  // Overlay window controls. Applied after mount (hwnd() errors before the window
+  // exists); opacity is debounced so dragging the slider doesn't spam invoke.
   useEffect(() => {
-    const el = transcriptRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [transcript]);
+    const t = setTimeout(() => void api.setWindowOpacity(opacity).catch(() => {}), 60);
+    return () => clearTimeout(t);
+  }, [opacity]);
+  useEffect(() => {
+    void api.setWindowAlwaysOnTop(onTop).catch(() => {});
+  }, [onTop]);
+
+  // Build a speaker-prefixed transcript string from the dialog segments.
+  const transcriptText = useCallback(
+    (segs: DialogSegment[]) => segs.map((s) => `${s.speaker}: ${s.text}`).join("\n"),
+    [],
+  );
 
   const loadSettings = useCallback(async () => {
     const s = await api.getAssistantSettings();
@@ -168,8 +196,8 @@ export function AssistantView() {
     const add = (p: Promise<UnlistenFn>) =>
       void p.then((u) => (cancelled ? u() : unlisteners.push(u)));
     add(
-      listen<{ text: string }>("transcript", (e) =>
-        setTranscript((t) => (t ? t + " " : "") + e.payload.text),
+      listen<{ role: "you" | "them"; speaker: string; text: string }>("transcript", (e) =>
+        setSegments((s) => [...s, { id: ++segIdRef.current, ...e.payload }]),
       ),
     );
     add(listen<string>("listen-status", (e) => setListenStatus(String(e.payload))));
@@ -190,15 +218,17 @@ export function AssistantView() {
     };
   }, []);
 
-  // Auto-answer: send each new transcript segment to the model, which answers it if
-  // it is a question or problem (in any language) and replies "NONE" otherwise. This
-  // replaces brittle keyword matching, so e.g. "um mais um" (Portuguese math) is caught.
+  // Auto-answer: send each batch of new dialog segments to the model, which answers
+  // it if it is a question or problem (in any language) and replies "NONE" otherwise.
+  // Keyed on segment count so newly attributed lines (you/them/Speaker N) are handled.
   useEffect(() => {
     if (!autoAnswer || !listening) return;
-    const latest = transcript.slice(answeredIdx.current).trim();
+    const newSegs = segments.slice(answeredIdx.current);
+    if (newSegs.length === 0) return;
+    const latest = transcriptText(newSegs).trim();
     if (latest.length < 2) return;
-    const ctx = transcript.slice(0, answeredIdx.current);
-    answeredIdx.current = transcript.length;
+    const ctx = transcriptText(segments.slice(0, answeredIdx.current));
+    answeredIdx.current = segments.length;
     void (async () => {
       try {
         const a = (await api.autoAnswer(ctx, latest)).trim();
@@ -209,7 +239,7 @@ export function AssistantView() {
         /* ignore transient auto-answer errors so the loop keeps going */
       }
     })();
-  }, [transcript, autoAnswer, listening]);
+  }, [segments, autoAnswer, listening, transcriptText]);
 
   const saveKey = async () => {
     if (!keyInput.trim()) return;
@@ -277,20 +307,21 @@ export function AssistantView() {
   };
 
   const clearTranscript = () => {
-    setTranscript("");
+    setSegments([]);
     answeredIdx.current = 0;
   };
 
   const askManual = () => {
     if (!question.trim()) return;
-    void ask(question, context.trim() || transcript);
+    void ask(question, context.trim() || transcriptText(segments));
     setQuestion("");
   };
 
   const needsDeepgramKey = sttEngine === "deepgram" && !hasSttKey;
+  const codeMathQa = qa.filter((e) => !e.pending && !e.error && hasCodeOrMath(e.a));
 
   return (
-    <div className="assistant">
+    <div className="assistant three-col">
       <div className="assistant-bar">
         <div className="assistant-title">
           <Bot size={18} /> Assistant
@@ -329,68 +360,111 @@ export function AssistantView() {
           </div>
         </div>
       ) : (
-        <>
-          <div className="listen-engine">
-            <span className="muted sm">Transcription:</span>
-            <select value={sttEngine} onChange={(e) => void changeEngine(e.target.value)} disabled={listening}>
-              <option value="deepgram">Cloud (Deepgram)</option>
-              <option value="local">Local (Whisper, on-device)</option>
-            </select>
-          </div>
+        <div className="assistant-body">
+          <section className="assistant-col col-settings">
+          <div className={"setup-card" + (listening ? " is-listening" : "")}>
+            <div className="setup-title">Setup</div>
 
-          <div className="listen-engine">
-            <span className="muted sm">Capture:</span>
-            <select
-              value={captureSource}
-              onChange={(e) => void changeCaptureSource(e.target.value)}
-              disabled={listening}
-            >
-              <option value="system">System audio (the call/video)</option>
-              <option value="mic">Microphone (you)</option>
-              <option value="both">System + Mic (both sides)</option>
-            </select>
-          </div>
-
-          {captureSource !== "mic" && (
-            <div className="listen-engine">
-              <span className="muted sm">Output device:</span>
-              <select
-                value={outputDevice}
-                onChange={(e) => void changeOutputDevice(e.target.value)}
-                disabled={listening}
-                title="Which speaker/output to capture (its sound is recorded via loopback)"
-              >
-                <option value="">Default output</option>
-                {devices.outputs.map((d) => (
-                  <option key={d} value={d}>
-                    {d}
-                  </option>
-                ))}
-              </select>
+            <div className="setup-row">
+              <span className="setup-label">Transcription</span>
+              <div className="seg" role="group" aria-label="Transcription engine">
+                <button
+                  className={"seg-btn" + (sttEngine === "deepgram" ? " on" : "")}
+                  aria-pressed={sttEngine === "deepgram"}
+                  disabled={listening}
+                  title="Cloud (Deepgram) - captured audio is sent to Deepgram to transcribe"
+                  onClick={() => void changeEngine("deepgram")}
+                >
+                  Cloud
+                </button>
+                <button
+                  className={"seg-btn" + (sttEngine === "local" ? " on" : "")}
+                  aria-pressed={sttEngine === "local"}
+                  disabled={listening}
+                  title="Local (Whisper) - runs on-device, audio never leaves your machine"
+                  onClick={() => void changeEngine("local")}
+                >
+                  Local
+                </button>
+              </div>
             </div>
-          )}
 
-          {captureSource !== "system" && (
-            <div className="listen-engine">
-              <span className="muted sm">Input device:</span>
-              <select
-                value={inputDevice}
-                onChange={(e) => void changeInputDevice(e.target.value)}
-                disabled={listening}
-                title="Which microphone to capture"
-              >
-                <option value="">Default microphone</option>
-                {devices.inputs.map((d) => (
-                  <option key={d} value={d}>
-                    {d}
-                  </option>
-                ))}
-              </select>
+            <div className="setup-row">
+              <span className="setup-label">Capture</span>
+              <div className="seg" role="group" aria-label="Capture source">
+                <button
+                  className={"seg-btn" + (captureSource === "system" ? " on" : "")}
+                  aria-pressed={captureSource === "system"}
+                  disabled={listening}
+                  title="System audio - the other side of the call/video (via loopback)"
+                  onClick={() => void changeCaptureSource("system")}
+                >
+                  System
+                </button>
+                <button
+                  className={"seg-btn" + (captureSource === "mic" ? " on" : "")}
+                  aria-pressed={captureSource === "mic"}
+                  disabled={listening}
+                  title="Microphone - your voice"
+                  onClick={() => void changeCaptureSource("mic")}
+                >
+                  Mic
+                </button>
+                <button
+                  className={"seg-btn" + (captureSource === "both" ? " on" : "")}
+                  aria-pressed={captureSource === "both"}
+                  disabled={listening}
+                  title="System + Mic - both sides of the call"
+                  onClick={() => void changeCaptureSource("both")}
+                >
+                  Both
+                </button>
+              </div>
             </div>
-          )}
+
+            <div className="setup-divider" />
+
+            {captureSource !== "mic" && (
+              <div className="setup-row">
+                <span className="setup-label">Output device</span>
+                <select
+                  value={outputDevice}
+                  onChange={(e) => void changeOutputDevice(e.target.value)}
+                  disabled={listening}
+                  title="Which speaker/output to capture (its sound is recorded via loopback)"
+                >
+                  <option value="">Default output</option>
+                  {devices.outputs.map((d) => (
+                    <option key={d} value={d}>
+                      {d}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {captureSource !== "system" && (
+              <div className="setup-row">
+                <span className="setup-label">Input device</span>
+                <select
+                  value={inputDevice}
+                  onChange={(e) => void changeInputDevice(e.target.value)}
+                  disabled={listening}
+                  title="Which microphone to capture"
+                >
+                  <option value="">Default microphone</option>
+                  {devices.inputs.map((d) => (
+                    <option key={d} value={d}>
+                      {d}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+          </div>
 
           {needsDeepgramKey ? (
-            <div className="add-source">
+            <div className="add-source onboard">
               <h3>
                 <Ear size={16} /> Deepgram API key
               </h3>
@@ -416,7 +490,7 @@ export function AssistantView() {
             </div>
           ) : (
             <div className="listen-bar">
-              <button className={"btn-listen" + (listening ? " on" : "")} onClick={toggleListen}>
+              <button className={"btn-listen primary" + (listening ? " on" : "")} onClick={toggleListen}>
                 {listening ? <Square size={15} /> : <Ear size={15} />}
                 {listening ? "Stop listening" : "Listen to call"}
               </button>
@@ -434,7 +508,7 @@ export function AssistantView() {
           {listenError && <div className="assistant-error">{listenError}</div>}
 
           {listening && (
-            <div className="capture-diag">
+            <div className={"capture-diag" + (level.peak < 0.005 ? " warn" : " ok")}>
               <div className="capture-diag-head">
                 <span className="muted sm">Capture diagnostics</span>
                 <span className="muted sm">
@@ -456,7 +530,7 @@ export function AssistantView() {
                   </div>
                 ))
               )}
-              <div className="muted sm">
+              <div className="diag-hint muted sm">
                 {level.peak < 0.005
                   ? "No sound reaching this device. If capturing System audio, set the Output device above to the one your call plays through."
                   : "Audio is being captured. If nothing transcribes, it's the transcription engine, not capture."}
@@ -497,37 +571,65 @@ export function AssistantView() {
           </div>
           {screenError && <div className="assistant-error">{screenError}</div>}
 
-          {(listening || transcript) && (
-            <div className="transcript">
-              <div className="transcript-head">
-                <span className="muted sm">{listening ? listenStatus || "Listening..." : "Transcript"}</span>
-                <span className="transcript-actions">
-                  {transcript && (
-                    <button className="link-btn" onClick={() => setContext(transcript)}>
-                      Use as context
-                    </button>
-                  )}
-                  {transcript && (
-                    <button className="link-btn" onClick={clearTranscript}>
-                      Clear
-                    </button>
-                  )}
+          <div className="setup-card">
+            <div className="setup-title">Overlay</div>
+            <div className="overlay-row">
+              <span className="setup-label">Opacity</span>
+              <input
+                type="range"
+                min={0.3}
+                max={1}
+                step={0.05}
+                value={opacity}
+                onChange={(e) => setOpacity(Number(e.target.value))}
+                title="Make the window translucent so it sits over a call (Windows)"
+              />
+              <span className="muted sm">{Math.round(opacity * 100)}%</span>
+            </div>
+            <label className="auto-toggle muted sm">
+              <input type="checkbox" checked={onTop} onChange={(e) => setOnTop(e.target.checked)} />
+              Always on top
+            </label>
+            <div className="muted sm">Dims the whole window (this UI too); min 30%.</div>
+          </div>
+          </section>
+
+          <section className="assistant-col col-dialog">
+            <div className="dialog-head">
+              <span className="muted sm">{listening ? listenStatus || "Listening..." : "Live dialog"}</span>
+              <span className="transcript-actions">
+                {segments.length > 0 && (
+                  <button className="link-btn" onClick={() => setContext(transcriptText(segments))}>
+                    Use as context
+                  </button>
+                )}
+                {segments.length > 0 && (
+                  <button className="link-btn" onClick={clearTranscript}>
+                    Clear
+                  </button>
+                )}
+              </span>
+            </div>
+            {listening || segments.length > 0 ? (
+              <div className="dialog-list" aria-live="polite">
+                {segments.map((s) => (
+                  <div key={s.id} className={"seg-msg seg-" + s.role}>
+                    {s.role === "them" && (
+                      <span className={"seg-chip " + chipClass(s.speaker)}>{s.speaker}</span>
+                    )}
+                    <div className="seg-bubble">{s.text}</div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="dialog-empty">
+                <Ear size={28} />
+                <span>
+                  Hit <strong>Listen to call</strong> - the conversation appears here, you on the right,
+                  the other side on the left.
                 </span>
               </div>
-              <textarea
-                ref={transcriptRef}
-                className="transcript-field"
-                readOnly
-                rows={6}
-                value={transcript}
-                placeholder={
-                  sttEngine === "local"
-                    ? "The conversation will appear here as it is transcribed (waiting for the model and for audio to play)..."
-                    : "The conversation will appear here as it is transcribed (waiting for audio to play)..."
-                }
-              />
-            </div>
-          )}
+            )}
 
           <div className="assistant-ask">
             <textarea
@@ -553,26 +655,27 @@ export function AssistantView() {
           )}
 
           {qa.length > 0 && (
-            <div className="assistant-panes">
-              <div className="pane">
-                <div className="pane-title">History</div>
-                {qa.map((e) => (
-                  <QaCard key={e.id} e={e} />
-                ))}
-              </div>
-              <div className="pane">
-                <div className="pane-title">Code &amp; Math</div>
-                {qa.some((e) => !e.pending && !e.error && hasCodeOrMath(e.a)) ? (
-                  qa
-                    .filter((e) => !e.pending && !e.error && hasCodeOrMath(e.a))
-                    .map((e) => <QaCard key={e.id} e={e} />)
-                ) : (
-                  <div className="muted sm">Code snippets and equations from answers show up here.</div>
-                )}
-              </div>
-            </div>
+            <details className="answers-history">
+              <summary className="pane-title">All answers ({qa.length})</summary>
+              {qa.map((e) => (
+                <QaCard key={e.id} e={e} />
+              ))}
+            </details>
           )}
-        </>
+          </section>
+
+          <aside className="assistant-col col-code">
+            <div className="pane-title">Code &amp; Math</div>
+            {codeMathQa.length === 0 ? (
+              <div className="pane-empty">
+                <strong>No snippets yet.</strong>
+                <span className="muted sm">Code blocks and equations from answers collect here.</span>
+              </div>
+            ) : (
+              codeMathQa.map((e) => <QaCard key={e.id} e={e} />)
+            )}
+          </aside>
+        </div>
       )}
     </div>
   );
