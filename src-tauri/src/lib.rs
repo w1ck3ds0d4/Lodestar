@@ -6,6 +6,7 @@ mod ingest;
 mod listen;
 mod local_stt;
 mod model;
+mod screen;
 mod sources;
 mod util;
 
@@ -22,6 +23,8 @@ pub struct AppState {
     pub db: Arc<Mutex<Connection>>,
     pub http: reqwest::Client,
     pub listening: Arc<AtomicBool>,
+    /// Hash of the last screenshot answered, so the watcher skips unchanged screens.
+    pub screen_hash: Arc<Mutex<Option<u64>>>,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -52,6 +55,7 @@ pub fn run() {
                 db: db.clone(),
                 http: http.clone(),
                 listening: Arc::new(AtomicBool::new(false)),
+                screen_hash: Arc::new(Mutex::new(None)),
             });
 
             // Background scheduler: sync due sources, then poll on an interval.
@@ -100,6 +104,8 @@ pub fn run() {
             commands::set_deepgram_key,
             commands::set_stt_engine,
             commands::set_capture_source,
+            commands::list_monitors,
+            commands::answer_screen,
             commands::list_audio_devices,
             commands::set_input_device,
             commands::set_output_device,

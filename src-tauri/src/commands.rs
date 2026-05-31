@@ -475,6 +475,82 @@ pub async fn auto_answer(
         .map_err(|e| e.to_string())
 }
 
+// --- Screen watcher: read questions off a monitor and auto-answer them ---
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MonitorInfo {
+    pub id: usize,
+    pub name: String,
+}
+
+/// List connected monitors (addressed by index) for the screen picker.
+#[tauri::command]
+pub fn list_monitors() -> Result<Vec<MonitorInfo>, String> {
+    Ok((0..crate::screen::count())
+        .map(|id| MonitorInfo {
+            id,
+            name: format!("Display {}", id + 1),
+        })
+        .collect())
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScreenAnswer {
+    /// False when the screen was unchanged since the last check (no API call made).
+    pub changed: bool,
+    /// The model's answer, or "NONE" when nothing on screen needed answering.
+    pub answer: String,
+}
+
+/// Capture `monitor` and ask Claude's vision to answer any question/problem on it.
+/// When `force` is false an unchanged screen is skipped (no tokens spent).
+#[tauri::command]
+pub async fn answer_screen(
+    state: State<'_, AppState>,
+    monitor: usize,
+    force: bool,
+) -> Result<ScreenAnswer, String> {
+    let cap = crate::screen::capture(monitor).map_err(|e| e.to_string())?;
+
+    {
+        let mut last = state
+            .screen_hash
+            .lock()
+            .map_err(|_| "screen hash poisoned")?;
+        if !force && *last == Some(cap.hash) {
+            return Ok(ScreenAnswer {
+                changed: false,
+                answer: String::new(),
+            });
+        }
+        *last = Some(cap.hash);
+    }
+
+    let (key, model) = {
+        let conn = state.db.lock().map_err(|_| "db poisoned")?;
+        let key = db::get_setting(&conn, "anthropic_api_key").map_err(|e| e.to_string())?;
+        let model = db::get_setting(&conn, "assistant_model")
+            .map_err(|e| e.to_string())?
+            .unwrap_or_else(|| DEFAULT_MODEL.to_string());
+        (key, model)
+    };
+    let key = key
+        .filter(|k| !k.trim().is_empty())
+        .ok_or("No API key set. Add your Anthropic API key in the Assistant tab.")?;
+
+    let b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &cap.png);
+    let http = state.http.clone();
+    let answer = crate::assistant::answer_screen(&http, &key, &model, &b64)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(ScreenAnswer {
+        changed: true,
+        answer,
+    })
+}
+
 // --- Live listening (system-audio loopback capture -> Deepgram) ---
 
 /// Store (or, when blank, clear) the Deepgram API key in local SQLite.
