@@ -436,6 +436,7 @@ pub struct AssistantSettings {
     pub has_key: bool,
     pub has_stt_key: bool,
     pub stt_engine: String,
+    pub stt_language: String,
     pub capture_source: String,
     pub model: String,
     pub input_device: String,
@@ -468,6 +469,10 @@ pub fn get_assistant_settings(state: State<'_, AppState>) -> Result<AssistantSet
     let stt_engine = db::get_setting(&conn, "stt_engine")
         .map_err(|e| e.to_string())?
         .unwrap_or_else(|| "deepgram".to_string());
+    let stt_language = db::get_setting(&conn, "stt_language")
+        .map_err(|e| e.to_string())?
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| "multi".to_string());
     let capture_source = db::get_setting(&conn, "capture_source")
         .map_err(|e| e.to_string())?
         .unwrap_or_else(|| "system".to_string());
@@ -488,6 +493,7 @@ pub fn get_assistant_settings(state: State<'_, AppState>) -> Result<AssistantSet
         has_key,
         has_stt_key,
         stt_engine,
+        stt_language,
         capture_source,
         model,
         input_device: get("input_device")?,
@@ -823,6 +829,14 @@ pub fn set_stt_engine(state: State<'_, AppState>, engine: String) -> Result<(), 
     db::set_setting(&conn, "stt_engine", &engine).map_err(|e| e.to_string())
 }
 
+/// Deepgram transcription language: a language code ("en", "pt", "es", ...) or "multi"
+/// for the multilingual model. Streaming has no auto-detect, so this is chosen up front.
+#[tauri::command]
+pub fn set_stt_language(state: State<'_, AppState>, language: String) -> Result<(), String> {
+    let conn = state.db.lock().map_err(|_| "db poisoned")?;
+    db::set_setting(&conn, "stt_language", &language).map_err(|e| e.to_string())
+}
+
 /// Which audio to capture: "system" (loopback), "mic", or "both".
 #[tauri::command]
 pub fn set_capture_source(state: State<'_, AppState>, source: String) -> Result<(), String> {
@@ -858,7 +872,14 @@ pub fn start_listening(state: State<'_, AppState>, app: AppHandle) -> Result<(),
         let key = key.filter(|k| !k.trim().is_empty()).ok_or(
             "No Deepgram API key set. Add it in the Assistant tab, or switch the engine to Local.",
         )?;
-        crate::listen::EngineConfig::Deepgram { key }
+        let language = {
+            let conn = state.db.lock().map_err(|_| "db poisoned")?;
+            db::get_setting(&conn, "stt_language")
+                .map_err(|e| e.to_string())?
+                .filter(|s| !s.trim().is_empty())
+                .unwrap_or_else(|| "multi".to_string())
+        };
+        crate::listen::EngineConfig::Deepgram { key, language }
     };
 
     let (capture, devices) = {

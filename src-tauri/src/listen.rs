@@ -6,15 +6,16 @@
 //! Each source is downmixed to mono, resampled to 16 kHz, and transcribed
 //! independently (no mixing) so every `transcript` event carries a speaker role: the
 //! microphone is labeled "you"; system/loopback audio is labeled "them" (local
-//! engine) or diarized into "Speaker 1/2/..." by Deepgram. Audio is buffered into ~4s
-//! chunks and turned into text by the selected engine - Deepgram (cloud) or a local
-//! Whisper model (Candle, on-device). Progress/errors are emitted as
-//! `listen-status`/`listen-error`; capture diagnostics as `listen-device`/`listen-level`.
+//! engine) or diarized into "Speaker 1/2/..." by Deepgram.
 //!
-//! KNOWN LIMITATION: Deepgram speaker numbering is only stable within a single
-//! request, and each chunk is a separate pre-recorded call - so "Speaker 1" in one
-//! chunk is not guaranteed to be the same person in the next (true cross-chunk
-//! diarization needs the streaming WebSocket API, out of scope here).
+//! Deepgram (cloud) uses the realtime streaming WebSocket API: each source opens its
+//! own socket, audio is streamed continuously, and transcripts arrive live - interim
+//! (`final: false`) results update the in-progress line as someone speaks, then a
+//! `final: true` result commits it. This avoids the word-boundary loss and dropped
+//! speech of the old fixed-chunk pre-recorded calls. The local Whisper engine (Candle,
+//! on-device) is inherently batch, so it still transcribes ~4s chunks. Progress/errors
+//! are emitted as `listen-status`/`listen-error`; capture diagnostics as
+//! `listen-device`/`listen-level`.
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -24,8 +25,13 @@ use std::time::Duration;
 use anyhow::{anyhow, Result};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{Device, SupportedStreamConfig};
+use futures_util::{SinkExt, StreamExt};
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter};
+use tokio_tungstenite::connect_async;
+use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+use tokio_tungstenite::tungstenite::http::HeaderValue;
+use tokio_tungstenite::tungstenite::Message;
 
 use crate::local_stt::LocalStt;
 
@@ -35,8 +41,16 @@ const TARGET_RATE: u32 = 16000;
 
 /// Which transcription backend to use for a listening session.
 pub enum EngineConfig {
-    Deepgram { key: String },
-    Local { models_dir: PathBuf },
+    /// `language` is a Deepgram language code (e.g. "en", "pt", "es") or "multi" for
+    /// the multilingual/code-switching model. Streaming has no auto-detect, so the
+    /// language must be chosen up front (default "multi").
+    Deepgram {
+        key: String,
+        language: String,
+    },
+    Local {
+        models_dir: PathBuf,
+    },
 }
 
 /// Which audio source(s) to capture.
@@ -245,10 +259,274 @@ pub fn run(
         .collect();
     let _ = app.emit("listen-device", json!(device_info));
 
-    // Peek the buffers ~5x/sec for a live input-level meter, and drain + transcribe
-    // once every CHUNK_SECS. A flat meter at 0 means no audio is reaching the chosen
-    // device (wrong output for loopback); a moving meter with no transcript points at
-    // the STT engine instead.
+    // Hand off to the engine-specific driver. Deepgram streams continuously over a
+    // WebSocket per source; the local Whisper engine batches ~4s chunks. The cpal
+    // streams stay alive (held in `streams`) on this thread; both drivers only touch
+    // the shared sample buffers, which fill from the audio callbacks meanwhile.
+    match engine {
+        EngineConfig::Deepgram { key, language } => {
+            run_deepgram(app, &key, &language, &sources, &flag);
+        }
+        EngineConfig::Local { .. } => {
+            let local = local.expect("local engine initialized above");
+            run_local_chunked(app, local, &sources, &flag);
+        }
+    }
+
+    drop(streams);
+    Ok(())
+}
+
+/// Deepgram realtime streaming driver: open one WebSocket per source and stream audio
+/// continuously, emitting live `transcript` events. Runs every source concurrently on
+/// this thread via the shared async runtime; one source failing does not stop the rest.
+fn run_deepgram(
+    app: &AppHandle,
+    key: &str,
+    language: &str,
+    sources: &[Source],
+    flag: &Arc<AtomicBool>,
+) {
+    // rustls 0.23 needs a process-default crypto provider before the first wss://
+    // handshake; reqwest installs its provider explicitly (not as the default), so we
+    // set ring here. Idempotent: a second call just returns Err, which we ignore.
+    let _ = rustls::crypto::ring::default_provider().install_default();
+
+    let metas: Vec<SrcMeta> = sources
+        .iter()
+        .map(|s| SrcMeta {
+            buffer: s.buffer.clone(),
+            rate: s.rate,
+            channels: s.channels,
+            kind: s.kind,
+        })
+        .collect();
+
+    tauri::async_runtime::block_on(async {
+        let futs = metas.into_iter().map(|meta| {
+            let app = app.clone();
+            let key = key.to_string();
+            let language = language.to_string();
+            let flag = flag.clone();
+            async move {
+                if let Err(e) = stream_source(&app, &key, &language, &meta, &flag).await {
+                    let _ = app.emit("listen-error", e.to_string());
+                }
+            }
+        });
+        futures_util::future::join_all(futs).await;
+    });
+}
+
+/// Per-source streaming metadata (the cpal buffer plus its native format).
+struct SrcMeta {
+    buffer: Arc<Mutex<Vec<f32>>>,
+    rate: u32,
+    channels: usize,
+    kind: SrcKind,
+}
+
+/// Open a Deepgram streaming WebSocket for one source, push audio frames as they are
+/// captured, and emit `transcript` events for interim + final results until `flag` clears.
+async fn stream_source(
+    app: &AppHandle,
+    key: &str,
+    language: &str,
+    meta: &SrcMeta,
+    flag: &Arc<AtomicBool>,
+) -> Result<()> {
+    let diarize = meta.kind == SrcKind::System;
+    let lang = if language.trim().is_empty() {
+        "multi"
+    } else {
+        language.trim()
+    };
+    let mut url = format!(
+        "wss://api.deepgram.com/v1/listen?model=nova-2&encoding=linear16&sample_rate={TARGET_RATE}\
+         &channels=1&punctuate=true&interim_results=true&endpointing=400&language={lang}"
+    );
+    if diarize {
+        url.push_str("&diarize=true");
+    }
+
+    let mut request = url
+        .as_str()
+        .into_client_request()
+        .map_err(|e| anyhow!("Could not build Deepgram request: {e}"))?;
+    request.headers_mut().insert(
+        "Authorization",
+        HeaderValue::from_str(&format!("Token {key}"))
+            .map_err(|e| anyhow!("Invalid Deepgram key: {e}"))?,
+    );
+
+    let (ws, _resp) = connect_async(request)
+        .await
+        .map_err(|e| anyhow!("Could not connect to Deepgram streaming: {e}"))?;
+    let (mut write, mut read) = ws.split();
+
+    let role: &str = if diarize { "them" } else { "you" };
+
+    // Sender: drain the capture buffer ~8x/sec and ship it as raw linear16. Keep the
+    // socket warm with KeepAlive during silence; on stop, send CloseStream so Deepgram
+    // flushes any trailing words before closing.
+    let sender = async {
+        let frame = Duration::from_millis(120);
+        let mut idle = 0u32;
+        loop {
+            if !flag.load(Ordering::SeqCst) {
+                let _ = write
+                    .send(Message::Text("{\"type\":\"CloseStream\"}".to_string()))
+                    .await;
+                break;
+            }
+            tokio::time::sleep(frame).await;
+            let samples = {
+                let mut g = meta.buffer.lock().unwrap();
+                std::mem::take(&mut *g)
+            };
+            if samples.is_empty() {
+                idle += 1;
+                if idle >= 40 {
+                    let _ = write
+                        .send(Message::Text("{\"type\":\"KeepAlive\"}".to_string()))
+                        .await;
+                    idle = 0;
+                }
+                continue;
+            }
+            idle = 0;
+            let mono = downmix_mono(&samples, meta.channels);
+            let resampled = resample(&mono, meta.rate, TARGET_RATE);
+            let peak = resampled.iter().fold(0f32, |m, &s| m.max(s.abs()));
+            let _ = app.emit("listen-level", json!({ "peak": peak, "buffered": 0 }));
+            if write
+                .send(Message::Binary(mono_to_linear16(&resampled)))
+                .await
+                .is_err()
+            {
+                break;
+            }
+        }
+    };
+
+    // Reader: parse transcript messages as they arrive. The select! lets us bail within
+    // ~0.5s of a stop request even if Deepgram is slow to close the socket.
+    let reader = async {
+        loop {
+            tokio::select! {
+                msg = read.next() => match msg {
+                    Some(Ok(Message::Text(t))) => emit_results(app, &t, diarize, role),
+                    Some(Ok(Message::Close(_))) | None => break,
+                    Some(Err(_)) => break,
+                    _ => {}
+                },
+                _ = tokio::time::sleep(Duration::from_millis(500)) => {
+                    if !flag.load(Ordering::SeqCst) {
+                        break;
+                    }
+                }
+            }
+        }
+    };
+
+    tokio::join!(sender, reader);
+    Ok(())
+}
+
+/// Parse one Deepgram streaming `Results` message and emit `transcript` events.
+/// Interim results (`final: false`) update the live line; final results commit it,
+/// split by speaker when diarization is on.
+fn emit_results(app: &AppHandle, text: &str, diarize: bool, role: &str) {
+    let payload: Value = match serde_json::from_str(text) {
+        Ok(v) => v,
+        Err(_) => return,
+    };
+    // Only "Results" carry a transcript; ignore Metadata/UtteranceEnd/etc.
+    if payload.get("channel").is_none() {
+        return;
+    }
+    let is_final = payload["is_final"].as_bool().unwrap_or(false);
+    let alt = &payload["channel"]["alternatives"][0];
+    let transcript = alt["transcript"].as_str().unwrap_or("").trim().to_string();
+    let role_speaker = if role == "them" { "Them" } else { "You" };
+
+    if transcript.is_empty() {
+        // An endpoint with no new words: clear the live line.
+        if is_final {
+            let _ = app.emit(
+                "transcript",
+                json!({ "role": role, "speaker": role_speaker, "text": "", "final": true }),
+            );
+        }
+        return;
+    }
+
+    if !is_final {
+        let _ = app.emit(
+            "transcript",
+            json!({ "role": role, "speaker": role_speaker, "text": transcript, "final": false }),
+        );
+        return;
+    }
+
+    // Final result. For the system side, split into per-speaker utterances when
+    // diarization gave word-level speaker indices.
+    if diarize {
+        if let Some(words) = alt["words"].as_array().filter(|w| !w.is_empty()) {
+            let emit_seg = |spk: i64, buf: &str| {
+                if !buf.trim().is_empty() {
+                    let _ = app.emit(
+                        "transcript",
+                        json!({
+                            "role": "them",
+                            "speaker": format!("Speaker {}", spk + 1),
+                            "text": buf.trim(),
+                            "final": true,
+                        }),
+                    );
+                }
+            };
+            let mut cur: Option<i64> = None;
+            let mut buf = String::new();
+            for w in words {
+                let spk = w["speaker"].as_i64().unwrap_or(0);
+                let word = w["punctuated_word"]
+                    .as_str()
+                    .or_else(|| w["word"].as_str())
+                    .unwrap_or("");
+                if cur != Some(spk) {
+                    if let Some(prev) = cur {
+                        emit_seg(prev, &buf);
+                    }
+                    cur = Some(spk);
+                    buf.clear();
+                }
+                buf.push_str(word);
+                buf.push(' ');
+            }
+            if let Some(prev) = cur {
+                emit_seg(prev, &buf);
+            }
+            return;
+        }
+    }
+
+    let _ = app.emit(
+        "transcript",
+        json!({ "role": role, "speaker": role_speaker, "text": transcript, "final": true }),
+    );
+}
+
+/// Local Whisper driver: peek the buffers ~5x/sec for a live input-level meter, and
+/// drain + transcribe a ~4s chunk per source on each interval. A flat meter at 0 means
+/// no audio is reaching the chosen device (wrong output for loopback); a moving meter
+/// with no transcript points at the engine instead.
+fn run_local_chunked(
+    app: &AppHandle,
+    mut local: LocalStt,
+    sources: &[Source],
+    flag: &Arc<AtomicBool>,
+) {
     let tick = Duration::from_millis(200);
     let ticks_per_chunk = (CHUNK_SECS * 1000 / 200).max(1);
     let mut tick_count = 0u64;
@@ -258,7 +536,7 @@ pub fn run(
 
         let mut live_peak = 0f32;
         let mut buffered = 0usize;
-        for src in &sources {
+        for src in sources {
             let g = src.buffer.lock().unwrap();
             buffered += g.len();
             for &s in g.iter() {
@@ -276,14 +554,9 @@ pub fn run(
         }
         tick_count = 0;
 
-        // Transcribe each source SEPARATELY (no mixing) so every transcript is
-        // attributed: the mic is "you"; system/loopback is "them" (or diarized into
-        // "Speaker N" by Deepgram). Speaker numbering is only stable within a single
-        // ~4s request, not across chunks (true cross-chunk diarization needs the
-        // streaming API, out of scope).
         let mut had_audio = false;
         let mut saw_speech = false;
-        for src in &sources {
+        for src in sources {
             let samples = {
                 let mut g = src.buffer.lock().unwrap();
                 std::mem::take(&mut *g)
@@ -294,55 +567,25 @@ pub fn run(
             had_audio = true;
             let mono = downmix_mono(&samples, src.channels);
             let resampled = resample(&mono, src.rate, TARGET_RATE);
-            // Skip near-silent audio so dead air doesn't spend requests / CPU.
             let peak = resampled.iter().fold(0f32, |m, &s| m.max(s.abs()));
             if peak < SILENCE_PEAK {
                 continue;
             }
             saw_speech = true;
             status(app, "Transcribing...");
-
-            let result: Result<Vec<(String, String)>> = match &engine {
-                EngineConfig::Deepgram { key } => {
-                    let pcm = mono_to_linear16(&resampled);
-                    tauri::async_runtime::block_on(transcribe_deepgram(
-                        &http,
-                        key,
-                        TARGET_RATE,
-                        pcm,
-                        src.is_system(),
-                    ))
+            match local.transcribe(&resampled) {
+                Ok(t) if !t.trim().is_empty() => {
+                    let (role, speaker) = if src.is_system() {
+                        ("them", "Them")
+                    } else {
+                        ("you", "You")
+                    };
+                    let _ = app.emit(
+                        "transcript",
+                        json!({ "role": role, "speaker": speaker, "text": t, "final": true }),
+                    );
                 }
-                EngineConfig::Local { .. } => local
-                    .as_mut()
-                    .expect("local engine initialized above")
-                    .transcribe(&resampled)
-                    .map(|t| vec![(String::new(), t)]),
-            };
-            match result {
-                Ok(segs) => {
-                    for (sp, text) in segs {
-                        if text.trim().is_empty() {
-                            continue;
-                        }
-                        let (role, speaker) = if src.is_system() {
-                            (
-                                "them",
-                                if sp.is_empty() {
-                                    "Them".to_string()
-                                } else {
-                                    sp
-                                },
-                            )
-                        } else {
-                            ("you", "You".to_string())
-                        };
-                        let _ = app.emit(
-                            "transcript",
-                            json!({ "role": role, "speaker": speaker, "text": text }),
-                        );
-                    }
-                }
+                Ok(_) => {}
                 Err(e) => {
                     let _ = app.emit("listen-error", e.to_string());
                 }
@@ -364,9 +607,6 @@ pub fn run(
             status(app, "Listening (only silence so far)...");
         }
     }
-
-    drop(streams);
-    Ok(())
 }
 
 /// Interleaved frames -> mono.
@@ -404,102 +644,4 @@ fn resample(mono: &[f32], src_rate: u32, dst_rate: u32) -> Vec<f32> {
         out.push(a + (b - a) * frac);
     }
     out
-}
-
-/// POST a raw linear16 chunk to Deepgram's pre-recorded endpoint. Returns labeled
-/// utterances as (speaker, text). When `diarize` is set, the call audio is split by
-/// speaker into "Speaker 1/2/..."; otherwise a single utterance with an empty speaker
-/// label is returned (the caller assigns the role).
-async fn transcribe_deepgram(
-    http: &reqwest::Client,
-    key: &str,
-    sample_rate: u32,
-    pcm: Vec<u8>,
-    diarize: bool,
-) -> Result<Vec<(String, String)>> {
-    let mut url = format!(
-        "https://api.deepgram.com/v1/listen?model=nova-2&encoding=linear16&sample_rate={sample_rate}&channels=1&punctuate=true&detect_language=true"
-    );
-    if diarize {
-        url.push_str("&diarize=true");
-    }
-    let resp = http
-        .post(url)
-        .header("Authorization", format!("Token {key}"))
-        .header("Content-Type", "audio/raw")
-        .body(pcm)
-        .send()
-        .await
-        .map_err(|e| anyhow!("Could not reach Deepgram: {e}"))?;
-
-    let status = resp.status();
-    let payload: Value = resp
-        .json()
-        .await
-        .map_err(|e| anyhow!("Unexpected response from Deepgram: {e}"))?;
-
-    if !status.is_success() {
-        let detail = payload["err_msg"]
-            .as_str()
-            .or_else(|| payload["error"].as_str())
-            .unwrap_or("");
-        let code = status.as_u16();
-        return Err(match code {
-            401 => anyhow!("Invalid Deepgram API key. Check it in the Assistant tab."),
-            _ if !detail.is_empty() => anyhow!("Deepgram error ({code}): {detail}"),
-            _ => anyhow!("Deepgram error ({code})."),
-        });
-    }
-
-    let alt = &payload["results"]["channels"][0]["alternatives"][0];
-    if diarize {
-        // Group consecutive words by their speaker index into utterances.
-        if let Some(words) = alt["words"].as_array().filter(|w| !w.is_empty()) {
-            let mut out: Vec<(String, String)> = Vec::new();
-            let mut cur: Option<i64> = None;
-            let mut buf = String::new();
-            let flush = |out: &mut Vec<(String, String)>, spk: i64, buf: &str| {
-                if !buf.trim().is_empty() {
-                    out.push((format!("Speaker {}", spk + 1), buf.trim().to_string()));
-                }
-            };
-            for w in words {
-                let spk = w["speaker"].as_i64().unwrap_or(0);
-                let word = w["punctuated_word"]
-                    .as_str()
-                    .or_else(|| w["word"].as_str())
-                    .unwrap_or("");
-                if cur != Some(spk) {
-                    if let Some(prev) = cur {
-                        flush(&mut out, prev, &buf);
-                    }
-                    cur = Some(spk);
-                    buf.clear();
-                }
-                buf.push_str(word);
-                buf.push(' ');
-            }
-            if let Some(prev) = cur {
-                flush(&mut out, prev, &buf);
-            }
-            if !out.is_empty() {
-                return Ok(out);
-            }
-        }
-    }
-
-    // No diarization (mic side), or diarize returned no words: flat transcript.
-    let t = alt["transcript"].as_str().unwrap_or("").to_string();
-    if t.trim().is_empty() {
-        Ok(vec![])
-    } else {
-        Ok(vec![(
-            if diarize {
-                "Speaker 1".to_string()
-            } else {
-                String::new()
-            },
-            t,
-        )])
-    }
 }

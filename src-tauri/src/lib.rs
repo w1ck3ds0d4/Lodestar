@@ -112,6 +112,7 @@ pub fn run() {
             commands::auto_answer,
             commands::set_deepgram_key,
             commands::set_stt_engine,
+            commands::set_stt_language,
             commands::set_capture_source,
             commands::list_monitors,
             commands::answer_screen,

@@ -8,7 +8,7 @@ import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import "katex/dist/katex.min.css";
 import * as api from "../api";
-import { ASSISTANT_MODELS, type AudioDevices, type MonitorInfo } from "../types";
+import { ASSISTANT_MODELS, STT_LANGUAGES, type AudioDevices, type MonitorInfo } from "../types";
 
 interface QA {
   id: number;
@@ -188,6 +188,7 @@ export function AssistantView() {
   const [hasKey, setHasKey] = useState(false);
   const [hasSttKey, setHasSttKey] = useState(false);
   const [sttEngine, setSttEngine] = useState("deepgram");
+  const [sttLanguage, setSttLanguage] = useState("multi");
   const [captureSource, setCaptureSource] = useState("system");
   const [devices, setDevices] = useState<AudioDevices>({ inputs: [], outputs: [] });
   const [inputDevice, setInputDevice] = useState("");
@@ -204,6 +205,9 @@ export function AssistantView() {
   const [listening, setListening] = useState(false);
   const [listenStatus, setListenStatus] = useState("");
   const [segments, setSegments] = useState<DialogSegment[]>([]);
+  // Live (not-yet-final) transcription, one in-progress line per source role. Replaced
+  // on each interim result and cleared when the utterance finalizes into `segments`.
+  const [interim, setInterim] = useState<{ you: string; them: string }>({ you: "", them: "" });
   const [listenError, setListenError] = useState("");
   const [autoAnswer, setAutoAnswer] = useState(true);
   const [captureInfo, setCaptureInfo] = useState<CaptureDevice[]>([]);
@@ -255,6 +259,7 @@ export function AssistantView() {
       setHasKey(s.hasKey);
       setHasSttKey(s.hasSttKey);
       setSttEngine(s.sttEngine);
+      setSttLanguage(s.sttLanguage || "multi");
       setCaptureSource(s.captureSource);
       setInputDevice(s.inputDevice);
       setOutputDevice(s.outputDevice);
@@ -393,8 +398,21 @@ export function AssistantView() {
     const add = (p: Promise<UnlistenFn>) =>
       void p.then((u) => (cancelled ? u() : unlisteners.push(u)));
     add(
-      listen<{ role: "you" | "them"; speaker: string; text: string }>("transcript", (e) =>
-        setSegments((s) => [...s, { id: ++segIdRef.current, ...e.payload }]),
+      listen<{ role: "you" | "them"; speaker: string; text: string; final?: boolean }>(
+        "transcript",
+        (e) => {
+          const { role, speaker, text, final } = e.payload;
+          if (final === false) {
+            // Interim: update the live line for this source (don't commit yet).
+            setInterim((m) => ({ ...m, [role]: text }));
+            return;
+          }
+          // Final: commit to the dialog (skip empty endpoints) and clear the live line.
+          if (text.trim()) {
+            setSegments((s) => [...s, { id: ++segIdRef.current, role, speaker, text }]);
+          }
+          setInterim((m) => (m[role] ? { ...m, [role]: "" } : m));
+        },
       ),
     );
     add(listen<string>("listen-status", (e) => setListenStatus(String(e.payload))));
@@ -407,6 +425,7 @@ export function AssistantView() {
         setListenStatus("");
         setCaptureInfo([]);
         setLevel({ peak: 0, buffered: 0 });
+        setInterim({ you: "", them: "" });
       }),
     );
     return () => {
@@ -488,6 +507,11 @@ export function AssistantView() {
     await api.setCaptureSource(s);
   };
 
+  const changeLanguage = async (lang: string) => {
+    setSttLanguage(lang);
+    await api.setSttLanguage(lang);
+  };
+
   const changeOutputDevice = async (name: string) => {
     setOutputDevice(name);
     await api.setOutputDevice(name);
@@ -506,6 +530,7 @@ export function AssistantView() {
       return;
     }
     setListenError("");
+    setInterim({ you: "", them: "" });
     try {
       await api.startListening();
       setListening(true);
@@ -516,6 +541,7 @@ export function AssistantView() {
 
   const clearTranscript = () => {
     setSegments([]);
+    setInterim({ you: "", them: "" });
     answeredIdx.current = 0;
   };
 
@@ -768,6 +794,24 @@ export function AssistantView() {
               </div>
             </div>
 
+            {sttEngine === "deepgram" && (
+              <div className="setup-row">
+                <span className="setup-label">Language</span>
+                <select
+                  value={sttLanguage}
+                  disabled={listening}
+                  title="Spoken language for Deepgram. Streaming can't auto-detect, so pick the language of the call (or Multilingual)."
+                  onChange={(e) => void changeLanguage(e.target.value)}
+                >
+                  {STT_LANGUAGES.map((l) => (
+                    <option key={l.code} value={l.code}>
+                      {l.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
             <div className="setup-row">
               <span className="setup-label">Capture</span>
               <div className="seg" role="group" aria-label="Capture source">
@@ -964,6 +1008,17 @@ export function AssistantView() {
                     <div className="seg-bubble">{s.text}</div>
                   </div>
                 ))}
+                {(["them", "you"] as const).map((role) =>
+                  interim[role] ? (
+                    <div key={"interim-" + role} className={"seg-msg seg-" + role + " seg-interim"}>
+                      {role === "them" && <span className="seg-chip seg-chip--live">Speaking…</span>}
+                      <div className="seg-bubble">
+                        {interim[role]}
+                        <span className="seg-caret" />
+                      </div>
+                    </div>
+                  ) : null,
+                )}
               </div>
             ) : (
               <div className="dialog-empty">

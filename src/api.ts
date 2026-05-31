@@ -125,6 +125,7 @@ export const autoAnswer = (transcript: string, latest: string) =>
 // --- Live listening (system-audio capture -> Deepgram) ---
 export const setDeepgramKey = (key: string) => invoke<void>("set_deepgram_key", { key });
 export const setSttEngine = (engine: string) => invoke<void>("set_stt_engine", { engine });
+export const setSttLanguage = (language: string) => invoke<void>("set_stt_language", { language });
 export const setCaptureSource = (source: string) => invoke<void>("set_capture_source", { source });
 export const listAudioDevices = () => invoke<AudioDevices>("list_audio_devices");
 export const setInputDevice = (name: string) => invoke<void>("set_input_device", { name });

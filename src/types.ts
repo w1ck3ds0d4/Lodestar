@@ -217,6 +217,7 @@ export interface AssistantSettings {
   hasKey: boolean;
   hasSttKey: boolean;
   sttEngine: string;
+  sttLanguage: string;
   captureSource: string;
   model: string;
   inputDevice: string;
@@ -244,6 +245,24 @@ export interface ScreenAnswer {
   changed: boolean;
   answer: string;
 }
+
+// Deepgram transcription languages. "multi" is the multilingual / code-switching
+// model; the rest pin a single language (streaming has no auto-detect, unlike batch).
+export const STT_LANGUAGES: { code: string; label: string }[] = [
+  { code: "multi", label: "Multilingual (auto)" },
+  { code: "en", label: "English" },
+  { code: "pt", label: "Portuguese" },
+  { code: "es", label: "Spanish" },
+  { code: "fr", label: "French" },
+  { code: "de", label: "German" },
+  { code: "it", label: "Italian" },
+  { code: "nl", label: "Dutch" },
+  { code: "ru", label: "Russian" },
+  { code: "hi", label: "Hindi" },
+  { code: "ja", label: "Japanese" },
+  { code: "ko", label: "Korean" },
+  { code: "zh", label: "Chinese" },
+];
 
 export const ASSISTANT_MODELS: { id: string; label: string; note: string }[] = [
   { id: "claude-opus-4-8", label: "Claude Opus 4.8", note: "most capable, slower" },
