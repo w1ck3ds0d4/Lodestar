@@ -184,6 +184,9 @@ select:focus {
 .results:has(.assistant.three-col) {
   overflow: hidden;
 }
+.assistant-loading {
+  padding: 24px 4px;
+}
 
 /* Dialog column: speaker-attributed chat, newest on top via column-reverse. */
 .dialog-head {

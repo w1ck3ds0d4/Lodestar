@@ -71,6 +71,7 @@ function QaCard({ e }: { e: QA }) {
 }
 
 export function AssistantView() {
+  const [loaded, setLoaded] = useState(false);
   const [hasKey, setHasKey] = useState(false);
   const [hasSttKey, setHasSttKey] = useState(false);
   const [sttEngine, setSttEngine] = useState("deepgram");
@@ -126,14 +127,18 @@ export function AssistantView() {
   );
 
   const loadSettings = useCallback(async () => {
-    const s = await api.getAssistantSettings();
-    setHasKey(s.hasKey);
-    setHasSttKey(s.hasSttKey);
-    setSttEngine(s.sttEngine);
-    setCaptureSource(s.captureSource);
-    setInputDevice(s.inputDevice);
-    setOutputDevice(s.outputDevice);
-    setModel(s.model);
+    try {
+      const s = await api.getAssistantSettings();
+      setHasKey(s.hasKey);
+      setHasSttKey(s.hasSttKey);
+      setSttEngine(s.sttEngine);
+      setCaptureSource(s.captureSource);
+      setInputDevice(s.inputDevice);
+      setOutputDevice(s.outputDevice);
+      setModel(s.model);
+    } finally {
+      setLoaded(true);
+    }
   }, []);
   useEffect(() => {
     void loadSettings();
@@ -337,7 +342,9 @@ export function AssistantView() {
         </select>
       </div>
 
-      {!hasKey ? (
+      {!loaded ? (
+        <div className="assistant-loading muted sm">Loading…</div>
+      ) : !hasKey ? (
         <div className="add-source">
           <h3>
             <KeyRound size={16} /> Connect your Anthropic API key
@@ -581,7 +588,7 @@ export function AssistantView() {
                 type="range"
                 min={0.3}
                 max={1}
-                step={0.05}
+                step={0.01}
                 value={opacity}
                 onChange={(e) => setOpacity(Number(e.target.value))}
                 title="Make the window translucent so it sits over a call (Windows)"
