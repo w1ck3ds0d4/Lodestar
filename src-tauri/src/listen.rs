@@ -98,6 +98,7 @@ pub fn run(
         .play()
         .map_err(|e| anyhow!("Could not start audio capture: {e}"))?;
 
+    let mut empty_cycles = 0u32;
     while flag.load(Ordering::SeqCst) {
         std::thread::sleep(Duration::from_secs(CHUNK_SECS));
         let samples = {
@@ -105,14 +106,25 @@ pub fn run(
             std::mem::take(&mut *g)
         };
         if samples.is_empty() {
+            // No callback data at all -> loopback isn't delivering audio.
+            empty_cycles += 1;
+            if empty_cycles == 2 {
+                status(
+                    app,
+                    "No system audio captured yet - make sure sound is actually playing through your speakers/headphones.",
+                );
+            }
             continue;
         }
+        empty_cycles = 0;
         let mono = downmix_mono(&samples, channels);
         // Skip near-silent chunks so dead air doesn't spend requests / CPU.
         let peak = mono.iter().fold(0f32, |m, &s| m.max(s.abs()));
         if peak < SILENCE_PEAK {
+            status(app, "Listening (only silence so far)...");
             continue;
         }
+        status(app, "Transcribing...");
 
         let text = match &engine {
             EngineConfig::Deepgram { key } => {
