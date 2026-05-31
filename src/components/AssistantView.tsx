@@ -81,6 +81,9 @@ export function AssistantView() {
   const [inputDevice, setInputDevice] = useState("");
   const [outputDevice, setOutputDevice] = useState("");
   const [model, setModel] = useState("claude-opus-4-8");
+  const [answerEngine, setAnswerEngine] = useState("claude");
+  const [ollamaModel, setOllamaModel] = useState("");
+  const [ollamaModels, setOllamaModels] = useState<string[]>([]);
   const [keyInput, setKeyInput] = useState("");
   const [sttKeyInput, setSttKeyInput] = useState("");
   const [savingKey, setSavingKey] = useState(false);
@@ -137,15 +140,24 @@ export function AssistantView() {
       setInputDevice(s.inputDevice);
       setOutputDevice(s.outputDevice);
       setModel(s.model);
+      setAnswerEngine(s.answerEngine);
+      setOllamaModel(s.ollamaModel);
     } finally {
       setLoaded(true);
     }
+  }, []);
+  const refreshOllamaModels = useCallback(() => {
+    void api
+      .listOllamaModels()
+      .then(setOllamaModels)
+      .catch(() => setOllamaModels([]));
   }, []);
   useEffect(() => {
     void loadSettings();
     void api.listAudioDevices().then(setDevices).catch(() => {});
     void api.listMonitors().then(setMonitors).catch(() => {});
-  }, [loadSettings]);
+    refreshOllamaModels();
+  }, [loadSettings, refreshOllamaModels]);
 
   // Capture the chosen screen and append any answer to the Q&A feed. `force`
   // answers even an unchanged screen (manual button); auto-watch passes false so
@@ -286,6 +298,17 @@ export function AssistantView() {
     await api.setAssistantModel(m);
   };
 
+  const changeAnswerEngine = async (e: string) => {
+    setAnswerEngine(e);
+    await api.setAnswerEngine(e);
+    if (e === "ollama") refreshOllamaModels();
+  };
+
+  const changeOllamaModel = async (m: string) => {
+    setOllamaModel(m);
+    await api.setOllamaModel(m);
+  };
+
   const changeEngine = async (e: string) => {
     setSttEngine(e);
     await api.setSttEngine(e);
@@ -355,7 +378,7 @@ export function AssistantView() {
 
       {!loaded ? (
         <div className="assistant-loading muted sm">Loading…</div>
-      ) : !hasKey ? (
+      ) : !hasKey && answerEngine !== "ollama" ? (
         <div className="add-source">
           <h3>
             <KeyRound size={16} /> Connect your Anthropic API key
@@ -378,12 +401,67 @@ export function AssistantView() {
               {savingKey ? "Saving..." : "Save key"}
             </button>
           </div>
+          <p className="muted sm">
+            No key?{" "}
+            <button className="link-btn" onClick={() => void changeAnswerEngine("ollama")}>
+              Use a local model (Ollama) instead
+            </button>{" "}
+            - free and private, no API cost.
+          </p>
         </div>
       ) : (
         <div className="assistant-body">
           <section className="assistant-col col-settings">
           <div className={"setup-card" + (listening ? " is-listening" : "")}>
             <div className="setup-title">Setup</div>
+
+            <div className="setup-row">
+              <span className="setup-label">Answer</span>
+              <div className="seg" role="group" aria-label="Answer engine">
+                <button
+                  className={"seg-btn" + (answerEngine === "claude" ? " on" : "")}
+                  aria-pressed={answerEngine === "claude"}
+                  title="Claude (cloud) - sharpest answers; uses your Anthropic API key"
+                  onClick={() => void changeAnswerEngine("claude")}
+                >
+                  Claude
+                </button>
+                <button
+                  className={"seg-btn" + (answerEngine === "ollama" ? " on" : "")}
+                  aria-pressed={answerEngine === "ollama"}
+                  title="Local (Ollama) - free + private, runs on your machine; requires Ollama"
+                  onClick={() => void changeAnswerEngine("ollama")}
+                >
+                  Local
+                </button>
+              </div>
+            </div>
+
+            {answerEngine === "ollama" && (
+              <div className="setup-row">
+                <span className="setup-label">Ollama model</span>
+                {ollamaModels.length > 0 ? (
+                  <select
+                    value={ollamaModel}
+                    onChange={(e) => void changeOllamaModel(e.target.value)}
+                    title="Local model used to answer (run `ollama pull <model>` to add more)"
+                  >
+                    <option value="">Select a model…</option>
+                    {ollamaModels.map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <span className="muted sm">
+                    No models found - start Ollama, then <code>ollama pull llama3.1</code>.
+                  </span>
+                )}
+              </div>
+            )}
+
+            <div className="setup-divider" />
 
             <div className="setup-row">
               <span className="setup-label">Transcription</span>

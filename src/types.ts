@@ -219,6 +219,9 @@ export interface AssistantSettings {
   model: string;
   inputDevice: string;
   outputDevice: string;
+  answerEngine: string;
+  ollamaUrl: string;
+  ollamaModel: string;
 }
 
 export interface AudioDevices {

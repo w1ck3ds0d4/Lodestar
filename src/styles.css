@@ -1,15 +1,20 @@
 :root {
-  --bg: #0f172a;
+  --bg: #0e1626;
   --bg-2: #111c33;
   --panel: #16223b;
   --panel-2: #1b2942;
-  --border: #243352;
-  --text: #e6edf7;
-  --muted: #93a4c0;
+  --border: #25344f;
+  --text: #e8eef9;
+  --muted: #94a4c0;
   --accent: #10b981;
   --accent-2: #34d399;
   --danger: #f87171;
   --radius: 12px;
+  --radius-lg: 16px;
+  --ring: 0 0 0 3px rgba(16, 185, 129, 0.22);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 8px 24px -10px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 18px 44px -14px rgba(0, 0, 0, 0.6);
 }
 
 * {
@@ -24,15 +29,47 @@ body,
 }
 
 body {
-  background: var(--bg);
+  background:
+    radial-gradient(1100px 560px at 100% -8%, rgba(16, 185, 129, 0.06), transparent 60%),
+    radial-gradient(900px 500px at -5% 0%, rgba(52, 211, 153, 0.04), transparent 55%), var(--bg);
   color: var(--text);
   font: 14px/1.5 system-ui, "Segoe UI", Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Thin, subtle scrollbars (modern, unobtrusive). */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #34466a;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 button {
   font: inherit;
   cursor: pointer;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease,
+    box-shadow 0.15s ease,
+    transform 0.06s ease;
 }
 
 input,
@@ -44,11 +81,48 @@ select {
   border-radius: 8px;
   padding: 8px 10px;
   outline: none;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
 }
 
 input:focus,
 select:focus {
   border-color: var(--accent);
+  box-shadow: var(--ring);
+}
+
+/* --- Modern elevation + interaction polish (applies across all views) --- */
+.topbar {
+  box-shadow: var(--shadow-sm);
+}
+.card,
+.qa,
+.add-source,
+.assistant-col {
+  box-shadow: var(--shadow-sm);
+  border-radius: var(--radius-lg);
+}
+.card {
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+.card:hover {
+  border-color: #33486e;
+  box-shadow: var(--shadow-md);
+}
+.btn-sync:hover,
+.btn-open:hover,
+.btn-listen.primary:hover {
+  box-shadow: var(--shadow-md);
+}
+.btn-sync:active,
+.btn-open:active,
+.btn-listen:active,
+.nav-btn:active,
+.icon-btn:active {
+  transform: translateY(1px);
 }
 
 .app {

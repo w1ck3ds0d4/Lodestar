@@ -1,15 +1,23 @@
-//! Claude API client for the on-the-spot study / answer assistant.
+//! Answer engine for the on-the-spot study / answer assistant.
 //!
-//! There is no official Anthropic Rust SDK, so this talks to the Messages API
-//! (`POST /v1/messages`) directly over the shared reqwest client. The API key is
-//! read from local SQLite by the caller and passed in here; it never leaves the
-//! machine except in the request to api.anthropic.com.
+//! Two backends behind one interface: Claude (Anthropic Messages API, the default)
+//! and a local Ollama server. There is no official Anthropic Rust SDK, so Claude is
+//! talked to over the shared reqwest client; the API key is read from local SQLite
+//! by the caller and never leaves the machine except in the request to
+//! api.anthropic.com. Ollama runs entirely on the user's machine (no API cost).
+//! Both backends stream when an `on_token` callback is supplied.
 
 use anyhow::{anyhow, Result};
 use serde_json::{json, Value};
 
 const API_URL: &str = "https://api.anthropic.com/v1/messages";
 const ANTHROPIC_VERSION: &str = "2023-06-01";
+
+/// Which backend answers: cloud Claude (default) or a local Ollama model.
+pub enum Engine {
+    Claude { api_key: String, model: String },
+    Ollama { url: String, model: String },
+}
 
 const SYSTEM_PROMPT: &str = "You are a real-time study and conversation assistant embedded in a desktop app. \
 The user is often mid-call, in a lecture, or studying and needs fast, correct help. Given a question or a \
@@ -172,8 +180,7 @@ async fn complete_content(
 /// transcript snippet or notes).
 pub async fn ask(
     http: &reqwest::Client,
-    api_key: &str,
-    model: &str,
+    engine: &Engine,
     question: &str,
     context: Option<&str>,
     on_token: Option<&(dyn Fn(&str) + Send + Sync)>,
@@ -184,21 +191,34 @@ pub async fn ask(
         ),
         _ => question.to_string(),
     };
-    complete(http, api_key, model, SYSTEM_PROMPT, user_text, on_token).await
+    match engine {
+        Engine::Claude { api_key, model } => {
+            complete(http, api_key, model, SYSTEM_PROMPT, user_text, on_token).await
+        }
+        Engine::Ollama { url, model } => {
+            ollama_chat(http, url, model, SYSTEM_PROMPT, user_text, None, on_token).await
+        }
+    }
 }
 
 /// Auto-answer: given the recent transcript and the newest segment, answer it if it
 /// is a question/problem (in any language), otherwise return the literal "NONE".
 pub async fn auto_answer(
     http: &reqwest::Client,
-    api_key: &str,
-    model: &str,
+    engine: &Engine,
     transcript: &str,
     latest: &str,
 ) -> Result<String> {
     let user_text =
         format!("Earlier transcript (context):\n{transcript}\n\nNew text to consider:\n{latest}");
-    complete(http, api_key, model, AUTO_PROMPT, user_text, None).await
+    match engine {
+        Engine::Claude { api_key, model } => {
+            complete(http, api_key, model, AUTO_PROMPT, user_text, None).await
+        }
+        Engine::Ollama { url, model } => {
+            ollama_chat(http, url, model, AUTO_PROMPT, user_text, None, None).await
+        }
+    }
 }
 
 /// System prompt for the screen watcher: read a screenshot and answer any
@@ -214,18 +234,155 @@ an ordinary app, desktop, or chat with nothing being asked), reply with exactly 
 /// return the literal "NONE" when there is nothing to answer.
 pub async fn answer_screen(
     http: &reqwest::Client,
-    api_key: &str,
-    model: &str,
+    engine: &Engine,
     png_base64: &str,
 ) -> Result<String> {
-    let content = json!([
-        {
-            "type": "image",
-            "source": { "type": "base64", "media_type": "image/png", "data": png_base64 }
-        },
-        { "type": "text", "text": "Find and answer any question or problem visible on this screen." }
-    ]);
-    complete_content(http, api_key, model, SCREEN_PROMPT, content, None).await
+    let prompt = "Find and answer any question or problem visible on this screen.";
+    match engine {
+        Engine::Claude { api_key, model } => {
+            let content = json!([
+                {
+                    "type": "image",
+                    "source": { "type": "base64", "media_type": "image/png", "data": png_base64 }
+                },
+                { "type": "text", "text": prompt }
+            ]);
+            complete_content(http, api_key, model, SCREEN_PROMPT, content, None).await
+        }
+        Engine::Ollama { url, model } => {
+            ollama_chat(
+                http,
+                url,
+                model,
+                SCREEN_PROMPT,
+                prompt.to_string(),
+                Some(png_base64),
+                None,
+            )
+            .await
+        }
+    }
+}
+
+/// Chat with a local Ollama model via `POST {url}/api/chat`. Streams NDJSON when
+/// `on_token` is set (each line carries a `message.content` delta), and supports a
+/// base64 image for vision models. Returns the full assistant text.
+async fn ollama_chat(
+    http: &reqwest::Client,
+    url: &str,
+    model: &str,
+    system: &str,
+    user_text: String,
+    image_base64: Option<&str>,
+    on_token: Option<&(dyn Fn(&str) + Send + Sync)>,
+) -> Result<String> {
+    let base = url.trim_end_matches('/');
+    let mut user_msg = json!({ "role": "user", "content": user_text });
+    if let Some(img) = image_base64 {
+        user_msg["images"] = json!([img]);
+    }
+    let body = json!({
+        "model": model,
+        "stream": on_token.is_some(),
+        "messages": [
+            { "role": "system", "content": system },
+            user_msg,
+        ],
+    });
+
+    let resp = http
+        .post(format!("{base}/api/chat"))
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| {
+            anyhow!("Could not reach Ollama at {base}. Is `ollama serve` running? ({e})")
+        })?;
+
+    let status = resp.status();
+    if !status.is_success() {
+        let detail = resp.text().await.unwrap_or_default();
+        let detail = serde_json::from_str::<Value>(&detail)
+            .ok()
+            .and_then(|v| v["error"].as_str().map(str::to_string))
+            .unwrap_or(detail);
+        return Err(match status.as_u16() {
+            404 => anyhow!("Ollama model '{model}' not found. Pull it with `ollama pull {model}`."),
+            _ => anyhow!("Ollama error ({}): {detail}", status.as_u16()),
+        });
+    }
+
+    if on_token.is_none() {
+        let payload: Value = resp
+            .json()
+            .await
+            .map_err(|e| anyhow!("Unexpected response from Ollama: {e}"))?;
+        let text = payload["message"]["content"].as_str().unwrap_or("").trim();
+        return if text.is_empty() {
+            Err(anyhow!("Ollama returned an empty response."))
+        } else {
+            Ok(text.to_string())
+        };
+    }
+
+    // Streaming: one JSON object per line, each with an incremental message.content.
+    let on_token = on_token.unwrap();
+    let mut resp = resp;
+    let mut full = String::new();
+    let mut buf = String::new();
+    while let Some(chunk) = resp
+        .chunk()
+        .await
+        .map_err(|e| anyhow!("Lost connection to Ollama: {e}"))?
+    {
+        buf.push_str(&String::from_utf8_lossy(&chunk));
+        while let Some(nl) = buf.find('\n') {
+            let line: String = buf.drain(..=nl).collect();
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            let Ok(ev) = serde_json::from_str::<Value>(line) else {
+                continue;
+            };
+            if let Some(t) = ev["message"]["content"].as_str() {
+                if !t.is_empty() {
+                    full.push_str(t);
+                    on_token(t);
+                }
+            }
+            if let Some(err) = ev["error"].as_str() {
+                return Err(anyhow!("Ollama error: {err}"));
+            }
+        }
+    }
+    if full.trim().is_empty() {
+        return Err(anyhow!("Ollama returned an empty response."));
+    }
+    Ok(full.trim().to_string())
+}
+
+/// List locally-available Ollama model names via `GET {url}/api/tags`.
+pub async fn ollama_models(http: &reqwest::Client, url: &str) -> Result<Vec<String>> {
+    let base = url.trim_end_matches('/');
+    let payload: Value = http
+        .get(format!("{base}/api/tags"))
+        .send()
+        .await
+        .map_err(|e| anyhow!("Could not reach Ollama at {base}: {e}"))?
+        .error_for_status()
+        .map_err(|e| anyhow!("Ollama error: {e}"))?
+        .json()
+        .await
+        .map_err(|e| anyhow!("Unexpected response from Ollama: {e}"))?;
+    Ok(payload["models"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|m| m["name"].as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default())
 }
 
 /// Map an API error status + body to a concise, user-facing message.

@@ -314,9 +314,41 @@ pub fn set_screen_privacy(window: tauri::WebviewWindow, enabled: bool) -> Result
         .map_err(|e| e.to_string())
 }
 
-// --- Assistant (Claude API) ---
+// --- Assistant (Claude / Ollama) ---
 
 const DEFAULT_MODEL: &str = "claude-opus-4-8";
+const DEFAULT_OLLAMA_URL: &str = "http://localhost:11434";
+const DEFAULT_OLLAMA_MODEL: &str = "llama3.1";
+
+/// Build the answer engine from settings: Claude (default) or local Ollama.
+fn build_engine(conn: &rusqlite::Connection) -> Result<crate::assistant::Engine, String> {
+    let engine = db::get_setting(conn, "answer_engine")
+        .map_err(|e| e.to_string())?
+        .unwrap_or_else(|| "claude".to_string());
+    if engine == "ollama" {
+        let url = db::get_setting(conn, "ollama_url")
+            .map_err(|e| e.to_string())?
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or_else(|| DEFAULT_OLLAMA_URL.to_string());
+        let model = db::get_setting(conn, "ollama_model")
+            .map_err(|e| e.to_string())?
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or_else(|| DEFAULT_OLLAMA_MODEL.to_string());
+        Ok(crate::assistant::Engine::Ollama { url, model })
+    } else {
+        let key = db::get_setting(conn, "anthropic_api_key")
+            .map_err(|e| e.to_string())?
+            .filter(|k| !k.trim().is_empty())
+            .ok_or("No API key set. Add your Anthropic API key in the Assistant tab.")?;
+        let model = db::get_setting(conn, "assistant_model")
+            .map_err(|e| e.to_string())?
+            .unwrap_or_else(|| DEFAULT_MODEL.to_string());
+        Ok(crate::assistant::Engine::Claude {
+            api_key: key,
+            model,
+        })
+    }
+}
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -328,6 +360,9 @@ pub struct AssistantSettings {
     pub model: String,
     pub input_device: String,
     pub output_device: String,
+    pub answer_engine: String,
+    pub ollama_url: String,
+    pub ollama_model: String,
 }
 
 #[tauri::command]
@@ -355,6 +390,16 @@ pub fn get_assistant_settings(state: State<'_, AppState>) -> Result<AssistantSet
     let model = db::get_setting(&conn, "assistant_model")
         .map_err(|e| e.to_string())?
         .unwrap_or_else(|| DEFAULT_MODEL.to_string());
+    let answer_engine = db::get_setting(&conn, "answer_engine")
+        .map_err(|e| e.to_string())?
+        .unwrap_or_else(|| "claude".to_string());
+    let ollama_url = db::get_setting(&conn, "ollama_url")
+        .map_err(|e| e.to_string())?
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| DEFAULT_OLLAMA_URL.to_string());
+    let ollama_model = db::get_setting(&conn, "ollama_model")
+        .map_err(|e| e.to_string())?
+        .unwrap_or_default();
     Ok(AssistantSettings {
         has_key,
         has_stt_key,
@@ -363,7 +408,52 @@ pub fn get_assistant_settings(state: State<'_, AppState>) -> Result<AssistantSet
         model,
         input_device: get("input_device")?,
         output_device: get("output_device")?,
+        answer_engine,
+        ollama_url,
+        ollama_model,
     })
+}
+
+/// Set the answer engine: "claude" (default) or "ollama".
+#[tauri::command]
+pub fn set_answer_engine(state: State<'_, AppState>, engine: String) -> Result<(), String> {
+    let conn = state.db.lock().map_err(|_| "db poisoned")?;
+    db::set_setting(&conn, "answer_engine", &engine).map_err(|e| e.to_string())
+}
+
+/// Set the Ollama model used when the answer engine is "ollama".
+#[tauri::command]
+pub fn set_ollama_model(state: State<'_, AppState>, model: String) -> Result<(), String> {
+    let conn = state.db.lock().map_err(|_| "db poisoned")?;
+    db::set_setting(&conn, "ollama_model", model.trim()).map_err(|e| e.to_string())
+}
+
+/// Set the Ollama server URL (blank => default localhost:11434).
+#[tauri::command]
+pub fn set_ollama_url(state: State<'_, AppState>, url: String) -> Result<(), String> {
+    let conn = state.db.lock().map_err(|_| "db poisoned")?;
+    let url = url.trim();
+    if url.is_empty() {
+        db::delete_setting(&conn, "ollama_url").map_err(|e| e.to_string())
+    } else {
+        db::set_setting(&conn, "ollama_url", url).map_err(|e| e.to_string())
+    }
+}
+
+/// List locally-installed Ollama models (for the model picker).
+#[tauri::command]
+pub async fn list_ollama_models(state: State<'_, AppState>) -> Result<Vec<String>, String> {
+    let (http, url) = {
+        let conn = state.db.lock().map_err(|_| "db poisoned")?;
+        let url = db::get_setting(&conn, "ollama_url")
+            .map_err(|e| e.to_string())?
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or_else(|| DEFAULT_OLLAMA_URL.to_string());
+        (state.http.clone(), url)
+    };
+    crate::assistant::ollama_models(&http, &url)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[derive(Serialize)]
@@ -442,20 +532,17 @@ pub async fn ask_assistant(
         });
         return Ok(());
     }
-    // Read the key + model under a brief lock, then drop it before the await.
-    let (key, model) = {
+    // Build the engine under a brief lock, then drop it before the await.
+    let engine = {
         let conn = state.db.lock().map_err(|_| "db poisoned")?;
-        let key = db::get_setting(&conn, "anthropic_api_key").map_err(|e| e.to_string())?;
-        let model = db::get_setting(&conn, "assistant_model")
-            .map_err(|e| e.to_string())?
-            .unwrap_or_else(|| DEFAULT_MODEL.to_string());
-        (key, model)
+        build_engine(&conn)
     };
-    let Some(key) = key.filter(|k| !k.trim().is_empty()) else {
-        let _ = on_event.send(AnswerChunk::Error {
-            message: "No API key set. Add your Anthropic API key in the Assistant tab.".into(),
-        });
-        return Ok(());
+    let engine = match engine {
+        Ok(e) => e,
+        Err(message) => {
+            let _ = on_event.send(AnswerChunk::Error { message });
+            return Ok(());
+        }
     };
     let http = state.http.clone();
     let emit = |t: &str| {
@@ -463,16 +550,7 @@ pub async fn ask_assistant(
             text: t.to_string(),
         });
     };
-    match crate::assistant::ask(
-        &http,
-        &key,
-        &model,
-        &question,
-        context.as_deref(),
-        Some(&emit),
-    )
-    .await
-    {
+    match crate::assistant::ask(&http, &engine, &question, context.as_deref(), Some(&emit)).await {
         Ok(full) => {
             let _ = on_event.send(AnswerChunk::Done { text: full });
         }
@@ -496,19 +574,12 @@ pub async fn auto_answer(
     if latest.trim().is_empty() {
         return Ok("NONE".into());
     }
-    let (key, model) = {
+    let engine = {
         let conn = state.db.lock().map_err(|_| "db poisoned")?;
-        let key = db::get_setting(&conn, "anthropic_api_key").map_err(|e| e.to_string())?;
-        let model = db::get_setting(&conn, "assistant_model")
-            .map_err(|e| e.to_string())?
-            .unwrap_or_else(|| DEFAULT_MODEL.to_string());
-        (key, model)
+        build_engine(&conn)?
     };
-    let key = key
-        .filter(|k| !k.trim().is_empty())
-        .ok_or("No API key set. Add your Anthropic API key in the Assistant tab.")?;
     let http = state.http.clone();
-    crate::assistant::auto_answer(&http, &key, &model, &transcript, &latest)
+    crate::assistant::auto_answer(&http, &engine, &transcript, &latest)
         .await
         .map_err(|e| e.to_string())
 }
@@ -566,21 +637,14 @@ pub async fn answer_screen(
         *last = Some(cap.hash);
     }
 
-    let (key, model) = {
+    let engine = {
         let conn = state.db.lock().map_err(|_| "db poisoned")?;
-        let key = db::get_setting(&conn, "anthropic_api_key").map_err(|e| e.to_string())?;
-        let model = db::get_setting(&conn, "assistant_model")
-            .map_err(|e| e.to_string())?
-            .unwrap_or_else(|| DEFAULT_MODEL.to_string());
-        (key, model)
+        build_engine(&conn)?
     };
-    let key = key
-        .filter(|k| !k.trim().is_empty())
-        .ok_or("No API key set. Add your Anthropic API key in the Assistant tab.")?;
 
     let b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &cap.png);
     let http = state.http.clone();
-    let answer = crate::assistant::answer_screen(&http, &key, &model, &b64)
+    let answer = crate::assistant::answer_screen(&http, &engine, &b64)
         .await
         .map_err(|e| e.to_string())?;
     Ok(ScreenAnswer {
