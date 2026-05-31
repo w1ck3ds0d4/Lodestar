@@ -1,3 +1,4 @@
+mod assistant;
 mod career;
 mod commands;
 mod db;
@@ -82,6 +83,11 @@ pub fn run() {
             commands::update_skill,
             commands::log_study,
             commands::remove_skill,
+            commands::set_screen_privacy,
+            commands::get_assistant_settings,
+            commands::set_api_key,
+            commands::set_assistant_model,
+            commands::ask_assistant,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

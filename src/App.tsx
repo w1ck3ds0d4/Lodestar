@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { Bell, ClipboardList, GraduationCap, Radar, RefreshCw, Search, Settings } from "lucide-react";
+import { Bell, Bot, ClipboardList, Eye, EyeOff, GraduationCap, Radar, RefreshCw, Search, Settings } from "lucide-react";
 import * as api from "./api";
 import { KIND_LABELS, LEVELS, WORKPLACES, type Alert, type Job, type Source, type Stats } from "./types";
 import { JobCard } from "./components/JobCard";
@@ -8,8 +8,9 @@ import { SourcesPanel } from "./components/SourcesPanel";
 import { AlertsPanel } from "./components/AlertsPanel";
 import { TrackerView } from "./components/TrackerView";
 import { StudyView } from "./components/StudyView";
+import { AssistantView } from "./components/AssistantView";
 
-type View = "search" | "tracker" | "study";
+type View = "search" | "tracker" | "study" | "assistant";
 
 export default function App() {
   const [view, setView] = useState<View>("search");
@@ -24,6 +25,7 @@ export default function App() {
   const [syncing, setSyncing] = useState(false);
   const [loading, setLoading] = useState(false);
   const [panel, setPanel] = useState<"sources" | "alerts" | null>(null);
+  const [capHidden, setCapHidden] = useState(true);
 
   const refreshSources = useCallback(async () => setSources(await api.listSources()), []);
   const refreshAlerts = useCallback(async () => setAlerts(await api.listAlerts()), []);
@@ -73,6 +75,12 @@ export default function App() {
 
   const onOpen = useCallback((url: string) => void openUrl(url), []);
 
+  const toggleCapture = useCallback(async () => {
+    const next = !capHidden;
+    await api.setScreenPrivacy(next);
+    setCapHidden(next);
+  }, [capHidden]);
+
   const onTrack = useCallback(async (job: Job) => {
     await api.addTracked({
       kind: "application",
@@ -108,11 +116,24 @@ export default function App() {
           <button className={"nav-btn" + (view === "study" ? " active" : "")} onClick={() => setView("study")}>
             <GraduationCap size={15} /> Study
           </button>
+          <button
+            className={"nav-btn" + (view === "assistant" ? " active" : "")}
+            onClick={() => setView("assistant")}
+          >
+            <Bot size={15} /> Assistant
+          </button>
         </nav>
         <div className="spacer" />
         <div className="stat-pill">
           {stats.totalJobs.toLocaleString()} jobs · {stats.companies.toLocaleString()} companies
         </div>
+        <button
+          className={"icon-btn" + (capHidden ? " active" : "")}
+          title={capHidden ? "Hidden from screen capture - click to show in shares" : "Visible to screen capture - click to hide"}
+          onClick={toggleCapture}
+        >
+          {capHidden ? <EyeOff size={18} /> : <Eye size={18} />}
+        </button>
         <button className="icon-btn" title="Alerts" onClick={() => setPanel("alerts")}><Bell size={18} /></button>
         <button className="icon-btn" title="Sources" onClick={() => setPanel("sources")}><Settings size={18} /></button>
         <button className="btn-sync" onClick={onSync} disabled={syncing}>
@@ -213,7 +234,15 @@ export default function App() {
           </main>
         </>
       ) : (
-        <main className="results">{view === "tracker" ? <TrackerView onOpen={onOpen} /> : <StudyView />}</main>
+        <main className="results">
+          {view === "tracker" ? (
+            <TrackerView onOpen={onOpen} />
+          ) : view === "study" ? (
+            <StudyView />
+          ) : (
+            <AssistantView />
+          )}
+        </main>
       )}
 
       {panel === "sources" && (

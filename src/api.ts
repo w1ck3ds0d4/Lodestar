@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { Alert, Job, Skill, Source, Stats, Tracked } from "./types";
+import type { Alert, AssistantSettings, Job, Skill, Source, Stats, Tracked } from "./types";
 
 export const searchJobs = (
   query: string,
@@ -65,3 +65,13 @@ export const updateSkill = (id: number, name: string, goal: string, level: numbe
   invoke<void>("update_skill", { id, name, goal, level, notes });
 export const logStudy = (id: number, hours: number) => invoke<void>("log_study", { id, hours });
 export const removeSkill = (id: number) => invoke<void>("remove_skill", { id });
+
+// --- Screen privacy (exclude window from screen capture / sharing) ---
+export const setScreenPrivacy = (enabled: boolean) => invoke<void>("set_screen_privacy", { enabled });
+
+// --- Assistant (Claude API) ---
+export const getAssistantSettings = () => invoke<AssistantSettings>("get_assistant_settings");
+export const setApiKey = (key: string) => invoke<void>("set_api_key", { key });
+export const setAssistantModel = (model: string) => invoke<void>("set_assistant_model", { model });
+export const askAssistant = (question: string, context: string | null) =>
+  invoke<string>("ask_assistant", { question, context });
