@@ -9,6 +9,7 @@ mod model;
 mod screen;
 mod sources;
 mod util;
+mod window_fx;
 
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
@@ -111,6 +112,8 @@ pub fn run() {
             commands::set_output_device,
             commands::start_listening,
             commands::stop_listening,
+            window_fx::set_window_opacity,
+            window_fx::set_window_always_on_top,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
