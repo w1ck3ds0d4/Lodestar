@@ -9,6 +9,7 @@
 //! build environment, so the mel-filter computation and the decode loop in
 //! particular need a real smoke test (and may need tuning).
 
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, Result};
@@ -21,6 +22,25 @@ use tokenizers::Tokenizer;
 /// "openai/whisper-tiny" for more speed and a smaller download, at some accuracy cost.
 const MODEL_ID: &str = "openai/whisper-base";
 const MODEL_DIRNAME: &str = "whisper-base";
+/// Pinned commit so the download can't silently change under a mutable `main` tag.
+const MODEL_REV: &str = "e37978b90ca9030d5170a5c07aadb050351a65bb";
+/// Known-good SHA-256 of each file at `MODEL_REV` (verified against HuggingFace).
+/// Downloads are checked against these and refused on mismatch, so a MITM, a CDN/
+/// upstream compromise, or a tampered local cache can't substitute the weights.
+const MODEL_HASHES: &[(&str, &str)] = &[
+    (
+        "config.json",
+        "a153c53883a6799b6f056b4a8d1a515c9926d03994682ba88a7616618d7da0c1",
+    ),
+    (
+        "tokenizer.json",
+        "27fc476bfe7f17299480be2273fc0608e4d5a99aba2ab5dec5374b4482d1a566",
+    ),
+    (
+        "model.safetensors",
+        "07cadb9f25677c8d50df603e66a98fbd842cce45047139baeb16e6219a1e807b",
+    ),
+];
 const TARGET_RATE: usize = 16000;
 const WINDOW_SECS: usize = 30; // Whisper's fixed input window
 const MAX_DECODE_TOKENS: usize = 224;
@@ -183,17 +203,47 @@ impl LocalStt {
     }
 }
 
-/// Download `name` from the model repo into `dir` if it isn't cached yet.
+/// Lowercase hex SHA-256 of `bytes`.
+fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut s = String::with_capacity(64);
+    for b in Sha256::digest(bytes) {
+        let _ = write!(s, "{b:02x}");
+    }
+    s
+}
+
+/// Pinned SHA-256 for a model file, if known.
+fn expected_hash(name: &str) -> Option<&'static str> {
+    MODEL_HASHES
+        .iter()
+        .find(|(n, _)| *n == name)
+        .map(|(_, h)| *h)
+}
+
+/// Download `name` from the pinned model revision into `dir` if it isn't cached, and
+/// verify it against the pinned SHA-256. A cached file that fails the check is treated
+/// as missing and re-fetched; a fresh download that fails is refused (never loaded).
 fn fetch(http: &reqwest::Client, dir: &Path, name: &str, status: &dyn Fn(&str)) -> Result<PathBuf> {
     let dest = dir.join(name);
+    let expected = expected_hash(name);
+
+    // Reuse the cache only if it still matches the pinned hash (catches a tampered or
+    // corrupted cached file).
     if dest.exists() {
-        return Ok(dest);
+        match (expected, std::fs::read(&dest)) {
+            (Some(exp), Ok(cached)) if sha256_hex(&cached) == exp => return Ok(dest),
+            (None, Ok(_)) => return Ok(dest),
+            _ => {
+                let _ = std::fs::remove_file(&dest);
+            }
+        }
     }
+
     status(&format!("Downloading {name} (first run only)..."));
-    let url = format!("https://huggingface.co/{MODEL_ID}/resolve/main/{name}");
-    // Ceiling well above whisper-base (~150 MB) to reject an absurdly large or wrong
-    // response from poisoning memory; the weights are HTTPS-fetched from a fixed,
-    // hardcoded path (no user input in the URL, so no traversal).
+    // Pinned revision (immutable commit) + hardcoded path: no user input in the URL,
+    // so no traversal. The size ceiling rejects an absurdly large response.
+    let url = format!("https://huggingface.co/{MODEL_ID}/resolve/{MODEL_REV}/{name}");
     const MAX_DOWNLOAD: u64 = 1_024 * 1_024 * 1_024; // 1 GiB
     let bytes = tauri::async_runtime::block_on(async {
         let resp = http.get(&url).send().await?.error_for_status()?;
@@ -206,6 +256,16 @@ fn fetch(http: &reqwest::Client, dir: &Path, name: &str, status: &dyn Fn(&str)) 
     })
     .map_err(|e| anyhow!("Could not download {name}: {e}"))?
     .ok_or_else(|| anyhow!("{name} is unexpectedly large; refusing to download."))?;
+
+    if let Some(exp) = expected {
+        let got = sha256_hex(&bytes);
+        if got != exp {
+            return Err(anyhow!(
+                "{name} failed its integrity check (expected {exp}, got {got}); refusing to use it."
+            ));
+        }
+    }
+
     std::fs::write(&dest, &bytes)?;
     Ok(dest)
 }
