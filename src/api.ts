@@ -99,6 +99,11 @@ export const setScreenPrivacy = (enabled: boolean) => invoke<void>("set_screen_p
 export const getAssistantSettings = () => invoke<AssistantSettings>("get_assistant_settings");
 export const setApiKey = (key: string) => invoke<void>("set_api_key", { key });
 export const setAssistantModel = (model: string) => invoke<void>("set_assistant_model", { model });
+// Answer engine: Claude (cloud, default) vs local Ollama.
+export const setAnswerEngine = (engine: string) => invoke<void>("set_answer_engine", { engine });
+export const setOllamaModel = (model: string) => invoke<void>("set_ollama_model", { model });
+export const setOllamaUrl = (url: string) => invoke<void>("set_ollama_url", { url });
+export const listOllamaModels = () => invoke<string[]>("list_ollama_models");
 // Streamed answer chunks from `ask_assistant` (over a Tauri channel).
 export type AnswerChunk =
   | { kind: "delta"; text: string }
