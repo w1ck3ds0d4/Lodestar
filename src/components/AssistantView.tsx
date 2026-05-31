@@ -549,6 +549,117 @@ export function AssistantView() {
       ) : (
         <div className="assistant-body">
           <section className="assistant-col col-settings">
+          {needsDeepgramKey ? (
+            <div className="add-source onboard">
+              <h3>
+                <Ear size={16} /> Deepgram API key
+              </h3>
+              <p className="muted sm">
+                The Cloud engine sends captured audio to Deepgram to transcribe it, so audio leaves your
+                machine. Get a key at console.deepgram.com - or switch the engine to Local above to keep
+                everything on-device.
+              </p>
+              <div className="add-row">
+                <input
+                  type="password"
+                  placeholder="Deepgram API key"
+                  value={sttKeyInput}
+                  onChange={(e) => setSttKeyInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") void saveSttKey();
+                  }}
+                />
+                <button className="btn-open" onClick={saveSttKey} disabled={savingStt || !sttKeyInput.trim()}>
+                  {savingStt ? "Saving..." : "Save key"}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="listen-bar">
+              <button className={"btn-listen primary" + (listening ? " on" : "")} onClick={toggleListen}>
+                {listening ? <Square size={15} /> : <Ear size={15} />}
+                {listening ? "Stop listening" : "Listen to call"}
+              </button>
+              <label className="auto-toggle muted sm">
+                <input
+                  type="checkbox"
+                  checked={autoAnswer}
+                  onChange={(e) => setAutoAnswer(e.target.checked)}
+                />
+                Auto-answer questions
+              </label>
+            </div>
+          )}
+
+          {listenError && <div className="assistant-error">{listenError}</div>}
+
+          {listening && (
+            <div className={"capture-diag" + (level.peak < 0.005 ? " warn" : " ok")}>
+              <div className="capture-diag-head">
+                <span className="muted sm">Capture diagnostics</span>
+                <span className="muted sm">
+                  peak {level.peak.toFixed(3)} · {Math.round(level.buffered / 1000)}k buffered
+                </span>
+              </div>
+              <div className="level-track">
+                <div
+                  className={"level-fill" + (level.peak >= 0.005 ? " live" : "")}
+                  style={{ width: `${Math.min(100, Math.round(level.peak * 140))}%` }}
+                />
+              </div>
+              {captureInfo.length === 0 ? (
+                <div className="muted sm">Opening capture device…</div>
+              ) : (
+                captureInfo.map((d) => (
+                  <div key={d.role} className="muted sm">
+                    {d.role}: <strong>{d.name}</strong> · {Math.round(d.rate / 1000)}kHz · {d.channels}ch
+                  </div>
+                ))
+              )}
+              <div className="diag-hint muted sm">
+                {level.peak < 0.005
+                  ? "No sound reaching this device. If capturing System audio, set the Output device above to the one your call plays through."
+                  : "Audio is being captured. If nothing transcribes, it's the transcription engine, not capture."}
+              </div>
+            </div>
+          )}
+
+          <div className="listen-bar screen-bar">
+            <span className="muted sm">
+              <Monitor size={14} /> Screen:
+            </span>
+            <select
+              value={screenMonitor}
+              onChange={(e) => setScreenMonitor(Number(e.target.value))}
+              disabled={watchingScreen}
+              title="Which monitor to read questions from"
+            >
+              {monitors.length === 0 ? (
+                <option value={0}>Primary display</option>
+              ) : (
+                monitors.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name}
+                  </option>
+                ))
+              )}
+            </select>
+            <button
+              className={"btn-listen" + (watchingScreen ? " on" : "")}
+              onClick={() => setWatchingScreen((v) => !v)}
+            >
+              {watchingScreen ? <Square size={15} /> : <ScanSearch size={15} />}
+              {watchingScreen ? "Stop watching" : "Watch screen"}
+            </button>
+            <button className="btn-ghost" onClick={() => void runScreen(true)} disabled={watchingScreen}>
+              Answer screen now
+            </button>
+            <button className="btn-ghost" onClick={() => void startSnip()} disabled={watchingScreen} title="Snip a region of the screen and explain it">
+              <Crop size={14} /> Snip
+            </button>
+          </div>
+          {screenError && <div className="assistant-error">{screenError}</div>}
+
           <details className="acc" open>
             <summary>Setup</summary>
             <div className={"acc-body" + (listening ? " is-listening" : "")}>
@@ -699,117 +810,6 @@ export function AssistantView() {
             )}
             </div>
           </details>
-
-          {needsDeepgramKey ? (
-            <div className="add-source onboard">
-              <h3>
-                <Ear size={16} /> Deepgram API key
-              </h3>
-              <p className="muted sm">
-                The Cloud engine sends captured audio to Deepgram to transcribe it, so audio leaves your
-                machine. Get a key at console.deepgram.com - or switch the engine to Local above to keep
-                everything on-device.
-              </p>
-              <div className="add-row">
-                <input
-                  type="password"
-                  placeholder="Deepgram API key"
-                  value={sttKeyInput}
-                  onChange={(e) => setSttKeyInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") void saveSttKey();
-                  }}
-                />
-                <button className="btn-open" onClick={saveSttKey} disabled={savingStt || !sttKeyInput.trim()}>
-                  {savingStt ? "Saving..." : "Save key"}
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div className="listen-bar">
-              <button className={"btn-listen primary" + (listening ? " on" : "")} onClick={toggleListen}>
-                {listening ? <Square size={15} /> : <Ear size={15} />}
-                {listening ? "Stop listening" : "Listen to call"}
-              </button>
-              <label className="auto-toggle muted sm">
-                <input
-                  type="checkbox"
-                  checked={autoAnswer}
-                  onChange={(e) => setAutoAnswer(e.target.checked)}
-                />
-                Auto-answer questions
-              </label>
-            </div>
-          )}
-
-          {listenError && <div className="assistant-error">{listenError}</div>}
-
-          {listening && (
-            <div className={"capture-diag" + (level.peak < 0.005 ? " warn" : " ok")}>
-              <div className="capture-diag-head">
-                <span className="muted sm">Capture diagnostics</span>
-                <span className="muted sm">
-                  peak {level.peak.toFixed(3)} · {Math.round(level.buffered / 1000)}k buffered
-                </span>
-              </div>
-              <div className="level-track">
-                <div
-                  className={"level-fill" + (level.peak >= 0.005 ? " live" : "")}
-                  style={{ width: `${Math.min(100, Math.round(level.peak * 140))}%` }}
-                />
-              </div>
-              {captureInfo.length === 0 ? (
-                <div className="muted sm">Opening capture device…</div>
-              ) : (
-                captureInfo.map((d) => (
-                  <div key={d.role} className="muted sm">
-                    {d.role}: <strong>{d.name}</strong> · {Math.round(d.rate / 1000)}kHz · {d.channels}ch
-                  </div>
-                ))
-              )}
-              <div className="diag-hint muted sm">
-                {level.peak < 0.005
-                  ? "No sound reaching this device. If capturing System audio, set the Output device above to the one your call plays through."
-                  : "Audio is being captured. If nothing transcribes, it's the transcription engine, not capture."}
-              </div>
-            </div>
-          )}
-
-          <div className="listen-bar screen-bar">
-            <span className="muted sm">
-              <Monitor size={14} /> Screen:
-            </span>
-            <select
-              value={screenMonitor}
-              onChange={(e) => setScreenMonitor(Number(e.target.value))}
-              disabled={watchingScreen}
-              title="Which monitor to read questions from"
-            >
-              {monitors.length === 0 ? (
-                <option value={0}>Primary display</option>
-              ) : (
-                monitors.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.name}
-                  </option>
-                ))
-              )}
-            </select>
-            <button
-              className={"btn-listen" + (watchingScreen ? " on" : "")}
-              onClick={() => setWatchingScreen((v) => !v)}
-            >
-              {watchingScreen ? <Square size={15} /> : <ScanSearch size={15} />}
-              {watchingScreen ? "Stop watching" : "Watch screen"}
-            </button>
-            <button className="btn-ghost" onClick={() => void runScreen(true)} disabled={watchingScreen}>
-              Answer screen now
-            </button>
-            <button className="btn-ghost" onClick={() => void startSnip()} disabled={watchingScreen} title="Snip a region of the screen and explain it">
-              <Crop size={14} /> Snip
-            </button>
-          </div>
-          {screenError && <div className="assistant-error">{screenError}</div>}
 
           <details className="acc">
             <summary>Overlay</summary>
@@ -966,26 +966,30 @@ export function AssistantView() {
             </div>
           )}
 
-          {qa.length > 0 && (
-            <details className="answers-history">
-              <summary className="pane-title">All answers ({qa.length})</summary>
-              {qa.map((e) => (
-                <QaCard key={e.id} e={e} />
-              ))}
-            </details>
-          )}
           </section>
 
           <aside className="assistant-col col-code">
-            <div className="pane-title">Code &amp; Math</div>
-            {codeMathQa.length === 0 ? (
-              <div className="pane-empty">
-                <strong>No snippets yet.</strong>
-                <span className="muted sm">Code blocks and equations from answers collect here.</span>
-              </div>
-            ) : (
-              codeMathQa.map((e) => <QaCard key={e.id} e={e} />)
-            )}
+            <section className="col-section live-answers">
+              <div className="pane-title">Live answers</div>
+              {qa.length === 0 ? (
+                <div className="pane-empty">
+                  <strong>No answers yet.</strong>
+                  <span className="muted sm">Ask, auto-answer, or snip - answers stream in here.</span>
+                </div>
+              ) : (
+                qa.map((e) => <QaCard key={e.id} e={e} />)
+              )}
+            </section>
+            <section className="col-section code-math">
+              <div className="pane-title">Code &amp; Math</div>
+              {codeMathQa.length === 0 ? (
+                <div className="pane-empty">
+                  <span className="muted sm">Code blocks &amp; equations collect here.</span>
+                </div>
+              ) : (
+                codeMathQa.map((e) => <QaCard key={e.id} e={e} />)
+              )}
+            </section>
           </aside>
         </div>
       )}
