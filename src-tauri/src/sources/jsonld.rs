@@ -154,6 +154,7 @@ fn map_posting(p: &Value, page: &str) -> Option<RawJob> {
         .or_else(|| p.get("identifier").and_then(|i| vstr(i, "value")))
         .unwrap_or_else(|| stable_hash(&format!("{page}|{title}|{company}")));
     Some(RawJob {
+        experience_level: None,
         external_id,
         title: title.clone(),
         company,

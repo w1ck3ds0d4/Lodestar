@@ -12,6 +12,9 @@ pub struct RawJob {
     pub location: String,
     pub remote: bool,
     pub employment_type: Option<String>,
+    /// Seniority as reported by the source ("entry"/"mid"/"senior") when it provides
+    /// one; preferred over the title/description heuristic. `None` => classify.
+    pub experience_level: Option<String>,
     pub description: String,
     pub url: String,
     pub salary: Option<String>,

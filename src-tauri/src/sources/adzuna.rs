@@ -57,6 +57,7 @@ pub async fn fetch(http: &Client, cfg: &Value) -> Result<Vec<RawJob>> {
                 .and_then(|l| vstr(l, "display_name"))
                 .unwrap_or_default();
             out.push(RawJob {
+                experience_level: None,
                 external_id,
                 title,
                 remote: looks_remote(&location),

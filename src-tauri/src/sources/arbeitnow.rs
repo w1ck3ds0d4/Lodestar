@@ -33,6 +33,7 @@ pub async fn fetch(http: &Client, _cfg: &Value) -> Result<Vec<RawJob>> {
                 .and_then(|x| x.as_str())
                 .map(|s| s.to_string());
             out.push(RawJob {
+                experience_level: None,
                 external_id,
                 title,
                 company: vstr(j, "company_name").unwrap_or_default(),
