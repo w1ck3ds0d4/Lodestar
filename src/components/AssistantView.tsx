@@ -188,6 +188,7 @@ export function AssistantView() {
   const [onTop, setOnTop] = useState(false);
 
   const [contextRole, setContextRole] = useState("");
+  const [contextCompany, setContextCompany] = useState("");
   const [contextResume, setContextResume] = useState("");
   const [contextNotes, setContextNotes] = useState("");
   const [contextSaved, setContextSaved] = useState(false);
@@ -229,6 +230,7 @@ export function AssistantView() {
       setAnswerEngine(s.answerEngine);
       setOllamaModel(s.ollamaModel);
       setContextRole(s.contextRole);
+      setContextCompany(s.contextCompany);
       setContextResume(s.contextResume);
       setContextNotes(s.contextNotes);
     } finally {
@@ -237,7 +239,7 @@ export function AssistantView() {
   }, []);
 
   const saveContext = async () => {
-    await api.setInterviewContext(contextRole, contextResume, contextNotes);
+    await api.setInterviewContext(contextRole, contextCompany, contextResume, contextNotes);
     setContextSaved(true);
     setTimeout(() => setContextSaved(false), 1500);
   };
@@ -333,6 +335,21 @@ export function AssistantView() {
       setQa((prev) => prev.map((x) => (x.id === id ? { ...x, error: String(e), pending: false } : x)));
     }
   }, []);
+
+  // Generate a company briefing + suggested interview questions from what the user
+  // entered (saves the company first so every later answer is company-aware).
+  const generateCompanyBrief = async () => {
+    if (!contextCompany.trim()) return;
+    await api.setInterviewContext(contextRole, contextCompany, contextResume, contextNotes);
+    const forRole = contextRole.trim() ? ` for a ${contextRole.trim()} role` : "";
+    void ask(
+      `Brief me for an interview at this company:\n${contextCompany}\n\nCover concisely: what the company ` +
+        `does and its products, its likely tech stack and engineering culture, and 6-8 specific, thoughtful ` +
+        `questions I should ask the interviewer${forRole}. Note anything you are unsure about (you may not ` +
+        `have current information about this company).`,
+      null,
+    );
+  };
 
   // Live transcript + listen lifecycle events from the Rust capture loop. The
   // `cancelled` guard prevents duplicate listeners under React StrictMode: the async
@@ -532,8 +549,9 @@ export function AssistantView() {
       ) : (
         <div className="assistant-body">
           <section className="assistant-col col-settings">
-          <div className={"setup-card" + (listening ? " is-listening" : "")}>
-            <div className="setup-title">Setup</div>
+          <details className="acc" open>
+            <summary>Setup</summary>
+            <div className={"acc-body" + (listening ? " is-listening" : "")}>
 
             <div className="setup-row">
               <span className="setup-label">Answer</span>
@@ -679,7 +697,8 @@ export function AssistantView() {
                 </select>
               </div>
             )}
-          </div>
+            </div>
+          </details>
 
           {needsDeepgramKey ? (
             <div className="add-source onboard">
@@ -792,8 +811,9 @@ export function AssistantView() {
           </div>
           {screenError && <div className="assistant-error">{screenError}</div>}
 
-          <div className="setup-card overlay-card">
-            <div className="setup-title">Overlay</div>
+          <details className="acc">
+            <summary>Overlay</summary>
+            <div className="acc-body">
             <div className="overlay-row">
               <span className="setup-label">Opacity</span>
               <input
@@ -817,10 +837,12 @@ export function AssistantView() {
               Always on top
             </label>
             <div className="muted sm">Dims the whole window (this UI too); min 30%.</div>
-          </div>
+            </div>
+          </details>
 
-          <details className="context-card">
-            <summary className="setup-title">Interview context</summary>
+          <details className="acc">
+            <summary>Interview context</summary>
+            <div className="acc-body">
             <p className="muted sm">Fed to the assistant so answers fit you and the role.</p>
             <div className="setup-field">
               <span className="setup-label">Target role / focus</span>
@@ -851,6 +873,36 @@ export function AssistantView() {
             <button className="btn-open" onClick={() => void saveContext()}>
               {contextSaved ? "Saved ✓" : "Save context"}
             </button>
+            </div>
+          </details>
+
+          <details className="acc">
+            <summary>Company information</summary>
+            <div className="acc-body">
+            <p className="muted sm">
+              Add the company you're interviewing at - answers become company-aware, and you can generate a
+              briefing + questions to ask.
+            </p>
+            <div className="setup-field">
+              <span className="setup-label">Company (name, site, or notes)</span>
+              <textarea
+                rows={3}
+                value={contextCompany}
+                onChange={(e) => setContextCompany(e.target.value)}
+                placeholder="e.g. Stripe - payments infrastructure. Anything you know: products, team, JD…"
+              />
+            </div>
+            <button
+              className="btn-sync"
+              onClick={() => void generateCompanyBrief()}
+              disabled={!contextCompany.trim()}
+            >
+              <Send size={15} /> Generate briefing &amp; questions
+            </button>
+            <div className="muted sm">
+              Uses the model's own knowledge + what you enter (no live web lookup), so verify specifics.
+            </div>
+            </div>
           </details>
           </section>
 
