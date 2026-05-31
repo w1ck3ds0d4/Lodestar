@@ -56,27 +56,36 @@ function hasCodeOrMath(a: string): boolean {
   return a.includes("```") || a.includes("$$") || /\$[^$\n]+\$/.test(a);
 }
 
-// Pull just the fenced code blocks + display-math out of the answers, newest first,
-// so the Code & Math pane shows compact snippets (not a duplicate of the full answer).
-function extractSnippets(qa: QA[]): { key: string; md: string }[] {
-  const out: { key: string; md: string }[] = [];
+interface SnippetGroup {
+  id: number;
+  q: string;
+  items: { key: string; md: string }[];
+}
+
+// Pull the fenced code blocks + display-math out of each answer, grouped by the
+// question they came from (newest group first), so the Code & Math pane is a tidy
+// per-question reference rather than a duplicate of the full answer.
+function snippetGroups(qa: QA[]): SnippetGroup[] {
+  const groups: SnippetGroup[] = [];
   for (const e of qa) {
     if (e.pending || e.error || !e.a || !hasCodeOrMath(e.a)) continue;
+    const items: { key: string; md: string }[] = [];
     let m: RegExpExecArray | null;
     const codeRe = /```(\w*)\n?([\s\S]*?)```/g;
     let i = 0;
     while ((m = codeRe.exec(e.a))) {
       const body = m[2].replace(/\n+$/, "");
-      if (body.trim()) out.push({ key: `${e.id}-c${i++}`, md: "```" + (m[1] || "") + "\n" + body + "\n```" });
+      if (body.trim()) items.push({ key: `${e.id}-c${i++}`, md: "```" + (m[1] || "") + "\n" + body + "\n```" });
     }
     const mathRe = /\$\$([\s\S]*?)\$\$/g;
     let j = 0;
     while ((m = mathRe.exec(e.a))) {
       const body = m[1].trim();
-      if (body) out.push({ key: `${e.id}-m${j++}`, md: "$$" + body + "$$" });
+      if (body) items.push({ key: `${e.id}-m${j++}`, md: "$$" + body + "$$" });
     }
+    if (items.length) groups.push({ id: e.id, q: e.q, items });
   }
-  return out;
+  return groups;
 }
 
 // Fullscreen "snip & explain": shows a captured screenshot, drag to select a
@@ -517,7 +526,7 @@ export function AssistantView() {
   };
 
   const needsDeepgramKey = sttEngine === "deepgram" && !hasSttKey;
-  const snippets = useMemo(() => extractSnippets(qa), [qa]);
+  const cmGroups = useMemo(() => snippetGroups(qa), [qa]);
   // Fill the opacity track exactly to the value (native accent-color leaves a gap at 100%).
   const opacityPct = Math.round(((opacity - 0.3) / 0.7) * 100);
 
@@ -1008,14 +1017,19 @@ export function AssistantView() {
             <section className="col-section code-math">
               <div className="pane-title">Code &amp; Math</div>
               <div className="col-scroll">
-                {snippets.length === 0 ? (
+                {cmGroups.length === 0 ? (
                   <div className="pane-empty">
                     <span className="muted sm">Code blocks &amp; equations pulled from answers collect here.</span>
                   </div>
                 ) : (
-                  snippets.map((s) => (
-                    <div className="cm-card" key={s.key}>
-                      <Answer text={s.md} />
+                  cmGroups.map((g, gi) => (
+                    <div className={"cm-group" + (gi === 0 ? " latest" : "")} key={g.id}>
+                      <div className="cm-group-q">{g.q}</div>
+                      {g.items.map((s) => (
+                        <div className="cm-card" key={s.key}>
+                          <Answer text={s.md} />
+                        </div>
+                      ))}
                     </div>
                   ))
                 )}
