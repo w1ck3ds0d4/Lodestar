@@ -226,6 +226,16 @@ export interface AudioDevices {
   outputs: string[];
 }
 
+export interface MonitorInfo {
+  id: number;
+  name: string;
+}
+
+export interface ScreenAnswer {
+  changed: boolean;
+  answer: string;
+}
+
 export const ASSISTANT_MODELS: { id: string; label: string; note: string }[] = [
   { id: "claude-opus-4-8", label: "Claude Opus 4.8", note: "most capable, slower" },
   { id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6", note: "balanced" },

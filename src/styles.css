@@ -308,6 +308,17 @@ select:focus {
   border-color: var(--danger);
   color: var(--danger);
 }
+.screen-bar {
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+.screen-bar select {
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 10px;
+}
 .transcript {
   display: flex;
   flex-direction: column;

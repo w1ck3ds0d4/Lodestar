@@ -1,5 +1,16 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { Alert, AssistantSettings, AudioDevices, Job, Skill, Source, Stats, Tracked } from "./types";
+import type {
+  Alert,
+  AssistantSettings,
+  AudioDevices,
+  Job,
+  MonitorInfo,
+  ScreenAnswer,
+  Skill,
+  Source,
+  Stats,
+  Tracked,
+} from "./types";
 
 export const searchJobs = (
   query: string,
@@ -102,3 +113,8 @@ export const setInputDevice = (name: string) => invoke<void>("set_input_device",
 export const setOutputDevice = (name: string) => invoke<void>("set_output_device", { name });
 export const startListening = () => invoke<void>("start_listening");
 export const stopListening = () => invoke<void>("stop_listening");
+
+// --- Screen watcher (capture a monitor -> Claude vision) ---
+export const listMonitors = () => invoke<MonitorInfo[]>("list_monitors");
+export const answerScreen = (monitor: number, force: boolean) =>
+  invoke<ScreenAnswer>("answer_screen", { monitor, force });
