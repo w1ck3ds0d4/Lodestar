@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { Alert, Job, Source, Stats } from "./types";
+import type { Alert, Job, Skill, Source, Stats, Tracked } from "./types";
 
 export const searchJobs = (
   query: string,
@@ -34,3 +34,34 @@ export const addAlert = (query: string, remoteOnly: boolean) =>
 export const removeAlert = (id: number) => invoke<void>("remove_alert", { id });
 
 export const syncNow = () => invoke<void>("sync_now");
+
+// --- Tracker ---
+export const listTracked = (kind?: string) => invoke<Tracked[]>("list_tracked", { kind: kind ?? null });
+
+export const addTracked = (t: {
+  kind: string;
+  title: string;
+  org: string;
+  url: string;
+  status: string;
+  notes: string;
+  deadline: string | null;
+  sourceJobId: number | null;
+}) => invoke<number>("add_tracked", t);
+
+export const updateTracked = (id: number, status: string, notes: string, progress: number, deadline: string | null) =>
+  invoke<void>("update_tracked", { id, status, notes, progress, deadline });
+
+export const removeTracked = (id: number) => invoke<void>("remove_tracked", { id });
+
+export const addMilestone = (trackedId: number, label: string) => invoke<number>("add_milestone", { trackedId, label });
+export const setMilestone = (id: number, done: boolean) => invoke<void>("set_milestone", { id, done });
+export const removeMilestone = (id: number) => invoke<void>("remove_milestone", { id });
+
+// --- Study / skills ---
+export const listSkills = () => invoke<Skill[]>("list_skills");
+export const addSkill = (name: string, goal: string) => invoke<number>("add_skill", { name, goal });
+export const updateSkill = (id: number, name: string, goal: string, level: number, notes: string) =>
+  invoke<void>("update_skill", { id, name, goal, level, notes });
+export const logStudy = (id: number, hours: number) => invoke<void>("log_study", { id, hours });
+export const removeSkill = (id: number) => invoke<void>("remove_skill", { id });

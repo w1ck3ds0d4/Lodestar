@@ -65,3 +65,47 @@ pub struct Alert {
     pub remote_only: bool,
     pub last_notified_at: Option<i64>,
 }
+
+/// A tracked job application or training program, with optional milestones.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Tracked {
+    pub id: i64,
+    pub kind: String, // "application" | "program"
+    pub title: String,
+    pub org: String,
+    pub url: String,
+    pub status: String,
+    pub notes: String,
+    pub applied_at: Option<String>,
+    pub deadline: Option<String>,
+    pub progress: i64,
+    pub source_job_id: Option<i64>,
+    pub created_at: i64,
+    pub updated_at: i64,
+    pub milestones: Vec<Milestone>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Milestone {
+    pub id: i64,
+    pub tracked_id: i64,
+    pub label: String,
+    pub done: bool,
+    pub position: i64,
+}
+
+/// A skill the user is studying, with a self-rated level and logged hours.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Skill {
+    pub id: i64,
+    pub name: String,
+    pub goal: String,
+    pub level: i64,
+    pub hours: f64,
+    pub notes: String,
+    pub created_at: i64,
+    pub updated_at: i64,
+}

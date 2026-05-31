@@ -1,11 +1,22 @@
 import { useState } from "react";
-import { Building2, CalendarDays, ExternalLink, MapPin, Wallet } from "lucide-react";
+import { Building2, CalendarDays, Check, ExternalLink, MapPin, Plus, Wallet } from "lucide-react";
 import { LEVEL_LABELS, WORKPLACE_LABELS, type Job } from "../types";
 
 const EXCERPT = 280;
 
-export function JobCard({ job, kindLabel, onOpen }: { job: Job; kindLabel: string; onOpen: (url: string) => void }) {
+export function JobCard({
+  job,
+  kindLabel,
+  onOpen,
+  onTrack,
+}: {
+  job: Job;
+  kindLabel: string;
+  onOpen: (url: string) => void;
+  onTrack: (job: Job) => Promise<void> | void;
+}) {
   const [open, setOpen] = useState(false);
+  const [tracked, setTracked] = useState(false);
   const desc = job.description || "";
   const long = desc.length > EXCERPT;
   const shown = open || !long ? desc : `${desc.slice(0, EXCERPT)}…`;
@@ -43,6 +54,17 @@ export function JobCard({ job, kindLabel, onOpen }: { job: Job; kindLabel: strin
             {open ? "Show less" : "Show more"}
           </button>
         )}
+        <div className="spacer" />
+        <button
+          className="btn-ghost"
+          disabled={tracked}
+          onClick={async () => {
+            await onTrack(job);
+            setTracked(true);
+          }}
+        >
+          {tracked ? <><Check size={14} /> Tracking</> : <><Plus size={14} /> Track</>}
+        </button>
         {job.url && (
           <button className="btn-open" onClick={() => onOpen(job.url)}>
             <ExternalLink size={14} /> Open
