@@ -42,6 +42,53 @@ pub fn search_jobs(
     .map_err(|e| e.to_string())
 }
 
+/// The ISO 3166-1 alpha-2 country the user can work from, used by the
+/// "remote fit" filter. Returns the stored value, or detects it once via IP
+/// geolocation and caches it. Empty string if detection fails.
+#[tauri::command]
+pub async fn work_country(state: State<'_, AppState>) -> Result<String, String> {
+    {
+        let conn = state.db.lock().map_err(|_| "db poisoned")?;
+        if let Some(c) = db::get_setting(&conn, "work_from_country")
+            .map_err(|e| e.to_string())?
+            .filter(|s| !s.trim().is_empty())
+        {
+            return Ok(c);
+        }
+    }
+    let http = state.http.clone();
+    let code = http
+        .get("https://ipapi.co/country/")
+        .send()
+        .await
+        .map_err(|e| e.to_string())?
+        .text()
+        .await
+        .map_err(|e| e.to_string())?
+        .trim()
+        .to_uppercase();
+    if code.len() == 2 && code.chars().all(|c| c.is_ascii_alphabetic()) {
+        let conn = state.db.lock().map_err(|_| "db poisoned")?;
+        db::set_setting(&conn, "work_from_country", &code).map_err(|e| e.to_string())?;
+        Ok(code)
+    } else {
+        Ok(String::new())
+    }
+}
+
+/// Override the work-from country. A blank code clears it so the next
+/// `work_country` call re-detects via IP geolocation.
+#[tauri::command]
+pub fn set_work_country(state: State<'_, AppState>, code: String) -> Result<(), String> {
+    let conn = state.db.lock().map_err(|_| "db poisoned")?;
+    let code = code.trim().to_uppercase();
+    if code.is_empty() {
+        db::delete_setting(&conn, "work_from_country").map_err(|e| e.to_string())
+    } else {
+        db::set_setting(&conn, "work_from_country", &code).map_err(|e| e.to_string())
+    }
+}
+
 #[tauri::command]
 pub fn list_sources(state: State<'_, AppState>) -> Result<Vec<Source>, String> {
     let conn = state.db.lock().map_err(|_| "db poisoned")?;

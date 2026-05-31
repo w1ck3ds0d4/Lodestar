@@ -257,3 +257,30 @@ pub fn remote_region(remote: bool, location: &str, title: &str, description: &st
     }
     ""
 }
+
+/// EU/EEA member country codes treated as "remote-eligible from the EU".
+const EU_CODES: &[&str] = &[
+    "AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE", "GR", "HU", "IE", "IS", "IT",
+    "LI", "LT", "LU", "LV", "MT", "NL", "NO", "PL", "PT", "RO", "SE", "SI", "SK", "ES",
+];
+
+/// Region tags (see [`remote_region`]) to EXCLUDE when filtering remote roles to
+/// those workable from `country` (an ISO 3166-1 alpha-2 code). Worldwide and
+/// unstated roles are always kept; only postings locked to a different region
+/// are dropped. An unknown or blank country keeps only worldwide + unstated.
+pub fn excluded_remote_regions(country: &str) -> Vec<&'static str> {
+    let country = country.trim().to_uppercase();
+    let keep: &[&str] = if EU_CODES.contains(&country.as_str()) {
+        &["eu"]
+    } else if country == "US" {
+        &["us"]
+    } else if country == "GB" || country == "UK" {
+        &["uk"]
+    } else {
+        &[]
+    };
+    ["eu", "us", "uk", "other"]
+        .into_iter()
+        .filter(|r| !keep.contains(r))
+        .collect()
+}

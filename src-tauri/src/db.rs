@@ -8,7 +8,8 @@ use std::path::Path;
 
 use crate::model::{Alert, Job, RawJob, Source};
 use crate::util::{
-    classify_experience, detect_relocation, infer_workplace, now_ms, remote_region, stable_hash,
+    classify_experience, detect_relocation, excluded_remote_regions, infer_workplace, now_ms,
+    remote_region, stable_hash,
 };
 
 const JOB_COLS: &str = "j.id, j.source_kind, COALESCE(s.label, j.source_kind) AS source_label, \
@@ -348,9 +349,19 @@ pub fn search_jobs(
         sql.push_str(" AND j.relocation = 1");
     }
     if remote_eligible {
-        // Remote roles workable from Malta (EU): keep worldwide / EU / unstated,
-        // drop ones explicitly restricted to the US, UK, or another country.
-        sql.push_str(" AND j.workplace = 'remote' AND j.remote_region NOT IN ('us','uk','other')");
+        // Remote roles workable from the user's country: keep worldwide / their
+        // own region / unstated, and drop ones locked to a different region.
+        let country = get_setting(conn, "work_from_country")?.unwrap_or_default();
+        sql.push_str(" AND j.workplace = 'remote'");
+        let excluded = excluded_remote_regions(&country);
+        if !excluded.is_empty() {
+            let list = excluded
+                .iter()
+                .map(|r| format!("'{r}'"))
+                .collect::<Vec<_>>()
+                .join(",");
+            sql.push_str(&format!(" AND j.remote_region NOT IN ({list})"));
+        }
     }
     sql.push_str(if fts.is_some() {
         " ORDER BY bm25(jobs_fts)"
