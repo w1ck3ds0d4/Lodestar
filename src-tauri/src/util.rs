@@ -185,6 +185,39 @@ pub fn classify_experience(
     "mid".to_string()
 }
 
+/// Normalize a source-provided seniority string (e.g. Jobicy's `jobLevel`:
+/// "Senior", "Mid Level", "Junior", "Any") into our buckets. Returns `None` when
+/// the value is empty or unspecific ("any"/"all"), so the caller can fall back to
+/// the title/description heuristic.
+pub fn normalize_level(raw: &str) -> Option<String> {
+    let s = raw.trim().to_lowercase();
+    if s.is_empty() || s == "any" || s == "all" || s == "n/a" {
+        return None;
+    }
+    if s.contains("intern")
+        || s.contains("junior")
+        || s.contains("entry")
+        || s.contains("graduate")
+        || s.contains("trainee")
+        || s.contains("apprentice")
+    {
+        Some("entry".to_string())
+    } else if s.contains("senior")
+        || s.contains("lead")
+        || s.contains("principal")
+        || s.contains("staff")
+        || s.contains("director")
+        || s.contains("executive")
+        || s.contains("expert")
+    {
+        Some("senior".to_string())
+    } else if s.contains("mid") || s.contains("intermediate") || s.contains("associate") {
+        Some("mid".to_string())
+    } else {
+        None
+    }
+}
+
 /// Does the posting mention relocation help? Guards against explicit negatives.
 pub fn detect_relocation(description: &str) -> bool {
     let d = description.to_lowercase();

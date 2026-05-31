@@ -6,7 +6,7 @@ use reqwest::Client;
 use serde_json::Value;
 
 use crate::model::RawJob;
-use crate::util::{clean_html, vstr};
+use crate::util::{clean_html, normalize_level, vstr};
 
 pub async fn fetch(http: &Client, _cfg: &Value) -> Result<Vec<RawJob>> {
     let v: Value = http
@@ -34,6 +34,17 @@ pub async fn fetch(http: &Client, _cfg: &Value) -> Result<Vec<RawJob>> {
                 .and_then(|x| x.as_str())
                 .map(|s| s.to_string())
                 .or_else(|| vstr(j, "jobType"));
+            // Jobicy reports seniority in `jobLevel` (string or array). Prefer it
+            // over the title/description heuristic so e.g. a "Senior" role is not
+            // mislabeled "Entry level" by boilerplate in the description.
+            let experience_level = j
+                .get("jobLevel")
+                .and_then(|x| x.as_array())
+                .and_then(|a| a.first())
+                .and_then(|x| x.as_str())
+                .map(|s| s.to_string())
+                .or_else(|| vstr(j, "jobLevel"))
+                .and_then(|s| normalize_level(&s));
             let description = vstr(j, "jobDescription")
                 .map(|s| clean_html(&s))
                 .or_else(|| vstr(j, "jobExcerpt").map(|s| clean_html(&s)))
@@ -45,6 +56,7 @@ pub async fn fetch(http: &Client, _cfg: &Value) -> Result<Vec<RawJob>> {
                 location: vstr(j, "jobGeo").unwrap_or_else(|| "Remote".into()),
                 remote: true,
                 employment_type,
+                experience_level,
                 description,
                 url: vstr(j, "url").unwrap_or_default(),
                 salary: salary(j),

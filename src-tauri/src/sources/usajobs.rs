@@ -57,6 +57,7 @@ pub async fn fetch(http: &Client, cfg: &Value) -> Result<Vec<RawJob>> {
                 .map(|s| clean_html(&s))
                 .unwrap_or_default();
             out.push(RawJob {
+                experience_level: None,
                 external_id,
                 title,
                 company: vstr(d, "OrganizationName")

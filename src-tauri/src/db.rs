@@ -488,8 +488,15 @@ pub fn upsert_jobs(
         )?;
         for j in jobs {
             let workplace = infer_workplace(j.remote, &j.location, &j.title);
-            let experience =
-                classify_experience(&j.title, &j.description, j.employment_type.as_deref());
+            // Trust the source's own seniority when it provides one; otherwise
+            // fall back to the title/description heuristic.
+            let experience = j
+                .experience_level
+                .clone()
+                .filter(|s| !s.trim().is_empty())
+                .unwrap_or_else(|| {
+                    classify_experience(&j.title, &j.description, j.employment_type.as_deref())
+                });
             let remote = (workplace == "remote") as i64;
             let relocation = detect_relocation(&j.description) as i64;
             let region =

@@ -45,6 +45,7 @@ pub async fn fetch(http: &Client, cfg: &Value) -> Result<Vec<RawJob>> {
                 })
                 .unwrap_or_default();
             out.push(RawJob {
+                experience_level: None,
                 external_id,
                 title,
                 company: company_label.clone(),
