@@ -215,6 +215,38 @@ pub async fn ask(
     }
 }
 
+/// System prompt for the Study tab's plan generator.
+const STUDY_PROMPT: &str = "You are a practical learning coach. Given a skill the user wants to build (and \
+their goal and role context if provided), produce a focused study plan in GitHub-flavored Markdown: a one- \
+or two-line overview, a phased roadmap (Foundations -> Core -> Advanced) with concrete topics under each, a \
+short list of recommended resources (docs, courses, books), 3-5 hands-on project ideas, and how to prepare \
+for interviews on this skill. Be concrete and ordered; keep it skimmable with headings and bullet lists. Do \
+not invent specific URLs you are unsure about.";
+
+/// Generate a study plan for a skill, tailored to the user's goal + profile.
+pub async fn study_plan(
+    http: &reqwest::Client,
+    engine: &Engine,
+    skill: &str,
+    goal: &str,
+    profile: Option<&str>,
+) -> Result<String> {
+    let user_text = if goal.trim().is_empty() {
+        format!("Skill to learn: {skill}")
+    } else {
+        format!("Skill to learn: {skill}\nGoal: {goal}")
+    };
+    let system = with_profile(STUDY_PROMPT, profile);
+    match engine {
+        Engine::Claude { api_key, model } => {
+            complete(http, api_key, model, &system, user_text, None).await
+        }
+        Engine::Ollama { url, model } => {
+            ollama_chat(http, url, model, &system, user_text, None, None).await
+        }
+    }
+}
+
 /// Auto-answer: given the recent transcript and the newest segment, answer it if it
 /// is a question/problem (in any language), otherwise return the literal "NONE".
 pub async fn auto_answer(

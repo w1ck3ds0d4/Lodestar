@@ -91,6 +91,7 @@ export const updateSkill = (id: number, name: string, goal: string, level: numbe
   invoke<void>("update_skill", { id, name, goal, level, notes });
 export const logStudy = (id: number, hours: number) => invoke<void>("log_study", { id, hours });
 export const removeSkill = (id: number) => invoke<void>("remove_skill", { id });
+export const studyPlan = (skill: string, goal: string) => invoke<string>("study_plan", { skill, goal });
 
 // --- Screen privacy (exclude window from screen capture / sharing) ---
 export const setScreenPrivacy = (enabled: boolean) => invoke<void>("set_screen_privacy", { enabled });
