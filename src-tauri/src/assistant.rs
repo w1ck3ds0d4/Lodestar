@@ -19,41 +19,41 @@ code in fenced code blocks with a language tag (```python ... ```), and write ma
 $...$ and display equations as $$...$$. Keep it tight, no filler. If the input is ambiguous, state your \
 best interpretation in one line, then answer it.";
 
+/// System prompt for auto-answer: watch a live transcript and answer only when
+/// something is actually being asked (in any language); otherwise reply "NONE".
+const AUTO_PROMPT: &str = "You monitor a live transcript of a conversation or call, which may be in any \
+language. Look at the NEW text, using the earlier transcript as context. If it contains a question being \
+asked, or a problem to solve (math, code, a factual lookup, a definition, etc.), answer it directly and \
+concisely in the SAME language as the speaker, using GitHub-flavored Markdown - fenced code blocks for code \
+and LaTeX ($...$ or $$...$$) for math. If the new text is just ordinary conversation with nothing being \
+asked and no problem to solve, reply with exactly one word: NONE";
+
 /// Models that accept `thinking: {type: "adaptive"}`. Haiku and any unknown model
 /// omit it so a model switch in Settings can never produce a 400.
 fn supports_adaptive_thinking(model: &str) -> bool {
     model.starts_with("claude-opus-4") || model == "claude-sonnet-4-6"
 }
 
-/// Ask the assistant a question, optionally with surrounding context (a pasted
-/// transcript snippet or notes). Returns the answer text.
-pub async fn ask(
+/// Shared Messages API call: send a system prompt + user message, return the text.
+async fn complete(
     http: &reqwest::Client,
     api_key: &str,
     model: &str,
-    question: &str,
-    context: Option<&str>,
+    system: &str,
+    user_text: String,
 ) -> Result<String> {
-    let user_text = match context {
-        Some(ctx) if !ctx.trim().is_empty() => format!(
-            "Context (conversation/transcript or notes):\n{ctx}\n\nWhat I need help with:\n{question}"
-        ),
-        _ => question.to_string(),
-    };
-
     let mut body = json!({
         "model": model,
         "max_tokens": 4096,
         "system": [{
             "type": "text",
-            "text": SYSTEM_PROMPT,
+            "text": system,
             "cache_control": { "type": "ephemeral" }
         }],
         "messages": [{ "role": "user", "content": user_text }],
     });
     if supports_adaptive_thinking(model) {
-        // Adaptive thinking improves math/reasoning correctness; give it room
-        // beyond the short final answer.
+        // Adaptive thinking improves math/reasoning correctness; give it room.
         body["thinking"] = json!({ "type": "adaptive" });
         body["max_tokens"] = json!(8192);
     }
@@ -93,6 +93,38 @@ pub async fn ask(
         }
         None => Err(anyhow!("The assistant returned an empty response.")),
     }
+}
+
+/// Answer a direct question, optionally with surrounding context (a pasted
+/// transcript snippet or notes).
+pub async fn ask(
+    http: &reqwest::Client,
+    api_key: &str,
+    model: &str,
+    question: &str,
+    context: Option<&str>,
+) -> Result<String> {
+    let user_text = match context {
+        Some(ctx) if !ctx.trim().is_empty() => format!(
+            "Context (conversation/transcript or notes):\n{ctx}\n\nWhat I need help with:\n{question}"
+        ),
+        _ => question.to_string(),
+    };
+    complete(http, api_key, model, SYSTEM_PROMPT, user_text).await
+}
+
+/// Auto-answer: given the recent transcript and the newest segment, answer it if it
+/// is a question/problem (in any language), otherwise return the literal "NONE".
+pub async fn auto_answer(
+    http: &reqwest::Client,
+    api_key: &str,
+    model: &str,
+    transcript: &str,
+    latest: &str,
+) -> Result<String> {
+    let user_text =
+        format!("Earlier transcript (context):\n{transcript}\n\nNew text to consider:\n{latest}");
+    complete(http, api_key, model, AUTO_PROMPT, user_text).await
 }
 
 /// Map an API error status + body to a concise, user-facing message.
