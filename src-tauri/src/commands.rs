@@ -17,16 +17,29 @@ pub struct Stats {
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub fn search_jobs(
     state: State<'_, AppState>,
     query: String,
     workplaces: Vec<String>,
     levels: Vec<String>,
     kinds: Vec<String>,
+    relocation_only: bool,
+    remote_eligible: bool,
     limit: i64,
 ) -> Result<Vec<Job>, String> {
     let conn = state.db.lock().map_err(|_| "db poisoned")?;
-    db::search_jobs(&conn, &query, &workplaces, &levels, &kinds, limit).map_err(|e| e.to_string())
+    db::search_jobs(
+        &conn,
+        &query,
+        &workplaces,
+        &levels,
+        &kinds,
+        relocation_only,
+        remote_eligible,
+        limit,
+    )
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

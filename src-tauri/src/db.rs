@@ -7,11 +7,14 @@ use serde_json::Value;
 use std::path::Path;
 
 use crate::model::{Alert, Job, RawJob, Source};
-use crate::util::{classify_experience, infer_workplace, now_ms, stable_hash};
+use crate::util::{
+    classify_experience, detect_relocation, infer_workplace, now_ms, remote_region, stable_hash,
+};
 
 const JOB_COLS: &str = "j.id, j.source_kind, COALESCE(s.label, j.source_kind) AS source_label, \
     j.external_id, j.title, j.company, j.location, j.remote, j.workplace, j.experience_level, \
-    j.employment_type, j.description, j.url, j.salary, j.posted_at, j.first_seen_at, j.last_seen_at";
+    j.employment_type, j.description, j.url, j.salary, j.posted_at, j.relocation, j.remote_region, \
+    j.first_seen_at, j.last_seen_at";
 
 /// Open the database, apply the schema, and seed default sources on first run.
 pub fn init(path: &Path) -> Result<Connection> {
@@ -50,6 +53,8 @@ pub fn init(path: &Path) -> Result<Connection> {
             url TEXT NOT NULL DEFAULT '',
             salary TEXT,
             posted_at TEXT,
+            relocation INTEGER NOT NULL DEFAULT 0,
+            remote_region TEXT NOT NULL DEFAULT '',
             content_hash TEXT NOT NULL DEFAULT '',
             first_seen_at INTEGER NOT NULL,
             last_seen_at INTEGER NOT NULL,
@@ -139,6 +144,8 @@ pub fn init(path: &Path) -> Result<Connection> {
         "experience_level",
         "TEXT NOT NULL DEFAULT ''",
     )?;
+    ensure_column(&conn, "jobs", "relocation", "INTEGER NOT NULL DEFAULT 0")?;
+    ensure_column(&conn, "jobs", "remote_region", "TEXT NOT NULL DEFAULT ''")?;
     seed_defaults(&conn)?;
     Ok(conn)
 }
@@ -257,8 +264,10 @@ fn row_to_job(r: &rusqlite::Row) -> rusqlite::Result<Job> {
         url: r.get(12)?,
         salary: r.get(13)?,
         posted_at: r.get(14)?,
-        first_seen_at: r.get(15)?,
-        last_seen_at: r.get(16)?,
+        relocation: r.get::<_, i64>(15)? != 0,
+        remote_region: r.get(16)?,
+        first_seen_at: r.get(17)?,
+        last_seen_at: r.get(18)?,
     })
 }
 
@@ -312,12 +321,15 @@ fn push_in(sql: &mut String, params: &mut Vec<SqlValue>, col: &str, vals: &[Stri
 
 /// Full-text + filtered search. Empty query => most-recently-seen first.
 /// `workplaces` filters on remote/hybrid/onsite; `levels` on entry/mid/senior.
+#[allow(clippy::too_many_arguments)]
 pub fn search_jobs(
     conn: &Connection,
     query: &str,
     workplaces: &[String],
     levels: &[String],
     kinds: &[String],
+    relocation_only: bool,
+    remote_eligible: bool,
     limit: i64,
 ) -> Result<Vec<Job>> {
     let fts = build_fts_query(query);
@@ -332,6 +344,14 @@ pub fn search_jobs(
     push_in(&mut sql, &mut params, "j.workplace", workplaces);
     push_in(&mut sql, &mut params, "j.experience_level", levels);
     push_in(&mut sql, &mut params, "j.source_kind", kinds);
+    if relocation_only {
+        sql.push_str(" AND j.relocation = 1");
+    }
+    if remote_eligible {
+        // Remote roles workable from Malta (EU): keep worldwide / EU / unstated,
+        // drop ones explicitly restricted to the US, UK, or another country.
+        sql.push_str(" AND j.workplace = 'remote' AND j.remote_region NOT IN ('us','uk','other')");
+    }
     sql.push_str(if fts.is_some() {
         " ORDER BY bm25(jobs_fts)"
     } else {
@@ -445,13 +465,14 @@ pub fn upsert_jobs(
         let mut stmt = tx.prepare(
             "INSERT INTO jobs (source_id, source_kind, external_id, title, company, location, remote, \
                 workplace, experience_level, employment_type, description, url, salary, posted_at, \
-                content_hash, first_seen_at, last_seen_at, removed_at) \
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?16,NULL) \
+                relocation, remote_region, content_hash, first_seen_at, last_seen_at, removed_at) \
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?18,NULL) \
              ON CONFLICT(source_id, external_id) DO UPDATE SET \
                 title=excluded.title, company=excluded.company, location=excluded.location, remote=excluded.remote, \
                 workplace=excluded.workplace, experience_level=excluded.experience_level, \
                 employment_type=excluded.employment_type, description=excluded.description, url=excluded.url, \
-                salary=excluded.salary, posted_at=excluded.posted_at, content_hash=excluded.content_hash, \
+                salary=excluded.salary, posted_at=excluded.posted_at, relocation=excluded.relocation, \
+                remote_region=excluded.remote_region, content_hash=excluded.content_hash, \
                 last_seen_at=excluded.last_seen_at, removed_at=NULL",
         )?;
         for j in jobs {
@@ -459,6 +480,9 @@ pub fn upsert_jobs(
             let experience =
                 classify_experience(&j.title, &j.description, j.employment_type.as_deref());
             let remote = (workplace == "remote") as i64;
+            let relocation = detect_relocation(&j.description) as i64;
+            let region =
+                remote_region(workplace == "remote", &j.location, &j.title, &j.description);
             let hash = stable_hash(&format!(
                 "{}|{}|{}",
                 j.title.to_lowercase(),
@@ -480,6 +504,8 @@ pub fn upsert_jobs(
                 j.url,
                 j.salary,
                 j.posted_at,
+                relocation,
+                region,
                 hash,
                 now,
             ])?;

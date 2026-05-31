@@ -184,3 +184,76 @@ pub fn classify_experience(
 
     "mid".to_string()
 }
+
+/// Does the posting mention relocation help? Guards against explicit negatives.
+pub fn detect_relocation(description: &str) -> bool {
+    let d = description.to_lowercase();
+    if !d.contains("relocation") && !d.contains("relocate") {
+        return false;
+    }
+    !(d.contains("no relocation")
+        || d.contains("relocation is not")
+        || d.contains("not offer relocation")
+        || d.contains("without relocation"))
+}
+
+/// Best-effort remote-eligibility region for a remote role, inferred from
+/// location/title/description: "worldwide" | "eu" | "us" | "uk" | "other" | ""
+/// (the last meaning not-remote or no stated restriction). Heuristic - sources
+/// rarely state geo-eligibility cleanly, so this only catches explicit signals.
+pub fn remote_region(remote: bool, location: &str, title: &str, description: &str) -> &'static str {
+    if !remote {
+        return "";
+    }
+    let text = format!(
+        "{} {} {}",
+        location.to_lowercase(),
+        title.to_lowercase(),
+        description.to_lowercase()
+    );
+    if text.contains("worldwide")
+        || text.contains("work from anywhere")
+        || text.contains("anywhere in the world")
+        || text.contains("remote anywhere")
+        || text.contains("global remote")
+    {
+        return "worldwide";
+    }
+    if text.contains("remote (eu")
+        || text.contains("remote - eu")
+        || text.contains("eu only")
+        || text.contains("eu-based")
+        || text.contains("europe only")
+        || text.contains("within europe")
+        || text.contains("eea")
+        || text.contains("european union")
+    {
+        return "eu";
+    }
+    if text.contains("us only")
+        || text.contains("u.s. only")
+        || text.contains("usa only")
+        || text.contains("united states only")
+        || text.contains("us-based")
+        || text.contains("us residents")
+        || text.contains("authorized to work in the united states")
+        || text.contains("us time zone")
+        || text.contains("est time zone")
+    {
+        return "us";
+    }
+    if text.contains("uk only")
+        || text.contains("uk-based")
+        || text.contains("united kingdom only")
+        || text.contains("must be based in the uk")
+    {
+        return "uk";
+    }
+    if text.contains("canada only")
+        || text.contains("australia only")
+        || text.contains("india only")
+    {
+        return "other";
+    }
+    ""
+}
