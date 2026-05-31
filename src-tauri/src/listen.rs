@@ -291,7 +291,7 @@ async fn transcribe_deepgram(
     pcm: Vec<u8>,
 ) -> Result<String> {
     let url = format!(
-        "https://api.deepgram.com/v1/listen?model=nova-2&encoding=linear16&sample_rate={sample_rate}&channels=1&punctuate=true"
+        "https://api.deepgram.com/v1/listen?model=nova-2&encoding=linear16&sample_rate={sample_rate}&channels=1&punctuate=true&detect_language=true"
     );
     let resp = http
         .post(url)
