@@ -91,16 +91,42 @@ impl LocalStt {
         })
     }
 
-    /// Transcribe a few seconds of mono 16 kHz PCM. Pads to Whisper's 30 s window,
-    /// auto-detects the language, and greedily decodes into text.
+    /// Transcribe mono 16 kHz PCM of any length. Audio is split into Whisper's
+    /// fixed 30 s windows (longer input would overrun the encoder's positional
+    /// table and panic with a `narrow` error), each window is decoded, and the
+    /// pieces are joined.
     pub fn transcribe(&mut self, pcm16k: &[f32]) -> Result<String> {
         let window = TARGET_RATE * WINDOW_SECS;
-        let mut padded = pcm16k.to_vec();
+        if pcm16k.is_empty() {
+            return Ok(String::new());
+        }
+        let mut out = String::new();
+        for chunk in pcm16k.chunks(window) {
+            let seg = self.transcribe_window(chunk)?;
+            let seg = seg.trim();
+            if !seg.is_empty() {
+                if !out.is_empty() {
+                    out.push(' ');
+                }
+                out.push_str(seg);
+            }
+        }
+        Ok(out)
+    }
+
+    /// Transcribe a single window (<= 30 s): pad to the fixed window, clamp the mel
+    /// to the encoder's frame limit, auto-detect the language, and greedily decode.
+    fn transcribe_window(&mut self, pcm: &[f32]) -> Result<String> {
+        let window = TARGET_RATE * WINDOW_SECS;
+        let mut padded = pcm.to_vec();
         padded.truncate(window);
         padded.resize(window, 0.0);
 
-        let mel = whisper::audio::pcm_to_mel(&self.model.config, &padded, &self.mel_filters);
         let n_mels = self.model.config.num_mel_bins;
+        let mut mel = whisper::audio::pcm_to_mel(&self.model.config, &padded, &self.mel_filters);
+        // Guard against any off-by-one from the mel computation: the encoder's
+        // positional embedding only spans whisper::N_FRAMES mel frames.
+        mel.truncate(n_mels * whisper::N_FRAMES);
         let frames = mel.len() / n_mels;
         let mel = Tensor::from_vec(mel, (1, n_mels, frames), &self.device)?;
 
