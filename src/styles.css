@@ -272,18 +272,6 @@ select:focus {
   font: inherit;
   text-decoration: underline;
 }
-.listen-engine {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.listen-engine select {
-  background: var(--panel);
-  color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 6px 10px;
-}
 .listen-bar {
   display: flex;
   align-items: center;
@@ -344,7 +332,7 @@ select:focus {
   gap: 8px;
 }
 .level-track {
-  height: 8px;
+  height: 12px;
   border-radius: 999px;
   background: var(--border);
   overflow: hidden;
@@ -357,7 +345,7 @@ select:focus {
   transition: width 0.15s linear;
 }
 .level-fill.live {
-  background: var(--accent);
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
 }
 .transcript-text {
   white-space: pre-wrap;
@@ -368,7 +356,7 @@ select:focus {
 .transcript-field {
   width: 100%;
   resize: vertical;
-  min-height: 110px;
+  min-height: 150px;
   background: var(--bg-2);
   color: var(--text);
   border: 1px solid var(--border);
@@ -380,6 +368,145 @@ select:focus {
 .transcript-field:focus {
   border-color: var(--accent);
   outline: none;
+}
+
+/* --- Assistant redesign: grouped Setup card, segmented controls, primary CTA,
+   severity-tinted diagnostics. All colors derive from the existing variables. --- */
+.setup-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+}
+.setup-card.is-listening {
+  opacity: 0.72;
+}
+.setup-card.is-listening .seg-btn,
+.setup-card.is-listening select {
+  pointer-events: none;
+}
+.setup-title {
+  font-size: 11.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--muted);
+}
+.setup-row {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  align-items: center;
+  gap: 12px;
+}
+.setup-label {
+  color: var(--muted);
+  font-size: 12px;
+}
+.setup-row select {
+  width: 100%;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 7px 10px;
+}
+.setup-row select:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+.setup-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 2px 0;
+}
+
+/* Segmented control: mirrors the existing .chip.active accent language. */
+.seg {
+  display: inline-flex;
+  width: fit-content;
+  gap: 2px;
+  padding: 3px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+.seg-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 16px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  color: var(--muted);
+  font: inherit;
+  font-weight: 600;
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: color 0.12s, background 0.12s;
+}
+.seg-btn:hover:not(.on):not(:disabled) {
+  color: var(--text);
+}
+.seg-btn.on {
+  background: rgba(16, 185, 129, 0.15);
+  border-color: var(--accent);
+  color: var(--accent-2);
+}
+.seg-btn:disabled {
+  cursor: default;
+}
+
+/* Primary Listen CTA, distinct from the secondary screen button. */
+.btn-listen.primary {
+  flex: 1;
+  justify-content: center;
+  padding: 11px 16px;
+  background: rgba(16, 185, 129, 0.14);
+  border-color: var(--accent);
+  color: var(--accent-2);
+}
+.btn-listen.primary:hover {
+  background: rgba(16, 185, 129, 0.22);
+  border-color: var(--accent);
+}
+.btn-listen.primary.on {
+  background: rgba(248, 113, 113, 0.14);
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+/* Diagnostics severity tint. */
+.capture-diag.warn {
+  background: rgba(248, 113, 113, 0.08);
+  border-color: var(--danger);
+}
+.capture-diag.ok {
+  background: rgba(16, 185, 129, 0.07);
+  border-color: var(--accent);
+}
+.capture-diag.warn .diag-hint {
+  color: var(--danger);
+}
+
+/* Onboarding cards read differently from danger-bordered errors. */
+.add-source.onboard {
+  border-left: 3px solid var(--accent);
+}
+
+/* Q&A panes collapse to one column when there is no code/math. */
+.assistant-panes.single {
+  display: block;
+}
+
+@media (max-width: 560px) {
+  .setup-row {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
 }
 .transcript .btn-open {
   align-self: flex-start;

@@ -288,6 +288,7 @@ export function AssistantView() {
   };
 
   const needsDeepgramKey = sttEngine === "deepgram" && !hasSttKey;
+  const codeMathQa = qa.filter((e) => !e.pending && !e.error && hasCodeOrMath(e.a));
 
   return (
     <div className="assistant">
@@ -330,67 +331,109 @@ export function AssistantView() {
         </div>
       ) : (
         <>
-          <div className="listen-engine">
-            <span className="muted sm">Transcription:</span>
-            <select value={sttEngine} onChange={(e) => void changeEngine(e.target.value)} disabled={listening}>
-              <option value="deepgram">Cloud (Deepgram)</option>
-              <option value="local">Local (Whisper, on-device)</option>
-            </select>
-          </div>
+          <div className={"setup-card" + (listening ? " is-listening" : "")}>
+            <div className="setup-title">Setup</div>
 
-          <div className="listen-engine">
-            <span className="muted sm">Capture:</span>
-            <select
-              value={captureSource}
-              onChange={(e) => void changeCaptureSource(e.target.value)}
-              disabled={listening}
-            >
-              <option value="system">System audio (the call/video)</option>
-              <option value="mic">Microphone (you)</option>
-              <option value="both">System + Mic (both sides)</option>
-            </select>
-          </div>
-
-          {captureSource !== "mic" && (
-            <div className="listen-engine">
-              <span className="muted sm">Output device:</span>
-              <select
-                value={outputDevice}
-                onChange={(e) => void changeOutputDevice(e.target.value)}
-                disabled={listening}
-                title="Which speaker/output to capture (its sound is recorded via loopback)"
-              >
-                <option value="">Default output</option>
-                {devices.outputs.map((d) => (
-                  <option key={d} value={d}>
-                    {d}
-                  </option>
-                ))}
-              </select>
+            <div className="setup-row">
+              <span className="setup-label">Transcription</span>
+              <div className="seg" role="group" aria-label="Transcription engine">
+                <button
+                  className={"seg-btn" + (sttEngine === "deepgram" ? " on" : "")}
+                  aria-pressed={sttEngine === "deepgram"}
+                  disabled={listening}
+                  title="Cloud (Deepgram) - captured audio is sent to Deepgram to transcribe"
+                  onClick={() => void changeEngine("deepgram")}
+                >
+                  Cloud
+                </button>
+                <button
+                  className={"seg-btn" + (sttEngine === "local" ? " on" : "")}
+                  aria-pressed={sttEngine === "local"}
+                  disabled={listening}
+                  title="Local (Whisper) - runs on-device, audio never leaves your machine"
+                  onClick={() => void changeEngine("local")}
+                >
+                  Local
+                </button>
+              </div>
             </div>
-          )}
 
-          {captureSource !== "system" && (
-            <div className="listen-engine">
-              <span className="muted sm">Input device:</span>
-              <select
-                value={inputDevice}
-                onChange={(e) => void changeInputDevice(e.target.value)}
-                disabled={listening}
-                title="Which microphone to capture"
-              >
-                <option value="">Default microphone</option>
-                {devices.inputs.map((d) => (
-                  <option key={d} value={d}>
-                    {d}
-                  </option>
-                ))}
-              </select>
+            <div className="setup-row">
+              <span className="setup-label">Capture</span>
+              <div className="seg" role="group" aria-label="Capture source">
+                <button
+                  className={"seg-btn" + (captureSource === "system" ? " on" : "")}
+                  aria-pressed={captureSource === "system"}
+                  disabled={listening}
+                  title="System audio - the other side of the call/video (via loopback)"
+                  onClick={() => void changeCaptureSource("system")}
+                >
+                  System
+                </button>
+                <button
+                  className={"seg-btn" + (captureSource === "mic" ? " on" : "")}
+                  aria-pressed={captureSource === "mic"}
+                  disabled={listening}
+                  title="Microphone - your voice"
+                  onClick={() => void changeCaptureSource("mic")}
+                >
+                  Mic
+                </button>
+                <button
+                  className={"seg-btn" + (captureSource === "both" ? " on" : "")}
+                  aria-pressed={captureSource === "both"}
+                  disabled={listening}
+                  title="System + Mic - both sides of the call"
+                  onClick={() => void changeCaptureSource("both")}
+                >
+                  Both
+                </button>
+              </div>
             </div>
-          )}
+
+            <div className="setup-divider" />
+
+            {captureSource !== "mic" && (
+              <div className="setup-row">
+                <span className="setup-label">Output device</span>
+                <select
+                  value={outputDevice}
+                  onChange={(e) => void changeOutputDevice(e.target.value)}
+                  disabled={listening}
+                  title="Which speaker/output to capture (its sound is recorded via loopback)"
+                >
+                  <option value="">Default output</option>
+                  {devices.outputs.map((d) => (
+                    <option key={d} value={d}>
+                      {d}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {captureSource !== "system" && (
+              <div className="setup-row">
+                <span className="setup-label">Input device</span>
+                <select
+                  value={inputDevice}
+                  onChange={(e) => void changeInputDevice(e.target.value)}
+                  disabled={listening}
+                  title="Which microphone to capture"
+                >
+                  <option value="">Default microphone</option>
+                  {devices.inputs.map((d) => (
+                    <option key={d} value={d}>
+                      {d}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+          </div>
 
           {needsDeepgramKey ? (
-            <div className="add-source">
+            <div className="add-source onboard">
               <h3>
                 <Ear size={16} /> Deepgram API key
               </h3>
@@ -416,7 +459,7 @@ export function AssistantView() {
             </div>
           ) : (
             <div className="listen-bar">
-              <button className={"btn-listen" + (listening ? " on" : "")} onClick={toggleListen}>
+              <button className={"btn-listen primary" + (listening ? " on" : "")} onClick={toggleListen}>
                 {listening ? <Square size={15} /> : <Ear size={15} />}
                 {listening ? "Stop listening" : "Listen to call"}
               </button>
@@ -434,7 +477,7 @@ export function AssistantView() {
           {listenError && <div className="assistant-error">{listenError}</div>}
 
           {listening && (
-            <div className="capture-diag">
+            <div className={"capture-diag" + (level.peak < 0.005 ? " warn" : " ok")}>
               <div className="capture-diag-head">
                 <span className="muted sm">Capture diagnostics</span>
                 <span className="muted sm">
@@ -456,7 +499,7 @@ export function AssistantView() {
                   </div>
                 ))
               )}
-              <div className="muted sm">
+              <div className="diag-hint muted sm">
                 {level.peak < 0.005
                   ? "No sound reaching this device. If capturing System audio, set the Output device above to the one your call plays through."
                   : "Audio is being captured. If nothing transcribes, it's the transcription engine, not capture."}
@@ -553,23 +596,21 @@ export function AssistantView() {
           )}
 
           {qa.length > 0 && (
-            <div className="assistant-panes">
+            <div className={"assistant-panes" + (codeMathQa.length > 0 ? "" : " single")}>
               <div className="pane">
                 <div className="pane-title">History</div>
                 {qa.map((e) => (
                   <QaCard key={e.id} e={e} />
                 ))}
               </div>
-              <div className="pane">
-                <div className="pane-title">Code &amp; Math</div>
-                {qa.some((e) => !e.pending && !e.error && hasCodeOrMath(e.a)) ? (
-                  qa
-                    .filter((e) => !e.pending && !e.error && hasCodeOrMath(e.a))
-                    .map((e) => <QaCard key={e.id} e={e} />)
-                ) : (
-                  <div className="muted sm">Code snippets and equations from answers show up here.</div>
-                )}
-              </div>
+              {codeMathQa.length > 0 && (
+                <div className="pane">
+                  <div className="pane-title">Code &amp; Math</div>
+                  {codeMathQa.map((e) => (
+                    <QaCard key={e.id} e={e} />
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </>
