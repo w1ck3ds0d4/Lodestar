@@ -37,6 +37,8 @@ pub struct Job {
     pub url: String,
     pub salary: Option<String>,
     pub posted_at: Option<String>,
+    pub relocation: bool,
+    pub remote_region: String,
     pub first_seen_at: i64,
     pub last_seen_at: i64,
 }

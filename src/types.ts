@@ -14,6 +14,8 @@ export interface Job {
   url: string;
   salary: string | null;
   postedAt: string | null;
+  relocation: boolean;
+  remoteRegion: string;
   firstSeenAt: number;
   lastSeenAt: number;
 }
@@ -154,6 +156,15 @@ export const WORKPLACE_LABELS: Record<string, string> = {
   remote: "Remote",
   hybrid: "Hybrid",
   onsite: "On-site",
+};
+
+// Best-effort remote-eligibility region shown on the job card.
+export const REMOTE_REGION_LABELS: Record<string, string> = {
+  worldwide: "Remote · Worldwide",
+  eu: "Remote · EU",
+  us: "Remote · US only",
+  uk: "Remote · UK only",
+  other: "Remote · region-locked",
 };
 
 export const LEVEL_LABELS: Record<string, string> = {

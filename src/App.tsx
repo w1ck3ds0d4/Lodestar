@@ -18,6 +18,8 @@ export default function App() {
   const [workplaces, setWorkplaces] = useState<string[]>([]);
   const [levels, setLevels] = useState<string[]>([]);
   const [selectedKinds, setSelectedKinds] = useState<string[]>([]);
+  const [remoteEligible, setRemoteEligible] = useState(false);
+  const [relocationOnly, setRelocationOnly] = useState(false);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [stats, setStats] = useState<Stats>({ totalJobs: 0, companies: 0 });
   const [sources, setSources] = useState<Source[]>([]);
@@ -26,6 +28,8 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [panel, setPanel] = useState<"sources" | "alerts" | null>(null);
   const [capHidden, setCapHidden] = useState(true);
+  const [workCountry, setWorkCountry] = useState("");
+  const [editingCountry, setEditingCountry] = useState(false);
 
   const refreshSources = useCallback(async () => setSources(await api.listSources()), []);
   const refreshAlerts = useCallback(async () => setAlerts(await api.listAlerts()), []);
@@ -34,16 +38,18 @@ export default function App() {
   const runSearch = useCallback(async () => {
     setLoading(true);
     try {
-      setJobs(await api.searchJobs(query, workplaces, levels, selectedKinds));
+      setJobs(await api.searchJobs(query, workplaces, levels, selectedKinds, relocationOnly, remoteEligible));
     } finally {
       setLoading(false);
     }
-  }, [query, workplaces, levels, selectedKinds]);
+    // workCountry is read server-side; included so changing it re-runs the search.
+  }, [query, workplaces, levels, selectedKinds, relocationOnly, remoteEligible, workCountry]);
 
   useEffect(() => {
     void refreshSources();
     void refreshAlerts();
     void refreshStats();
+    void api.workCountry().then(setWorkCountry).catch(() => {});
   }, [refreshSources, refreshAlerts, refreshStats]);
 
   // Debounced search whenever the query or filters change.
@@ -95,6 +101,15 @@ export default function App() {
   }, []);
 
   const availableKinds = useMemo(() => Array.from(new Set(sources.map((s) => s.kind))), [sources]);
+
+  const regionNames = useMemo(() => {
+    try {
+      return new Intl.DisplayNames(["en"], { type: "region" });
+    } catch {
+      return null;
+    }
+  }, []);
+  const locationName = (workCountry && regionNames?.of(workCountry)) || workCountry || "my location";
 
   const toggle = (setter: Dispatch<SetStateAction<string[]>>, k: string) =>
     setter((prev) => (prev.includes(k) ? prev.filter((x) => x !== k) : [...prev, k]));
@@ -180,6 +195,50 @@ export default function App() {
                 </button>
               ))}
             </div>
+            <div className="filter-group">
+              <span className="filter-label">Remote fit</span>
+              <button
+                className={"chip" + (remoteEligible ? " active" : "")}
+                title={`Remote roles workable from ${locationName}: hides ones restricted to another region`}
+                onClick={() => setRemoteEligible((v) => !v)}
+              >
+                Workable from <span className="chip-country">{locationName}</span>
+              </button>
+              {editingCountry ? (
+                <input
+                  className="country-input"
+                  autoFocus
+                  maxLength={2}
+                  placeholder="MT"
+                  defaultValue={workCountry}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                    if (e.key === "Escape") setEditingCountry(false);
+                  }}
+                  onBlur={async (e) => {
+                    const code = e.currentTarget.value.trim();
+                    await api.setWorkCountry(code);
+                    setWorkCountry(code ? code.toUpperCase() : await api.workCountry());
+                    setEditingCountry(false);
+                  }}
+                />
+              ) : (
+                <button
+                  className="chip-edit"
+                  title="Change the country you can work from (2-letter code, blank to auto-detect)"
+                  onClick={() => setEditingCountry(true)}
+                >
+                  change
+                </button>
+              )}
+              <button
+                className={"chip" + (relocationOnly ? " active" : "")}
+                title="Only jobs whose description mentions relocation help"
+                onClick={() => setRelocationOnly((v) => !v)}
+              >
+                Pays relocation
+              </button>
+            </div>
           </div>
 
           {availableKinds.length > 0 && (
@@ -194,13 +253,19 @@ export default function App() {
                   {KIND_LABELS[k] ?? k}
                 </button>
               ))}
-              {(selectedKinds.length > 0 || workplaces.length > 0 || levels.length > 0) && (
+              {(selectedKinds.length > 0 ||
+                workplaces.length > 0 ||
+                levels.length > 0 ||
+                remoteEligible ||
+                relocationOnly) && (
                 <button
                   className="chip clear"
                   onClick={() => {
                     setSelectedKinds([]);
                     setWorkplaces([]);
                     setLevels([]);
+                    setRemoteEligible(false);
+                    setRelocationOnly(false);
                   }}
                 >
                   Clear all

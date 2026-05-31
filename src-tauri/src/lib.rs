@@ -68,6 +68,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::search_jobs,
+            commands::work_country,
+            commands::set_work_country,
             commands::list_sources,
             commands::add_source,
             commands::update_source,

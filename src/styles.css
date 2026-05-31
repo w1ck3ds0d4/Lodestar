@@ -470,6 +470,36 @@ select:focus {
   color: var(--muted);
 }
 
+.chip-country {
+  color: #fcd34d;
+  font-weight: 600;
+}
+
+.chip-edit {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 11.5px;
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 0 2px;
+}
+
+.chip-edit:hover {
+  color: var(--accent-2);
+}
+
+.country-input {
+  width: 44px;
+  background: var(--panel);
+  border: 1px solid var(--accent);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 3px 6px;
+  font-size: 12.5px;
+  text-transform: uppercase;
+}
+
 /* Results */
 .results {
   flex: 1;
@@ -582,6 +612,16 @@ select:focus {
   background: var(--panel-2);
   color: var(--muted);
   border: 1px solid var(--border);
+}
+
+.badge-region {
+  background: rgba(96, 165, 250, 0.16);
+  color: #93c5fd;
+}
+
+.badge-reloc {
+  background: rgba(251, 191, 36, 0.16);
+  color: #fbbf24;
 }
 
 .badge-hybrid {

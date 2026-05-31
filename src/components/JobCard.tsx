@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Building2, CalendarDays, Check, ExternalLink, MapPin, Plus, Wallet } from "lucide-react";
-import { LEVEL_LABELS, WORKPLACE_LABELS, type Job } from "../types";
+import { LEVEL_LABELS, REMOTE_REGION_LABELS, WORKPLACE_LABELS, type Job } from "../types";
 
 const EXCERPT = 280;
 
@@ -34,6 +34,10 @@ export function JobCard({
           {(job.experienceLevel === "entry" || job.experienceLevel === "senior") && (
             <span className={`badge badge-${job.experienceLevel}`}>{LEVEL_LABELS[job.experienceLevel]}</span>
           )}
+          {REMOTE_REGION_LABELS[job.remoteRegion] && (
+            <span className="badge badge-region">{REMOTE_REGION_LABELS[job.remoteRegion]}</span>
+          )}
+          {job.relocation && <span className="badge badge-reloc">Relocation</span>}
         </h3>
         <span className="badge badge-source">{kindLabel}</span>
       </div>

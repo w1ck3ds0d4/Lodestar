@@ -6,8 +6,23 @@ export const searchJobs = (
   workplaces: string[],
   levels: string[],
   kinds: string[],
+  relocationOnly = false,
+  remoteEligible = false,
   limit = 200,
-) => invoke<Job[]>("search_jobs", { query, workplaces, levels, kinds, limit });
+) =>
+  invoke<Job[]>("search_jobs", {
+    query,
+    workplaces,
+    levels,
+    kinds,
+    relocationOnly,
+    remoteEligible,
+    limit,
+  });
+
+// Detected (or stored) ISO country code the user can work from; "" if unknown.
+export const workCountry = () => invoke<string>("work_country");
+export const setWorkCountry = (code: string) => invoke<void>("set_work_country", { code });
 
 export const listSources = () => invoke<Source[]>("list_sources");
 
