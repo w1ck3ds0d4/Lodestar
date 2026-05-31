@@ -328,6 +328,37 @@ select:focus {
   border-radius: 8px;
   padding: 12px;
 }
+.capture-diag {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+.capture-diag-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.level-track {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--border);
+  overflow: hidden;
+}
+.level-fill {
+  height: 100%;
+  width: 0;
+  background: var(--muted);
+  border-radius: 999px;
+  transition: width 0.15s linear;
+}
+.level-fill.live {
+  background: var(--accent);
+}
 .transcript-text {
   white-space: pre-wrap;
   line-height: 1.5;
