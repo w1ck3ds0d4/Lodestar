@@ -202,7 +202,7 @@ export default function App() {
                 title={`Remote roles workable from ${locationName}: hides ones restricted to another region`}
                 onClick={() => setRemoteEligible((v) => !v)}
               >
-                Workable from {locationName}
+                Workable from <span className="chip-country">{locationName}</span>
               </button>
               {editingCountry ? (
                 <input
