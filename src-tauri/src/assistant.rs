@@ -42,6 +42,18 @@ async fn complete(
     system: &str,
     user_text: String,
 ) -> Result<String> {
+    complete_content(http, api_key, model, system, json!(user_text)).await
+}
+
+/// Like [`complete`] but takes the user message `content` directly, so callers can
+/// pass a multimodal content array (e.g. an image block plus text).
+async fn complete_content(
+    http: &reqwest::Client,
+    api_key: &str,
+    model: &str,
+    system: &str,
+    content: Value,
+) -> Result<String> {
     let mut body = json!({
         "model": model,
         "max_tokens": 4096,
@@ -50,7 +62,7 @@ async fn complete(
             "text": system,
             "cache_control": { "type": "ephemeral" }
         }],
-        "messages": [{ "role": "user", "content": user_text }],
+        "messages": [{ "role": "user", "content": content }],
     });
     if supports_adaptive_thinking(model) {
         // Adaptive thinking improves math/reasoning correctness; give it room.
@@ -125,6 +137,33 @@ pub async fn auto_answer(
     let user_text =
         format!("Earlier transcript (context):\n{transcript}\n\nNew text to consider:\n{latest}");
     complete(http, api_key, model, AUTO_PROMPT, user_text).await
+}
+
+/// System prompt for the screen watcher: read a screenshot and answer any
+/// question/problem visible on it, otherwise reply "NONE".
+const SCREEN_PROMPT: &str = "You are looking at a screenshot of the user's screen. Find any question, \
+quiz item, prompt, or problem to solve shown on it - math, code, multiple choice, a form question, an \
+exercise, etc. Answer it directly and concisely in the SAME language it appears in, using GitHub-flavored \
+Markdown: fenced code blocks for code (```python ... ```) and LaTeX ($...$ or $$...$$) for math. If several \
+questions are visible, answer each briefly with a short label. If no question or problem is visible (just \
+an ordinary app, desktop, or chat with nothing being asked), reply with exactly one word: NONE";
+
+/// Look at a screenshot (base64 PNG) and answer any question/problem on it, or
+/// return the literal "NONE" when there is nothing to answer.
+pub async fn answer_screen(
+    http: &reqwest::Client,
+    api_key: &str,
+    model: &str,
+    png_base64: &str,
+) -> Result<String> {
+    let content = json!([
+        {
+            "type": "image",
+            "source": { "type": "base64", "media_type": "image/png", "data": png_base64 }
+        },
+        { "type": "text", "text": "Find and answer any question or problem visible on this screen." }
+    ]);
+    complete_content(http, api_key, model, SCREEN_PROMPT, content).await
 }
 
 /// Map an API error status + body to a concise, user-facing message.

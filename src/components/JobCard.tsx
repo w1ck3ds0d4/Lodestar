@@ -1,8 +1,20 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Building2, CalendarDays, Check, ExternalLink, MapPin, Plus, Wallet } from "lucide-react";
 import { LEVEL_LABELS, REMOTE_REGION_LABELS, WORKPLACE_LABELS, type Job } from "../types";
 
 const EXCERPT = 280;
+
+// Some sources (Greenhouse, Lever, career pages, ...) return job descriptions as
+// HTML. Render them as readable plain text: turn block boundaries into spaces so
+// words don't run together, then let the browser strip the remaining tags and
+// decode entities (&amp;, &#39;, ...).
+function htmlToText(html: string): string {
+  if (!html) return "";
+  if (!html.includes("<")) return html;
+  const withSpaces = html.replace(/<\/(p|div|li|h[1-6]|tr|ul|ol|table|section)>|<br\s*\/?>/gi, " ");
+  const doc = new DOMParser().parseFromString(withSpaces, "text/html");
+  return (doc.body?.textContent || "").replace(/\s+/g, " ").trim();
+}
 
 export function JobCard({
   job,
@@ -17,7 +29,7 @@ export function JobCard({
 }) {
   const [open, setOpen] = useState(false);
   const [tracked, setTracked] = useState(false);
-  const desc = job.description || "";
+  const desc = useMemo(() => htmlToText(job.description || ""), [job.description]);
   const long = desc.length > EXCERPT;
   const shown = open || !long ? desc : `${desc.slice(0, EXCERPT)}…`;
 
