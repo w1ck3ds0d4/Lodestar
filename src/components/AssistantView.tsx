@@ -11,12 +11,13 @@ import "katex/dist/katex.min.css";
 import * as api from "../api";
 import {
   ASSISTANT_MODELS,
+  DEEPGRAM_PER_MIN,
   STT_LANGUAGES,
   estimateCost,
   type AudioDevices,
-  type ClaudeUsage,
   type DeepgramBalance,
   type MonitorInfo,
+  type UsageReport,
 } from "../types";
 
 interface QA {
@@ -244,7 +245,9 @@ export function AssistantView() {
   const [contextNotes, setContextNotes] = useState("");
   const [contextSaved, setContextSaved] = useState(false);
 
-  const [claudeUsage, setClaudeUsage] = useState<ClaudeUsage | null>(null);
+  const [usage, setUsage] = useState<UsageReport | null>(null);
+  const [claudeCreditInput, setClaudeCreditInput] = useState("");
+  const [dgCreditInput, setDgCreditInput] = useState("");
   const [dgBalance, setDgBalance] = useState<DeepgramBalance | null>(null);
   const [dgError, setDgError] = useState("");
   const [dgLoading, setDgLoading] = useState(false);
@@ -561,10 +564,17 @@ export function AssistantView() {
 
   // Lazily loaded when the Usage accordion is opened (and on Refresh).
   const refreshUsage = useCallback(async () => {
-    void api.getClaudeUsage().then(setClaudeUsage).catch(() => {});
+    void api
+      .getUsage()
+      .then((u) => {
+        setUsage(u);
+        setClaudeCreditInput(u.claudeCredit ? String(u.claudeCredit) : "");
+        setDgCreditInput(u.deepgramCredit ? String(u.deepgramCredit) : "");
+      })
+      .catch(() => {});
     if (!hasSttKey) {
       setDgBalance(null);
-      setDgError("Add a Deepgram key to see your balance.");
+      setDgError("");
       return;
     }
     setDgLoading(true);
@@ -580,12 +590,20 @@ export function AssistantView() {
   }, [hasSttKey]);
 
   const resetUsage = async () => {
-    await api.resetClaudeUsage();
-    setClaudeUsage(await api.getClaudeUsage());
+    await api.resetUsage();
+    await refreshUsage();
   };
 
-  const claudeCost = (claudeUsage?.items ?? []).reduce((s, it) => s + estimateCost(it), 0);
-  const claudeTokens = (claudeUsage?.items ?? []).reduce((s, it) => s + it.input + it.output, 0);
+  const saveCredit = async (provider: "claude" | "deepgram", raw: string) => {
+    const amount = Number.parseFloat(raw) || 0;
+    await api.setUsageCredit(provider, amount);
+    setUsage(await api.getUsage());
+  };
+
+  const claudeCost = (usage?.claudeItems ?? []).reduce((s, it) => s + estimateCost(it), 0);
+  const claudeTokens = (usage?.claudeItems ?? []).reduce((s, it) => s + it.input + it.output, 0);
+  const dgMinutes = (usage?.deepgramSeconds ?? 0) / 60;
+  const dgCost = dgMinutes * DEEPGRAM_PER_MIN;
   const modelLabel = (id: string) => ASSISTANT_MODELS.find((m) => m.id === id)?.label ?? id;
 
   const changeOutputDevice = async (name: string) => {
@@ -1083,25 +1101,42 @@ export function AssistantView() {
           >
             <summary>Usage &amp; cost</summary>
             <div className="acc-body">
+              {/* Claude: token-based spend estimate, optional credit -> remaining. */}
               <div className="usage-row">
-                <span className="usage-name">Claude (estimate)</span>
-                <span className="usage-val">${claudeCost.toFixed(2)}</span>
+                <span className="usage-name">Claude</span>
+                <span className="usage-val">
+                  {usage && usage.claudeCredit > 0
+                    ? `$${Math.max(0, usage.claudeCredit - claudeCost).toFixed(2)} left`
+                    : `$${claudeCost.toFixed(2)} used`}
+                </span>
               </div>
               <div className="muted sm">
-                {claudeUsage?.since
-                  ? `~${(claudeTokens / 1000).toFixed(0)}k tokens since ${new Date(
-                      claudeUsage.since * 1000,
+                {usage?.since
+                  ? `~$${claudeCost.toFixed(2)} est. (${(claudeTokens / 1000).toFixed(0)}k tokens) since ${new Date(
+                      usage.since * 1000,
                     ).toLocaleDateString()}`
                   : "No Claude usage tracked yet."}
               </div>
-              {(claudeUsage?.items ?? []).map((it) => (
+              {(usage?.claudeItems ?? []).map((it) => (
                 <div key={it.model} className="muted sm usage-line">
                   {modelLabel(it.model)}: {(it.input / 1000).toFixed(0)}k in / {(it.output / 1000).toFixed(0)}k out
                 </div>
               ))}
+              <label className="usage-credit">
+                <span className="setup-label">Credit added ($)</span>
+                <input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  placeholder="e.g. 20"
+                  value={claudeCreditInput}
+                  onChange={(e) => setClaudeCreditInput(e.target.value)}
+                  onBlur={() => void saveCredit("claude", claudeCreditInput)}
+                />
+              </label>
               <div className="usage-actions">
                 <button className="link-btn" onClick={() => void resetUsage()}>
-                  Reset
+                  Reset spend
                 </button>
                 <button
                   className="link-btn"
@@ -1111,22 +1146,47 @@ export function AssistantView() {
                 </button>
               </div>
               <div className="muted sm">
-                Estimated from token counts and list prices - the exact bill lives in the Anthropic console.
+                Spend is estimated from token counts and list prices, then subtracted from the credit you
+                enter - the exact balance lives in the Anthropic console.
               </div>
 
               <hr className="usage-sep" />
 
+              {/* Deepgram: live balance when the key allows it; otherwise a minute-based estimate. */}
               <div className="usage-row">
-                <span className="usage-name">Deepgram credit</span>
+                <span className="usage-name">Deepgram</span>
                 <span className="usage-val">
-                  {dgLoading ? "…" : dgBalance ? `$${dgBalance.amount.toFixed(2)}` : "—"}
+                  {dgLoading
+                    ? "…"
+                    : dgBalance
+                      ? `$${dgBalance.amount.toFixed(2)} left`
+                      : usage && usage.deepgramCredit > 0
+                        ? `$${Math.max(0, usage.deepgramCredit - dgCost).toFixed(2)} left`
+                        : `$${dgCost.toFixed(2)} used`}
                 </span>
               </div>
-              {dgError ? (
-                <div className="muted sm">{dgError}</div>
-              ) : dgBalance?.project ? (
-                <div className="muted sm">Project: {dgBalance.project}</div>
-              ) : null}
+              {dgBalance ? (
+                <div className="muted sm">Live balance{dgBalance.project ? ` · ${dgBalance.project}` : ""}</div>
+              ) : (
+                <div className="muted sm">
+                  {`~$${dgCost.toFixed(2)} est. (${dgMinutes.toFixed(1)} min streamed)`}
+                  {dgError ? " · live balance unavailable for this key" : ""}
+                </div>
+              )}
+              {!dgBalance && (
+                <label className="usage-credit">
+                  <span className="setup-label">Credit added ($)</span>
+                  <input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    placeholder="e.g. 25"
+                    value={dgCreditInput}
+                    onChange={(e) => setDgCreditInput(e.target.value)}
+                    onBlur={() => void saveCredit("deepgram", dgCreditInput)}
+                  />
+                </label>
+              )}
               <div className="usage-actions">
                 <button className="link-btn" onClick={() => void refreshUsage()} disabled={dgLoading}>
                   Refresh
@@ -1135,6 +1195,12 @@ export function AssistantView() {
                   Open Deepgram console
                 </button>
               </div>
+              {dgError && (
+                <div className="muted sm">
+                  Live balance needs an Owner/Admin Deepgram key; a transcription key can't read it. Enter your
+                  credit above for an estimate, or check the console.
+                </div>
+              )}
 
               <hr className="usage-sep" />
               <div className="muted sm">Local (Ollama / Whisper): free - runs on your machine.</div>

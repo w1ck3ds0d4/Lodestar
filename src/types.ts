@@ -279,9 +279,12 @@ export interface ClaudeUsageItem {
   output: number;
 }
 
-export interface ClaudeUsage {
+export interface UsageReport {
   since: number | null; // unix seconds the tally started
-  items: ClaudeUsageItem[];
+  claudeItems: ClaudeUsageItem[];
+  deepgramSeconds: number;
+  claudeCredit: number; // user-entered top-up, USD (0 if unset)
+  deepgramCredit: number;
 }
 
 export interface DeepgramBalance {
@@ -290,7 +293,10 @@ export interface DeepgramBalance {
   project: string;
 }
 
-// Estimated USD cost of one usage row. Unknown models fall back to Sonnet pricing.
+// Deepgram Nova-2 streaming, approximate USD per minute (pay-as-you-go). Estimate only.
+export const DEEPGRAM_PER_MIN = 0.0059;
+
+// Estimated USD cost of one Claude usage row. Unknown models fall back to Sonnet pricing.
 export function estimateCost(item: ClaudeUsageItem): number {
   const m = ASSISTANT_MODELS.find((x) => x.id === item.model);
   const inPrice = m?.inPrice ?? 3;
