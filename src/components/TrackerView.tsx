@@ -1,5 +1,10 @@
-import { useCallback, useEffect, useState } from "react";
-import { Plus, Trash2 } from "lucide-react";
+import { useCallback, useEffect, useState, type DragEvent } from "react";
+import { GripVertical, Plus, Sparkles, Trash2 } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
+import "katex/dist/katex.min.css";
 import * as api from "../api";
 import {
   APP_STATUSES,
@@ -11,6 +16,29 @@ import {
   type Tracked,
 } from "../types";
 
+const RESPONDED = ["screen", "interview", "offer", "accepted"];
+const INTERVIEWING = ["interview", "offer", "accepted"];
+
+function Md({ text }: { text: string }) {
+  return (
+    <div className="assistant-answer">
+      <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>
+        {text}
+      </ReactMarkdown>
+    </div>
+  );
+}
+
+// Classify a deadline relative to today (for highlighting), ignoring closed items.
+function deadlineState(deadline: string | null, status: string): "" | "overdue" | "soon" {
+  if (!deadline || status === "accepted" || status === "rejected") return "";
+  const today = new Date().toISOString().slice(0, 10);
+  const soon = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);
+  if (deadline < today) return "overdue";
+  if (deadline <= soon) return "soon";
+  return "";
+}
+
 export function TrackerView({ onOpen }: { onOpen: (url: string) => void }) {
   const [items, setItems] = useState<Tracked[]>([]);
   const load = useCallback(async () => setItems(await api.listTracked()), []);
@@ -21,10 +49,45 @@ export function TrackerView({ onOpen }: { onOpen: (url: string) => void }) {
   const applications = items.filter((i) => i.kind === "application");
   const programs = items.filter((i) => i.kind === "program");
 
+  // Pipeline stats.
+  const active = applications.filter((a) => a.status !== "accepted" && a.status !== "rejected").length;
+  const appliedPlus = applications.filter((a) => a.status !== "saved").length;
+  const responded = applications.filter((a) => RESPONDED.includes(a.status)).length;
+  const interviews = applications.filter((a) => INTERVIEWING.includes(a.status)).length;
+  const offers = applications.filter((a) => a.status === "offer" || a.status === "accepted").length;
+  const responseRate = appliedPlus ? Math.round((responded / appliedPlus) * 100) : 0;
+  const overdue = applications.filter((a) => deadlineState(a.deadline, a.status) === "overdue").length;
+  const soon = applications.filter((a) => deadlineState(a.deadline, a.status) === "soon").length;
+
+  // Drag a card onto a column to change its status.
+  const onDropTo = (status: string) => async (e: DragEvent) => {
+    e.preventDefault();
+    const id = Number(e.dataTransfer.getData("text/plain"));
+    const item = applications.find((a) => a.id === id);
+    if (!item || item.status === status) return;
+    await api.updateTracked(id, status, item.notes, item.progress, item.deadline);
+    load();
+  };
+
   return (
     <div className="tracker">
       <section>
         <h2 className="section-title">Applications</h2>
+        {applications.length > 0 && (
+          <div className="pipeline-stats">
+            <span className="stat-pill">{active} active</span>
+            <span className="stat-pill">{responseRate}% response</span>
+            <span className="stat-pill">{interviews} interviewing</span>
+            <span className="stat-pill">{offers} offers</span>
+            {overdue + soon > 0 && (
+              <span className={"stat-pill due" + (overdue > 0 ? " overdue" : "")}>
+                {overdue > 0 && `${overdue} overdue`}
+                {overdue > 0 && soon > 0 && " · "}
+                {soon > 0 && `${soon} due soon`}
+              </span>
+            )}
+          </div>
+        )}
         {applications.length === 0 ? (
           <p className="muted">
             No applications yet. Hit <strong>Track</strong> on a job in Search to add one here.
@@ -34,7 +97,12 @@ export function TrackerView({ onOpen }: { onOpen: (url: string) => void }) {
             {APP_STATUSES.map((st) => {
               const col = applications.filter((a) => a.status === st);
               return (
-                <div className="board-col" key={st}>
+                <div
+                  className="board-col"
+                  key={st}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={onDropTo(st)}
+                >
                   <div className="board-col-head">
                     {APP_STATUS_LABELS[st]} <span className="count">{col.length}</span>
                   </div>
@@ -67,38 +135,95 @@ export function TrackerView({ onOpen }: { onOpen: (url: string) => void }) {
 
 function AppCard({ item, onChanged, onOpen }: { item: Tracked; onChanged: () => void; onOpen: (url: string) => void }) {
   const [notes, setNotes] = useState(item.notes);
+  const [nextAction, setNextAction] = useState(item.nextAction ?? "");
+  const [prepping, setPrepping] = useState(false);
+  const [prepError, setPrepError] = useState("");
+  const dl = deadlineState(item.deadline, item.status);
 
   const move = async (status: string) => {
     await api.updateTracked(item.id, status, notes, item.progress, item.deadline);
     onChanged();
   };
+  const setDeadline = async (deadline: string | null) => {
+    await api.updateTracked(item.id, item.status, notes, item.progress, deadline);
+    onChanged();
+  };
   const saveNotes = async () => {
     if (notes !== item.notes) await api.updateTracked(item.id, item.status, notes, item.progress, item.deadline);
+  };
+  const saveNextAction = async () => {
+    if (nextAction !== (item.nextAction ?? "")) await api.setTrackedNextAction(item.id, nextAction);
   };
   const del = async () => {
     await api.removeTracked(item.id);
     onChanged();
   };
+  const prep = async () => {
+    setPrepping(true);
+    setPrepError("");
+    try {
+      await api.prepApplication(item.id, item.title, item.org);
+      onChanged();
+    } catch (e) {
+      setPrepError(String(e));
+    } finally {
+      setPrepping(false);
+    }
+  };
 
   return (
     <div className="track-card">
       <div className="track-card-head">
+        <span
+          className="drag-grip"
+          draggable
+          onDragStart={(e) => e.dataTransfer.setData("text/plain", String(item.id))}
+          title="Drag to another column"
+        >
+          <GripVertical size={14} />
+        </span>
         <button className="link-title" onClick={() => item.url && onOpen(item.url)}>{item.title}</button>
         <button className="icon-btn danger sm" title="Remove" onClick={del}><Trash2 size={14} /></button>
       </div>
       {item.org && <div className="muted sm">{item.org}</div>}
-      <select value={item.status} onChange={(e) => move(e.target.value)}>
-        {APP_STATUSES.map((s) => (
-          <option key={s} value={s}>{APP_STATUS_LABELS[s]}</option>
-        ))}
-      </select>
+      <div className="track-row">
+        <select value={item.status} onChange={(e) => move(e.target.value)}>
+          {APP_STATUSES.map((s) => (
+            <option key={s} value={s}>{APP_STATUS_LABELS[s]}</option>
+          ))}
+        </select>
+        <input
+          type="date"
+          className={"track-deadline" + (dl ? " " + dl : "")}
+          value={item.deadline ?? ""}
+          title="Deadline"
+          onChange={(e) => setDeadline(e.target.value || null)}
+        />
+      </div>
+      <input
+        className="track-next"
+        placeholder="Next action (e.g. follow up Fri)..."
+        value={nextAction}
+        onChange={(e) => setNextAction(e.target.value)}
+        onBlur={saveNextAction}
+      />
       <textarea
         className="track-notes"
-        placeholder="Notes (recruiter, salary, next step)..."
+        placeholder="Notes (recruiter, salary, links)..."
         value={notes}
         onChange={(e) => setNotes(e.target.value)}
         onBlur={saveNotes}
       />
+      <button className="btn-sync sm" onClick={prep} disabled={prepping}>
+        <Sparkles size={13} /> {prepping ? "Prepping…" : item.prep ? "Refresh prep" : "Interview prep"}
+      </button>
+      {prepError && <div className="assistant-error">{prepError}</div>}
+      {item.prep && (
+        <details className="track-prep">
+          <summary className="muted sm">Interview prep</summary>
+          <Md text={item.prep} />
+        </details>
+      )}
     </div>
   );
 }

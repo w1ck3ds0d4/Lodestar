@@ -238,6 +238,41 @@ pub fn remove_tracked(state: State<'_, AppState>, id: i64) -> Result<(), String>
     crate::career::remove_tracked(&conn, id).map_err(|e| e.to_string())
 }
 
+/// Set (or clear, when blank) the "next action" reminder on an application.
+#[tauri::command]
+pub fn set_tracked_next_action(
+    state: State<'_, AppState>,
+    id: i64,
+    text: String,
+) -> Result<(), String> {
+    let conn = state.db.lock().map_err(|_| "db poisoned")?;
+    crate::career::set_next_action(&conn, now_ms(), id, Some(&text)).map_err(|e| e.to_string())
+}
+
+/// Generate interview prep (questions + talking points + research) for a tracked
+/// application and persist it on the item.
+#[tauri::command]
+pub async fn prep_application(
+    state: State<'_, AppState>,
+    id: i64,
+    title: String,
+    org: String,
+) -> Result<String, String> {
+    let (engine, profile) = {
+        let conn = state.db.lock().map_err(|_| "db poisoned")?;
+        (build_engine(&conn)?, interview_profile(&conn))
+    };
+    let http = state.http.clone();
+    let prep = crate::assistant::interview_prep(&http, &engine, &title, &org, profile.as_deref())
+        .await
+        .map_err(|e| e.to_string())?;
+    {
+        let conn = state.db.lock().map_err(|_| "db poisoned")?;
+        crate::career::set_prep(&conn, id, &prep).map_err(|e| e.to_string())?;
+    }
+    Ok(prep)
+}
+
 #[tauri::command]
 pub fn add_milestone(
     state: State<'_, AppState>,

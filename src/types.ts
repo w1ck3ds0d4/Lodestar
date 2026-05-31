@@ -64,6 +64,8 @@ export interface Tracked {
   deadline: string | null;
   progress: number;
   sourceJobId: number | null;
+  nextAction: string | null;
+  prep: string | null;
   createdAt: number;
   updatedAt: number;
   milestones: Milestone[];

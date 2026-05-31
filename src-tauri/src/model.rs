@@ -86,6 +86,8 @@ pub struct Tracked {
     pub deadline: Option<String>,
     pub progress: i64,
     pub source_job_id: Option<i64>,
+    pub next_action: Option<String>,
+    pub prep: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
     pub milestones: Vec<Milestone>,

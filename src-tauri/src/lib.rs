@@ -88,6 +88,8 @@ pub fn run() {
             commands::add_tracked,
             commands::update_tracked,
             commands::remove_tracked,
+            commands::set_tracked_next_action,
+            commands::prep_application,
             commands::add_milestone,
             commands::set_milestone,
             commands::remove_milestone,

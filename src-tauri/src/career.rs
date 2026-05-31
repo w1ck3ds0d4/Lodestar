@@ -8,7 +8,7 @@ use crate::model::{Milestone, Skill, Tracked};
 use crate::util::epoch_to_date;
 
 const TRACKED_COLS: &str = "id, kind, title, org, url, status, notes, applied_at, deadline, \
-    progress, source_job_id, created_at, updated_at";
+    progress, source_job_id, created_at, updated_at, next_action, prep";
 
 fn row_to_tracked(r: &rusqlite::Row) -> rusqlite::Result<Tracked> {
     Ok(Tracked {
@@ -25,8 +25,26 @@ fn row_to_tracked(r: &rusqlite::Row) -> rusqlite::Result<Tracked> {
         source_job_id: r.get(10)?,
         created_at: r.get(11)?,
         updated_at: r.get(12)?,
+        next_action: r.get(13)?,
+        prep: r.get(14)?,
         milestones: Vec::new(),
     })
+}
+
+/// Set (or clear) an application's "next action" reminder.
+pub fn set_next_action(conn: &Connection, now: i64, id: i64, text: Option<&str>) -> Result<()> {
+    let text = text.filter(|t| !t.trim().is_empty());
+    conn.execute(
+        "UPDATE tracked SET next_action=?2, updated_at=?3 WHERE id=?1",
+        params![id, text, now],
+    )?;
+    Ok(())
+}
+
+/// Store a generated interview-prep brief for an application.
+pub fn set_prep(conn: &Connection, id: i64, prep: &str) -> Result<()> {
+    conn.execute("UPDATE tracked SET prep=?2 WHERE id=?1", params![id, prep])?;
+    Ok(())
 }
 
 pub fn list_tracked(conn: &Connection, kind: Option<&str>) -> Result<Vec<Tracked>> {

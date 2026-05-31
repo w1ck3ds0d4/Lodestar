@@ -108,6 +108,8 @@ pub fn init(path: &Path) -> Result<Connection> {
             deadline TEXT,
             progress INTEGER NOT NULL DEFAULT 0,
             source_job_id INTEGER,
+            next_action TEXT,
+            prep TEXT,
             created_at INTEGER NOT NULL,
             updated_at INTEGER NOT NULL
         );
@@ -147,6 +149,8 @@ pub fn init(path: &Path) -> Result<Connection> {
     )?;
     ensure_column(&conn, "jobs", "relocation", "INTEGER NOT NULL DEFAULT 0")?;
     ensure_column(&conn, "jobs", "remote_region", "TEXT NOT NULL DEFAULT ''")?;
+    ensure_column(&conn, "tracked", "next_action", "TEXT")?;
+    ensure_column(&conn, "tracked", "prep", "TEXT")?;
     seed_defaults(&conn)?;
     Ok(conn)
 }

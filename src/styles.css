@@ -1656,6 +1656,76 @@ textarea:focus {
   font-size: 12.5px;
 }
 
+/* Pipeline overview + deadlines */
+.pipeline-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.pipeline-stats .stat-pill.due {
+  color: #fbbf24;
+  border-color: rgba(251, 191, 36, 0.5);
+}
+.pipeline-stats .stat-pill.due.overdue {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+/* Tracker card: drag handle, deadline highlighting, next-action, prep */
+.drag-grip {
+  display: inline-flex;
+  align-items: center;
+  color: var(--muted);
+  cursor: grab;
+}
+.drag-grip:active {
+  cursor: grabbing;
+}
+.track-card {
+  cursor: default;
+}
+.track-row {
+  display: flex;
+  gap: 6px;
+}
+.track-row select {
+  flex: 1;
+  min-width: 0;
+}
+.track-deadline {
+  width: 130px;
+}
+.track-deadline.soon {
+  border-color: #fbbf24;
+}
+.track-deadline.overdue {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+.track-next {
+  font-size: 12.5px;
+}
+.btn-sync.sm {
+  padding: 5px 10px;
+  font-size: 12px;
+  align-self: flex-start;
+}
+.track-prep > summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.track-prep .assistant-answer {
+  margin-top: 8px;
+  max-height: 320px;
+  overflow-y: auto;
+  font-size: 12.5px;
+}
+.board-col:has(.track-card[draggable]) {
+  /* keeps columns a comfortable drop target even when short */
+  min-height: 60px;
+}
+
 .prog-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));

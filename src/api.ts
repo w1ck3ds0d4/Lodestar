@@ -79,6 +79,10 @@ export const updateTracked = (id: number, status: string, notes: string, progres
   invoke<void>("update_tracked", { id, status, notes, progress, deadline });
 
 export const removeTracked = (id: number) => invoke<void>("remove_tracked", { id });
+export const setTrackedNextAction = (id: number, text: string) =>
+  invoke<void>("set_tracked_next_action", { id, text });
+export const prepApplication = (id: number, title: string, org: string) =>
+  invoke<string>("prep_application", { id, title, org });
 
 export const addMilestone = (trackedId: number, label: string) => invoke<number>("add_milestone", { trackedId, label });
 export const setMilestone = (id: number, done: boolean) => invoke<void>("set_milestone", { id, done });
