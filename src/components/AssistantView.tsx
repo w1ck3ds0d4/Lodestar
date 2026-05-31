@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Channel } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { Bot, Crop, Ear, KeyRound, Monitor, ScanSearch, Send, Square } from "lucide-react";
@@ -54,6 +54,38 @@ function Answer({ text }: { text: string }) {
 // True if an answer contains a fenced code block or LaTeX math.
 function hasCodeOrMath(a: string): boolean {
   return a.includes("```") || a.includes("$$") || /\$[^$\n]+\$/.test(a);
+}
+
+interface SnippetGroup {
+  id: number;
+  q: string;
+  items: { key: string; md: string }[];
+}
+
+// Pull the fenced code blocks + display-math out of each answer, grouped by the
+// question they came from (newest group first), so the Code & Math pane is a tidy
+// per-question reference rather than a duplicate of the full answer.
+function snippetGroups(qa: QA[]): SnippetGroup[] {
+  const groups: SnippetGroup[] = [];
+  for (const e of qa) {
+    if (e.pending || e.error || !e.a || !hasCodeOrMath(e.a)) continue;
+    const items: { key: string; md: string }[] = [];
+    let m: RegExpExecArray | null;
+    const codeRe = /```(\w*)\n?([\s\S]*?)```/g;
+    let i = 0;
+    while ((m = codeRe.exec(e.a))) {
+      const body = m[2].replace(/\n+$/, "");
+      if (body.trim()) items.push({ key: `${e.id}-c${i++}`, md: "```" + (m[1] || "") + "\n" + body + "\n```" });
+    }
+    const mathRe = /\$\$([\s\S]*?)\$\$/g;
+    let j = 0;
+    while ((m = mathRe.exec(e.a))) {
+      const body = m[1].trim();
+      if (body) items.push({ key: `${e.id}-m${j++}`, md: "$$" + body + "$$" });
+    }
+    if (items.length) groups.push({ id: e.id, q: e.q, items });
+  }
+  return groups;
 }
 
 // Fullscreen "snip & explain": shows a captured screenshot, drag to select a
@@ -188,6 +220,7 @@ export function AssistantView() {
   const [onTop, setOnTop] = useState(false);
 
   const [contextRole, setContextRole] = useState("");
+  const [contextCompany, setContextCompany] = useState("");
   const [contextResume, setContextResume] = useState("");
   const [contextNotes, setContextNotes] = useState("");
   const [contextSaved, setContextSaved] = useState(false);
@@ -229,6 +262,7 @@ export function AssistantView() {
       setAnswerEngine(s.answerEngine);
       setOllamaModel(s.ollamaModel);
       setContextRole(s.contextRole);
+      setContextCompany(s.contextCompany);
       setContextResume(s.contextResume);
       setContextNotes(s.contextNotes);
     } finally {
@@ -237,7 +271,7 @@ export function AssistantView() {
   }, []);
 
   const saveContext = async () => {
-    await api.setInterviewContext(contextRole, contextResume, contextNotes);
+    await api.setInterviewContext(contextRole, contextCompany, contextResume, contextNotes);
     setContextSaved(true);
     setTimeout(() => setContextSaved(false), 1500);
   };
@@ -333,6 +367,21 @@ export function AssistantView() {
       setQa((prev) => prev.map((x) => (x.id === id ? { ...x, error: String(e), pending: false } : x)));
     }
   }, []);
+
+  // Generate a company briefing + suggested interview questions from what the user
+  // entered (saves the company first so every later answer is company-aware).
+  const generateCompanyBrief = async () => {
+    if (!contextCompany.trim()) return;
+    await api.setInterviewContext(contextRole, contextCompany, contextResume, contextNotes);
+    const forRole = contextRole.trim() ? ` for a ${contextRole.trim()} role` : "";
+    void ask(
+      `Brief me for an interview at this company:\n${contextCompany}\n\nCover concisely: what the company ` +
+        `does and its products, its likely tech stack and engineering culture, and 6-8 specific, thoughtful ` +
+        `questions I should ask the interviewer${forRole}. Note anything you are unsure about (you may not ` +
+        `have current information about this company).`,
+      null,
+    );
+  };
 
   // Live transcript + listen lifecycle events from the Rust capture loop. The
   // `cancelled` guard prevents duplicate listeners under React StrictMode: the async
@@ -477,7 +526,7 @@ export function AssistantView() {
   };
 
   const needsDeepgramKey = sttEngine === "deepgram" && !hasSttKey;
-  const codeMathQa = qa.filter((e) => !e.pending && !e.error && hasCodeOrMath(e.a));
+  const cmGroups = useMemo(() => snippetGroups(qa), [qa]);
   // Fill the opacity track exactly to the value (native accent-color leaves a gap at 100%).
   const opacityPct = Math.round(((opacity - 0.3) / 0.7) * 100);
 
@@ -532,8 +581,120 @@ export function AssistantView() {
       ) : (
         <div className="assistant-body">
           <section className="assistant-col col-settings">
-          <div className={"setup-card" + (listening ? " is-listening" : "")}>
-            <div className="setup-title">Setup</div>
+          {needsDeepgramKey ? (
+            <div className="add-source onboard">
+              <h3>
+                <Ear size={16} /> Deepgram API key
+              </h3>
+              <p className="muted sm">
+                The Cloud engine sends captured audio to Deepgram to transcribe it, so audio leaves your
+                machine. Get a key at console.deepgram.com - or switch the engine to Local above to keep
+                everything on-device.
+              </p>
+              <div className="add-row">
+                <input
+                  type="password"
+                  placeholder="Deepgram API key"
+                  value={sttKeyInput}
+                  onChange={(e) => setSttKeyInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") void saveSttKey();
+                  }}
+                />
+                <button className="btn-open" onClick={saveSttKey} disabled={savingStt || !sttKeyInput.trim()}>
+                  {savingStt ? "Saving..." : "Save key"}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="listen-bar">
+              <button className={"btn-listen primary" + (listening ? " on" : "")} onClick={toggleListen}>
+                {listening ? <Square size={15} /> : <Ear size={15} />}
+                {listening ? "Stop listening" : "Listen to call"}
+              </button>
+              <label className="auto-toggle muted sm">
+                <input
+                  type="checkbox"
+                  checked={autoAnswer}
+                  onChange={(e) => setAutoAnswer(e.target.checked)}
+                />
+                Auto-answer questions
+              </label>
+            </div>
+          )}
+
+          {listenError && <div className="assistant-error">{listenError}</div>}
+
+          {listening && (
+            <div className={"capture-diag" + (level.peak < 0.005 ? " warn" : " ok")}>
+              <div className="capture-diag-head">
+                <span className="muted sm">Capture diagnostics</span>
+                <span className="muted sm">
+                  peak {level.peak.toFixed(3)} · {Math.round(level.buffered / 1000)}k buffered
+                </span>
+              </div>
+              <div className="level-track">
+                <div
+                  className={"level-fill" + (level.peak >= 0.005 ? " live" : "")}
+                  style={{ width: `${Math.min(100, Math.round(level.peak * 140))}%` }}
+                />
+              </div>
+              {captureInfo.length === 0 ? (
+                <div className="muted sm">Opening capture device…</div>
+              ) : (
+                captureInfo.map((d) => (
+                  <div key={d.role} className="muted sm">
+                    {d.role}: <strong>{d.name}</strong> · {Math.round(d.rate / 1000)}kHz · {d.channels}ch
+                  </div>
+                ))
+              )}
+              <div className="diag-hint muted sm">
+                {level.peak < 0.005
+                  ? "No sound reaching this device. If capturing System audio, set the Output device above to the one your call plays through."
+                  : "Audio is being captured. If nothing transcribes, it's the transcription engine, not capture."}
+              </div>
+            </div>
+          )}
+
+          <div className="listen-bar screen-bar">
+            <span className="muted sm">
+              <Monitor size={14} /> Screen:
+            </span>
+            <select
+              value={screenMonitor}
+              onChange={(e) => setScreenMonitor(Number(e.target.value))}
+              disabled={watchingScreen}
+              title="Which monitor to read questions from"
+            >
+              {monitors.length === 0 ? (
+                <option value={0}>Primary display</option>
+              ) : (
+                monitors.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name}
+                  </option>
+                ))
+              )}
+            </select>
+            <button
+              className={"btn-listen" + (watchingScreen ? " on" : "")}
+              onClick={() => setWatchingScreen((v) => !v)}
+            >
+              {watchingScreen ? <Square size={15} /> : <ScanSearch size={15} />}
+              {watchingScreen ? "Stop watching" : "Watch screen"}
+            </button>
+            <button className="btn-ghost" onClick={() => void runScreen(true)} disabled={watchingScreen}>
+              Answer screen now
+            </button>
+            <button className="btn-ghost" onClick={() => void startSnip()} disabled={watchingScreen} title="Snip a region of the screen and explain it">
+              <Crop size={14} /> Snip
+            </button>
+          </div>
+          {screenError && <div className="assistant-error">{screenError}</div>}
+
+          <details className="acc" open>
+            <summary>Setup</summary>
+            <div className={"acc-body" + (listening ? " is-listening" : "")}>
 
             <div className="setup-row">
               <span className="setup-label">Answer</span>
@@ -679,121 +840,12 @@ export function AssistantView() {
                 </select>
               </div>
             )}
-          </div>
-
-          {needsDeepgramKey ? (
-            <div className="add-source onboard">
-              <h3>
-                <Ear size={16} /> Deepgram API key
-              </h3>
-              <p className="muted sm">
-                The Cloud engine sends captured audio to Deepgram to transcribe it, so audio leaves your
-                machine. Get a key at console.deepgram.com - or switch the engine to Local above to keep
-                everything on-device.
-              </p>
-              <div className="add-row">
-                <input
-                  type="password"
-                  placeholder="Deepgram API key"
-                  value={sttKeyInput}
-                  onChange={(e) => setSttKeyInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") void saveSttKey();
-                  }}
-                />
-                <button className="btn-open" onClick={saveSttKey} disabled={savingStt || !sttKeyInput.trim()}>
-                  {savingStt ? "Saving..." : "Save key"}
-                </button>
-              </div>
             </div>
-          ) : (
-            <div className="listen-bar">
-              <button className={"btn-listen primary" + (listening ? " on" : "")} onClick={toggleListen}>
-                {listening ? <Square size={15} /> : <Ear size={15} />}
-                {listening ? "Stop listening" : "Listen to call"}
-              </button>
-              <label className="auto-toggle muted sm">
-                <input
-                  type="checkbox"
-                  checked={autoAnswer}
-                  onChange={(e) => setAutoAnswer(e.target.checked)}
-                />
-                Auto-answer questions
-              </label>
-            </div>
-          )}
+          </details>
 
-          {listenError && <div className="assistant-error">{listenError}</div>}
-
-          {listening && (
-            <div className={"capture-diag" + (level.peak < 0.005 ? " warn" : " ok")}>
-              <div className="capture-diag-head">
-                <span className="muted sm">Capture diagnostics</span>
-                <span className="muted sm">
-                  peak {level.peak.toFixed(3)} · {Math.round(level.buffered / 1000)}k buffered
-                </span>
-              </div>
-              <div className="level-track">
-                <div
-                  className={"level-fill" + (level.peak >= 0.005 ? " live" : "")}
-                  style={{ width: `${Math.min(100, Math.round(level.peak * 140))}%` }}
-                />
-              </div>
-              {captureInfo.length === 0 ? (
-                <div className="muted sm">Opening capture device…</div>
-              ) : (
-                captureInfo.map((d) => (
-                  <div key={d.role} className="muted sm">
-                    {d.role}: <strong>{d.name}</strong> · {Math.round(d.rate / 1000)}kHz · {d.channels}ch
-                  </div>
-                ))
-              )}
-              <div className="diag-hint muted sm">
-                {level.peak < 0.005
-                  ? "No sound reaching this device. If capturing System audio, set the Output device above to the one your call plays through."
-                  : "Audio is being captured. If nothing transcribes, it's the transcription engine, not capture."}
-              </div>
-            </div>
-          )}
-
-          <div className="listen-bar screen-bar">
-            <span className="muted sm">
-              <Monitor size={14} /> Screen:
-            </span>
-            <select
-              value={screenMonitor}
-              onChange={(e) => setScreenMonitor(Number(e.target.value))}
-              disabled={watchingScreen}
-              title="Which monitor to read questions from"
-            >
-              {monitors.length === 0 ? (
-                <option value={0}>Primary display</option>
-              ) : (
-                monitors.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.name}
-                  </option>
-                ))
-              )}
-            </select>
-            <button
-              className={"btn-listen" + (watchingScreen ? " on" : "")}
-              onClick={() => setWatchingScreen((v) => !v)}
-            >
-              {watchingScreen ? <Square size={15} /> : <ScanSearch size={15} />}
-              {watchingScreen ? "Stop watching" : "Watch screen"}
-            </button>
-            <button className="btn-ghost" onClick={() => void runScreen(true)} disabled={watchingScreen}>
-              Answer screen now
-            </button>
-            <button className="btn-ghost" onClick={() => void startSnip()} disabled={watchingScreen} title="Snip a region of the screen and explain it">
-              <Crop size={14} /> Snip
-            </button>
-          </div>
-          {screenError && <div className="assistant-error">{screenError}</div>}
-
-          <div className="setup-card overlay-card">
-            <div className="setup-title">Overlay</div>
+          <details className="acc">
+            <summary>Overlay</summary>
+            <div className="acc-body">
             <div className="overlay-row">
               <span className="setup-label">Opacity</span>
               <input
@@ -817,10 +869,12 @@ export function AssistantView() {
               Always on top
             </label>
             <div className="muted sm">Dims the whole window (this UI too); min 30%.</div>
-          </div>
+            </div>
+          </details>
 
-          <details className="context-card">
-            <summary className="setup-title">Interview context</summary>
+          <details className="acc">
+            <summary>Interview context</summary>
+            <div className="acc-body">
             <p className="muted sm">Fed to the assistant so answers fit you and the role.</p>
             <div className="setup-field">
               <span className="setup-label">Target role / focus</span>
@@ -851,6 +905,36 @@ export function AssistantView() {
             <button className="btn-open" onClick={() => void saveContext()}>
               {contextSaved ? "Saved ✓" : "Save context"}
             </button>
+            </div>
+          </details>
+
+          <details className="acc">
+            <summary>Company information</summary>
+            <div className="acc-body">
+            <p className="muted sm">
+              Add the company you're interviewing at - answers become company-aware, and you can generate a
+              briefing + questions to ask.
+            </p>
+            <div className="setup-field">
+              <span className="setup-label">Company (name, site, or notes)</span>
+              <textarea
+                rows={3}
+                value={contextCompany}
+                onChange={(e) => setContextCompany(e.target.value)}
+                placeholder="e.g. Stripe - payments infrastructure. Anything you know: products, team, JD…"
+              />
+            </div>
+            <button
+              className="btn-sync"
+              onClick={() => void generateCompanyBrief()}
+              disabled={!contextCompany.trim()}
+            >
+              <Send size={15} /> Generate briefing &amp; questions
+            </button>
+            <div className="muted sm">
+              Uses the model's own knowledge + what you enter (no live web lookup), so verify specifics.
+            </div>
+            </div>
           </details>
           </section>
 
@@ -914,26 +998,43 @@ export function AssistantView() {
             </div>
           )}
 
-          {qa.length > 0 && (
-            <details className="answers-history">
-              <summary className="pane-title">All answers ({qa.length})</summary>
-              {qa.map((e) => (
-                <QaCard key={e.id} e={e} />
-              ))}
-            </details>
-          )}
           </section>
 
           <aside className="assistant-col col-code">
-            <div className="pane-title">Code &amp; Math</div>
-            {codeMathQa.length === 0 ? (
-              <div className="pane-empty">
-                <strong>No snippets yet.</strong>
-                <span className="muted sm">Code blocks and equations from answers collect here.</span>
+            <section className="col-section live-answers">
+              <div className="pane-title">Live answers</div>
+              <div className="col-scroll">
+                {qa.length === 0 ? (
+                  <div className="pane-empty">
+                    <strong>No answers yet.</strong>
+                    <span className="muted sm">Ask, auto-answer, or snip - answers stream in here.</span>
+                  </div>
+                ) : (
+                  qa.map((e) => <QaCard key={e.id} e={e} />)
+                )}
               </div>
-            ) : (
-              codeMathQa.map((e) => <QaCard key={e.id} e={e} />)
-            )}
+            </section>
+            <section className="col-section code-math">
+              <div className="pane-title">Code &amp; Math</div>
+              <div className="col-scroll">
+                {cmGroups.length === 0 ? (
+                  <div className="pane-empty">
+                    <span className="muted sm">Code blocks &amp; equations pulled from answers collect here.</span>
+                  </div>
+                ) : (
+                  cmGroups.map((g, gi) => (
+                    <div className={"cm-group" + (gi === 0 ? " latest" : "")} key={g.id}>
+                      <div className="cm-group-q">{g.q}</div>
+                      {g.items.map((s) => (
+                        <div className="cm-card" key={s.key}>
+                          <Answer text={s.md} />
+                        </div>
+                      ))}
+                    </div>
+                  ))
+                )}
+              </div>
+            </section>
           </aside>
         </div>
       )}

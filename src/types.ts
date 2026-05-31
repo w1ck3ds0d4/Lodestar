@@ -225,6 +225,7 @@ export interface AssistantSettings {
   ollamaUrl: string;
   ollamaModel: string;
   contextRole: string;
+  contextCompany: string;
   contextResume: string;
   contextNotes: string;
 }

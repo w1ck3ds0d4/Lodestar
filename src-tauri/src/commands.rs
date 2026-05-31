@@ -335,6 +335,26 @@ pub fn remove_skill(state: State<'_, AppState>, id: i64) -> Result<(), String> {
     crate::career::remove_skill(&conn, id).map_err(|e| e.to_string())
 }
 
+/// Generate an AI study plan for a skill (uses the configured answer engine + profile).
+#[tauri::command]
+pub async fn study_plan(
+    state: State<'_, AppState>,
+    skill: String,
+    goal: String,
+) -> Result<String, String> {
+    if skill.trim().is_empty() {
+        return Err("Add a skill name first.".into());
+    }
+    let (engine, profile) = {
+        let conn = state.db.lock().map_err(|_| "db poisoned")?;
+        (build_engine(&conn)?, interview_profile(&conn))
+    };
+    let http = state.http.clone();
+    crate::assistant::study_plan(&http, &engine, &skill, &goal, profile.as_deref())
+        .await
+        .map_err(|e| e.to_string())
+}
+
 // --- Screen privacy ---
 
 /// Toggle whether this window is excluded from screen capture and screen sharing.
@@ -398,6 +418,9 @@ fn interview_profile(conn: &rusqlite::Connection) -> Option<String> {
     if let Some(role) = get("context_role") {
         parts.push(format!("Target role / focus: {role}"));
     }
+    if let Some(company) = get("context_company") {
+        parts.push(format!("Company they are interviewing at:\n{company}"));
+    }
     if let Some(resume) = get("context_resume") {
         parts.push(format!("Resume / background:\n{resume}"));
     }
@@ -421,6 +444,7 @@ pub struct AssistantSettings {
     pub ollama_url: String,
     pub ollama_model: String,
     pub context_role: String,
+    pub context_company: String,
     pub context_resume: String,
     pub context_notes: String,
 }
@@ -472,16 +496,18 @@ pub fn get_assistant_settings(state: State<'_, AppState>) -> Result<AssistantSet
         ollama_url,
         ollama_model,
         context_role: get("context_role")?,
+        context_company: get("context_company")?,
         context_resume: get("context_resume")?,
         context_notes: get("context_notes")?,
     })
 }
 
-/// Save the interview/study context (role, resume, notes) used to tailor answers.
+/// Save the interview/study context (role, company, resume, notes) used to tailor answers.
 #[tauri::command]
 pub fn set_interview_context(
     state: State<'_, AppState>,
     role: String,
+    company: String,
     resume: String,
     notes: String,
 ) -> Result<(), String> {
@@ -494,6 +520,7 @@ pub fn set_interview_context(
         }
     };
     save("context_role", &role)?;
+    save("context_company", &company)?;
     save("context_resume", &resume)?;
     save("context_notes", &notes)?;
     Ok(())

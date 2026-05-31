@@ -95,6 +95,7 @@ export const updateSkill = (id: number, name: string, goal: string, level: numbe
   invoke<void>("update_skill", { id, name, goal, level, notes });
 export const logStudy = (id: number, hours: number) => invoke<void>("log_study", { id, hours });
 export const removeSkill = (id: number) => invoke<void>("remove_skill", { id });
+export const studyPlan = (skill: string, goal: string) => invoke<string>("study_plan", { skill, goal });
 
 // --- Screen privacy (exclude window from screen capture / sharing) ---
 export const setScreenPrivacy = (enabled: boolean) => invoke<void>("set_screen_privacy", { enabled });
@@ -109,8 +110,8 @@ export const setOllamaModel = (model: string) => invoke<void>("set_ollama_model"
 export const setOllamaUrl = (url: string) => invoke<void>("set_ollama_url", { url });
 export const listOllamaModels = () => invoke<string[]>("list_ollama_models");
 // Interview/study context (role, resume, notes) used to tailor answers.
-export const setInterviewContext = (role: string, resume: string, notes: string) =>
-  invoke<void>("set_interview_context", { role, resume, notes });
+export const setInterviewContext = (role: string, company: string, resume: string, notes: string) =>
+  invoke<void>("set_interview_context", { role, company, resume, notes });
 // Streamed answer chunks from `ask_assistant` (over a Tauri channel).
 export type AnswerChunk =
   | { kind: "delta"; text: string }
