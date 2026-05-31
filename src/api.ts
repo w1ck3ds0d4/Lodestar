@@ -20,6 +20,10 @@ export const searchJobs = (
     limit,
   });
 
+// Detected (or stored) ISO country code the user can work from; "" if unknown.
+export const workCountry = () => invoke<string>("work_country");
+export const setWorkCountry = (code: string) => invoke<void>("set_work_country", { code });
+
 export const listSources = () => invoke<Source[]>("list_sources");
 
 export const addSource = (kind: string, label: string, config: Record<string, string>, minIntervalSecs: number) =>

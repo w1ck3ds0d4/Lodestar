@@ -28,6 +28,8 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [panel, setPanel] = useState<"sources" | "alerts" | null>(null);
   const [capHidden, setCapHidden] = useState(true);
+  const [workCountry, setWorkCountry] = useState("");
+  const [editingCountry, setEditingCountry] = useState(false);
 
   const refreshSources = useCallback(async () => setSources(await api.listSources()), []);
   const refreshAlerts = useCallback(async () => setAlerts(await api.listAlerts()), []);
@@ -40,12 +42,14 @@ export default function App() {
     } finally {
       setLoading(false);
     }
-  }, [query, workplaces, levels, selectedKinds, relocationOnly, remoteEligible]);
+    // workCountry is read server-side; included so changing it re-runs the search.
+  }, [query, workplaces, levels, selectedKinds, relocationOnly, remoteEligible, workCountry]);
 
   useEffect(() => {
     void refreshSources();
     void refreshAlerts();
     void refreshStats();
+    void api.workCountry().then(setWorkCountry).catch(() => {});
   }, [refreshSources, refreshAlerts, refreshStats]);
 
   // Debounced search whenever the query or filters change.
@@ -97,6 +101,15 @@ export default function App() {
   }, []);
 
   const availableKinds = useMemo(() => Array.from(new Set(sources.map((s) => s.kind))), [sources]);
+
+  const regionNames = useMemo(() => {
+    try {
+      return new Intl.DisplayNames(["en"], { type: "region" });
+    } catch {
+      return null;
+    }
+  }, []);
+  const locationName = (workCountry && regionNames?.of(workCountry)) || workCountry || "my location";
 
   const toggle = (setter: Dispatch<SetStateAction<string[]>>, k: string) =>
     setter((prev) => (prev.includes(k) ? prev.filter((x) => x !== k) : [...prev, k]));
@@ -186,11 +199,38 @@ export default function App() {
               <span className="filter-label">Remote fit</span>
               <button
                 className={"chip" + (remoteEligible ? " active" : "")}
-                title="Remote roles workable from Malta (EU): hides ones restricted to the US/UK/another country"
+                title={`Remote roles workable from ${locationName}: hides ones restricted to another region`}
                 onClick={() => setRemoteEligible((v) => !v)}
               >
-                Workable from Malta
+                Workable from {locationName}
               </button>
+              {editingCountry ? (
+                <input
+                  className="country-input"
+                  autoFocus
+                  maxLength={2}
+                  placeholder="MT"
+                  defaultValue={workCountry}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                    if (e.key === "Escape") setEditingCountry(false);
+                  }}
+                  onBlur={async (e) => {
+                    const code = e.currentTarget.value.trim();
+                    await api.setWorkCountry(code);
+                    setWorkCountry(code ? code.toUpperCase() : await api.workCountry());
+                    setEditingCountry(false);
+                  }}
+                />
+              ) : (
+                <button
+                  className="chip-edit"
+                  title="Change the country you can work from (2-letter code, blank to auto-detect)"
+                  onClick={() => setEditingCountry(true)}
+                >
+                  change
+                </button>
+              )}
               <button
                 className={"chip" + (relocationOnly ? " active" : "")}
                 title="Only jobs whose description mentions relocation help"
