@@ -30,9 +30,10 @@ pub async fn sync_all(db: Arc<Mutex<Connection>>, http: Client, app: AppHandle, 
             Ok(jobs) => {
                 let n = jobs.len();
                 if let Err(e) = db::upsert_jobs(&mut conn, src.id, &src.kind, &jobs, finished) {
+                    let msg = crate::util::redact_secrets(&e.to_string());
                     let _ =
-                        db::set_source_status(&conn, src.id, now_ms(), &format!("error: {e}"), 0);
-                    tracing::warn!(source = %src.label, error = %e, "upsert failed");
+                        db::set_source_status(&conn, src.id, now_ms(), &format!("error: {msg}"), 0);
+                    tracing::warn!(source = %src.label, error = %msg, "upsert failed");
                     continue;
                 }
                 // Only sweep when we got a usable response, so a transient empty
@@ -44,8 +45,9 @@ pub async fn sync_all(db: Arc<Mutex<Connection>>, http: Client, app: AppHandle, 
                 tracing::info!(source = %src.label, count = n, "synced");
             }
             Err(e) => {
-                let _ = db::set_source_status(&conn, src.id, now_ms(), &format!("error: {e}"), 0);
-                tracing::warn!(source = %src.label, error = %e, "fetch failed");
+                let msg = crate::util::redact_secrets(&e.to_string());
+                let _ = db::set_source_status(&conn, src.id, now_ms(), &format!("error: {msg}"), 0);
+                tracing::warn!(source = %src.label, error = %msg, "fetch failed");
             }
         }
     }
