@@ -204,6 +204,7 @@ export interface AssistantSettings {
   hasKey: boolean;
   hasSttKey: boolean;
   sttEngine: string;
+  captureSource: string;
   model: string;
 }
 

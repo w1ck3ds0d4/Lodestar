@@ -31,10 +31,11 @@ pub struct LocalStt {
     mel_filters: Vec<f32>,
     device: Device,
     sot: u32,
-    language: u32,
     transcribe: u32,
     no_timestamps: u32,
     eot: u32,
+    lang_tokens: Vec<u32>,
+    default_lang: u32,
 }
 
 impl LocalStt {
@@ -62,12 +63,27 @@ impl LocalStt {
                 .token_to_id(s)
                 .ok_or_else(|| anyhow!("tokenizer is missing the {s} token"))
         };
+        // Language tokens look like "<|en|>", "<|es|>", "<|yue|>" - a 2-3 letter
+        // lowercase code. Collected so the spoken language can be auto-detected.
+        let lang_tokens: Vec<u32> = tokenizer
+            .get_vocab(true)
+            .into_iter()
+            .filter(|(t, _)| {
+                t.starts_with("<|") && t.ends_with("|>") && {
+                    let inner = &t[2..t.len() - 2];
+                    (inner.len() == 2 || inner.len() == 3)
+                        && inner.chars().all(|c| c.is_ascii_lowercase())
+                }
+            })
+            .map(|(_, id)| id)
+            .collect();
         Ok(Self {
             sot: tok("<|startoftranscript|>")?,
-            language: tok("<|en|>")?,
             transcribe: tok("<|transcribe|>")?,
             no_timestamps: tok("<|notimestamps|>")?,
             eot: tok("<|endoftext|>")?,
+            default_lang: tok("<|en|>")?,
+            lang_tokens,
             mel_filters: mel_filters(model.config.num_mel_bins),
             model,
             tokenizer,
@@ -75,8 +91,8 @@ impl LocalStt {
         })
     }
 
-    /// Transcribe a few seconds of mono 16 kHz PCM. Pads to Whisper's 30 s window
-    /// and greedily decodes (forced English) into text.
+    /// Transcribe a few seconds of mono 16 kHz PCM. Pads to Whisper's 30 s window,
+    /// auto-detects the language, and greedily decodes into text.
     pub fn transcribe(&mut self, pcm16k: &[f32]) -> Result<String> {
         let window = TARGET_RATE * WINDOW_SECS;
         let mut padded = pcm16k.to_vec();
@@ -91,7 +107,8 @@ impl LocalStt {
         self.model.reset_kv_cache();
         let audio_features = self.model.encoder.forward(&mel, true)?;
 
-        let mut tokens = vec![self.sot, self.language, self.transcribe, self.no_timestamps];
+        let language = self.detect_language(&audio_features)?;
+        let mut tokens = vec![self.sot, language, self.transcribe, self.no_timestamps];
         let prompt_len = tokens.len();
         for _ in 0..MAX_DECODE_TOKENS {
             let tokens_t = Tensor::new(tokens.as_slice(), &self.device)?.unsqueeze(0)?;
@@ -114,6 +131,29 @@ impl LocalStt {
             .decode(&tokens[prompt_len..], true)
             .map_err(|e| anyhow!("decode error: {e}"))?;
         Ok(text.trim().to_string())
+    }
+
+    /// Auto-detect the spoken language: right after `<|startoftranscript|>` Whisper
+    /// predicts a language token, so pick the highest-scoring one. Falls back to English.
+    fn detect_language(&mut self, audio_features: &Tensor) -> Result<u32> {
+        if self.lang_tokens.is_empty() {
+            return Ok(self.default_lang);
+        }
+        let sot_t = Tensor::new(&[self.sot], &self.device)?.unsqueeze(0)?;
+        let ys = self.model.decoder.forward(&sot_t, audio_features, true)?;
+        let logits: Vec<f32> = self
+            .model
+            .decoder
+            .final_linear(&ys.i((.., 0..1, ..))?)?
+            .i((0, 0))?
+            .to_vec1()?;
+        let best = self
+            .lang_tokens
+            .iter()
+            .copied()
+            .max_by(|&a, &b| logits[a as usize].total_cmp(&logits[b as usize]))
+            .unwrap_or(self.default_lang);
+        Ok(best)
     }
 }
 

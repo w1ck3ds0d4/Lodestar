@@ -1,13 +1,13 @@
-//! System-audio (loopback) capture + transcription for the live assistant.
+//! System-audio (loopback) and/or microphone capture + transcription for the live
+//! assistant.
 //!
-//! Captures the default output device via WASAPI loopback (cpal auto-enables
-//! loopback when an input stream is built on an output device). Audio is buffered
-//! into ~4s chunks and turned into text by the selected engine - Deepgram (cloud)
-//! or a local Whisper model (Candle, on-device). Each transcript is emitted to the
-//! frontend as a `transcript` event; progress/errors as `listen-status`/`listen-error`.
-//!
-//! Chunked (a few seconds of latency), not word-by-word streaming. Windows-first:
-//! loopback is native here.
+//! Captures the default output device via WASAPI loopback (the other side of a call
+//! or a video) and/or the default input device (your mic), per the chosen source.
+//! Each source is downmixed to mono and resampled to 16 kHz; when both are active
+//! they are mixed. Audio is buffered into ~4s chunks and turned into text by the
+//! selected engine - Deepgram (cloud) or a local Whisper model (Candle, on-device).
+//! Transcripts are emitted as `transcript` events; progress/errors as
+//! `listen-status`/`listen-error`.
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -16,6 +16,7 @@ use std::time::Duration;
 
 use anyhow::{anyhow, Result};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use cpal::{Device, SupportedStreamConfig};
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter};
 
@@ -23,12 +24,43 @@ use crate::local_stt::LocalStt;
 
 const CHUNK_SECS: u64 = 4;
 const SILENCE_PEAK: f32 = 0.005;
-const WHISPER_RATE: u32 = 16000;
+const TARGET_RATE: u32 = 16000;
 
 /// Which transcription backend to use for a listening session.
 pub enum EngineConfig {
     Deepgram { key: String },
     Local { models_dir: PathBuf },
+}
+
+/// Which audio source(s) to capture.
+#[derive(Clone, Copy)]
+pub enum CaptureSource {
+    System,
+    Mic,
+    Both,
+}
+
+impl CaptureSource {
+    pub fn parse(s: &str) -> Self {
+        match s {
+            "mic" => Self::Mic,
+            "both" => Self::Both,
+            _ => Self::System,
+        }
+    }
+    fn system(self) -> bool {
+        matches!(self, Self::System | Self::Both)
+    }
+    fn mic(self) -> bool {
+        matches!(self, Self::Mic | Self::Both)
+    }
+}
+
+/// One captured source: its accumulation buffer plus native format.
+struct Source {
+    buffer: Arc<Mutex<Vec<f32>>>,
+    rate: u32,
+    channels: usize,
 }
 
 fn on_stream_error(err: cpal::StreamError) {
@@ -39,11 +71,46 @@ fn status(app: &AppHandle, msg: &str) {
     let _ = app.emit("listen-status", msg.to_string());
 }
 
-/// Capture loopback audio and emit `transcript` events until `flag` is cleared.
+/// Build an input stream on `device` (loopback for an output device, normal capture
+/// for an input device), appending samples as f32 to `buffer`.
+fn capture_stream(
+    device: &Device,
+    supported: &SupportedStreamConfig,
+    buffer: Arc<Mutex<Vec<f32>>>,
+) -> Result<cpal::Stream> {
+    let config: cpal::StreamConfig = supported.config();
+    let stream = match supported.sample_format() {
+        cpal::SampleFormat::F32 => device.build_input_stream(
+            &config,
+            move |data: &[f32], _: &cpal::InputCallbackInfo| {
+                buffer.lock().unwrap().extend_from_slice(data);
+            },
+            on_stream_error,
+            None,
+        ),
+        cpal::SampleFormat::I16 => device.build_input_stream(
+            &config,
+            move |data: &[i16], _: &cpal::InputCallbackInfo| {
+                buffer
+                    .lock()
+                    .unwrap()
+                    .extend(data.iter().map(|&s| s as f32 / 32768.0));
+            },
+            on_stream_error,
+            None,
+        ),
+        other => return Err(anyhow!("Unsupported audio sample format: {other:?}")),
+    }
+    .map_err(|e| anyhow!("Could not open capture stream: {e}"))?;
+    Ok(stream)
+}
+
+/// Capture audio and emit `transcript` events until `flag` is cleared.
 pub fn run(
     app: &AppHandle,
     http: reqwest::Client,
     engine: EngineConfig,
+    capture: CaptureSource,
     flag: Arc<AtomicBool>,
 ) -> Result<()> {
     // The local engine downloads + loads the model up front (slow on first run).
@@ -51,75 +118,87 @@ pub fn run(
     if let EngineConfig::Local { models_dir } = &engine {
         local = Some(LocalStt::load(&http, models_dir, &|m| status(app, m))?);
     }
-    status(app, "Listening");
 
     let host = cpal::default_host();
-    let device = host
-        .default_output_device()
-        .ok_or_else(|| anyhow!("No audio output device found to capture."))?;
-    let supported = device
-        .default_output_config()
-        .map_err(|e| anyhow!("Could not read the output device format: {e}"))?;
-    let sample_rate = supported.sample_rate().0;
-    let config: cpal::StreamConfig = supported.config();
-    let channels = config.channels.max(1) as usize;
+    let mut streams: Vec<cpal::Stream> = Vec::new();
+    let mut sources: Vec<Source> = Vec::new();
 
-    let buffer: Arc<Mutex<Vec<f32>>> = Arc::new(Mutex::new(Vec::new()));
-    let stream = match supported.sample_format() {
-        cpal::SampleFormat::F32 => {
-            let buf = buffer.clone();
-            device.build_input_stream(
-                &config,
-                move |data: &[f32], _: &cpal::InputCallbackInfo| {
-                    buf.lock().unwrap().extend_from_slice(data);
-                },
-                on_stream_error,
-                None,
-            )
-        }
-        cpal::SampleFormat::I16 => {
-            let buf = buffer.clone();
-            device.build_input_stream(
-                &config,
-                move |data: &[i16], _: &cpal::InputCallbackInfo| {
-                    buf.lock()
-                        .unwrap()
-                        .extend(data.iter().map(|&s| s as f32 / 32768.0));
-                },
-                on_stream_error,
-                None,
-            )
-        }
-        other => return Err(anyhow!("Unsupported audio sample format: {other:?}")),
+    if capture.system() {
+        let device = host
+            .default_output_device()
+            .ok_or_else(|| anyhow!("No audio output device found to capture."))?;
+        let supported = device
+            .default_output_config()
+            .map_err(|e| anyhow!("Could not read the output device format: {e}"))?;
+        let rate = supported.sample_rate().0;
+        let channels = supported.config().channels.max(1) as usize;
+        let buffer = Arc::new(Mutex::new(Vec::new()));
+        streams.push(capture_stream(&device, &supported, buffer.clone())?);
+        sources.push(Source {
+            buffer,
+            rate,
+            channels,
+        });
     }
-    .map_err(|e| anyhow!("Could not open loopback capture: {e}"))?;
+    if capture.mic() {
+        let device = host
+            .default_input_device()
+            .ok_or_else(|| anyhow!("No microphone found to capture."))?;
+        let supported = device
+            .default_input_config()
+            .map_err(|e| anyhow!("Could not read the microphone format: {e}"))?;
+        let rate = supported.sample_rate().0;
+        let channels = supported.config().channels.max(1) as usize;
+        let buffer = Arc::new(Mutex::new(Vec::new()));
+        streams.push(capture_stream(&device, &supported, buffer.clone())?);
+        sources.push(Source {
+            buffer,
+            rate,
+            channels,
+        });
+    }
 
-    stream
-        .play()
-        .map_err(|e| anyhow!("Could not start audio capture: {e}"))?;
+    for s in &streams {
+        s.play()
+            .map_err(|e| anyhow!("Could not start audio capture: {e}"))?;
+    }
+    status(app, "Listening");
 
     let mut empty_cycles = 0u32;
     while flag.load(Ordering::SeqCst) {
         std::thread::sleep(Duration::from_secs(CHUNK_SECS));
-        let samples = {
-            let mut g = buffer.lock().unwrap();
-            std::mem::take(&mut *g)
-        };
-        if samples.is_empty() {
-            // No callback data at all -> loopback isn't delivering audio.
+
+        // Pull each source, downmix to mono, resample to 16 kHz, and mix together.
+        let mut mixed: Vec<f32> = Vec::new();
+        let mut had_audio = false;
+        for src in &sources {
+            let samples = {
+                let mut g = src.buffer.lock().unwrap();
+                std::mem::take(&mut *g)
+            };
+            if samples.is_empty() {
+                continue;
+            }
+            had_audio = true;
+            let mono = downmix_mono(&samples, src.channels);
+            let resampled = resample(&mono, src.rate, TARGET_RATE);
+            mix_into(&mut mixed, &resampled);
+        }
+
+        if !had_audio {
             empty_cycles += 1;
             if empty_cycles == 2 {
                 status(
                     app,
-                    "No system audio captured yet - make sure sound is actually playing through your speakers/headphones.",
+                    "No audio captured yet - make sure sound is playing through your speakers (or that mic access is granted).",
                 );
             }
             continue;
         }
         empty_cycles = 0;
-        let mono = downmix_mono(&samples, channels);
+
         // Skip near-silent chunks so dead air doesn't spend requests / CPU.
-        let peak = mono.iter().fold(0f32, |m, &s| m.max(s.abs()));
+        let peak = mixed.iter().fold(0f32, |m, &s| m.max(s.abs()));
         if peak < SILENCE_PEAK {
             status(app, "Listening (only silence so far)...");
             continue;
@@ -128,16 +207,13 @@ pub fn run(
 
         let text = match &engine {
             EngineConfig::Deepgram { key } => {
-                let pcm = mono_to_linear16(&mono);
-                tauri::async_runtime::block_on(transcribe_deepgram(&http, key, sample_rate, pcm))
+                let pcm = mono_to_linear16(&mixed);
+                tauri::async_runtime::block_on(transcribe_deepgram(&http, key, TARGET_RATE, pcm))
             }
-            EngineConfig::Local { .. } => {
-                let pcm16 = resample(&mono, sample_rate, WHISPER_RATE);
-                local
-                    .as_mut()
-                    .expect("local engine initialized above")
-                    .transcribe(&pcm16)
-            }
+            EngineConfig::Local { .. } => local
+                .as_mut()
+                .expect("local engine initialized above")
+                .transcribe(&mixed),
         };
         match text {
             Ok(t) if !t.trim().is_empty() => {
@@ -150,7 +226,7 @@ pub fn run(
         }
     }
 
-    drop(stream);
+    drop(streams);
     Ok(())
 }
 
@@ -161,6 +237,21 @@ fn downmix_mono(samples: &[f32], channels: usize) -> Vec<f32> {
         .chunks(ch)
         .map(|f| f.iter().copied().sum::<f32>() / f.len() as f32)
         .collect()
+}
+
+/// Add `add` into `acc` element-wise (clamped), extending `acc` when `add` is longer.
+fn mix_into(acc: &mut Vec<f32>, add: &[f32]) {
+    if acc.is_empty() {
+        acc.extend_from_slice(add);
+        return;
+    }
+    let n = acc.len().min(add.len());
+    for i in 0..n {
+        acc[i] = (acc[i] + add[i]).clamp(-1.0, 1.0);
+    }
+    if add.len() > n {
+        acc.extend_from_slice(&add[n..]);
+    }
 }
 
 /// Mono f32 [-1,1] -> signed 16-bit little-endian PCM bytes.
@@ -200,7 +291,7 @@ async fn transcribe_deepgram(
     pcm: Vec<u8>,
 ) -> Result<String> {
     let url = format!(
-        "https://api.deepgram.com/v1/listen?model=nova-2&encoding=linear16&sample_rate={sample_rate}&channels=1&punctuate=true"
+        "https://api.deepgram.com/v1/listen?model=nova-2&encoding=linear16&sample_rate={sample_rate}&channels=1&punctuate=true&detect_language=true"
     );
     let resp = http
         .post(url)

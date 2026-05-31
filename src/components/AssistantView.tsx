@@ -27,10 +27,20 @@ function Answer({ text }: { text: string }) {
   );
 }
 
+// A sentence looks like a question/request if it ends with "?" or opens with an
+// interrogative or an imperative ("solve", "calculate", "explain", ...).
+const QUESTION_START =
+  /^(what'?s?|how|why|when|where|who|whose|which|can you|could you|would you|do you|does|is|are|solve|calculate|compute|evaluate|simplify|factor|find|derive|prove|explain|define|describe|convert|translate|write|implement|debug|fix|show|give|list|summari[sz]e)\b/i;
+function isQuestionLike(s: string): boolean {
+  const t = s.trim();
+  return t.endsWith("?") || t.includes("¿") || QUESTION_START.test(t);
+}
+
 export function AssistantView() {
   const [hasKey, setHasKey] = useState(false);
   const [hasSttKey, setHasSttKey] = useState(false);
   const [sttEngine, setSttEngine] = useState("deepgram");
+  const [captureSource, setCaptureSource] = useState("system");
   const [model, setModel] = useState("claude-opus-4-8");
   const [keyInput, setKeyInput] = useState("");
   const [sttKeyInput, setSttKeyInput] = useState("");
@@ -55,6 +65,7 @@ export function AssistantView() {
     setHasKey(s.hasKey);
     setHasSttKey(s.hasSttKey);
     setSttEngine(s.sttEngine);
+    setCaptureSource(s.captureSource);
     setModel(s.model);
   }, []);
   useEffect(() => {
@@ -96,19 +107,22 @@ export function AssistantView() {
     return () => unlisteners.forEach((u) => u());
   }, []);
 
-  // Auto-answer: when a new question ("...?") appears in the transcript, answer it.
+  // Auto-answer: scan newly-completed sentences and answer ones that look like a
+  // question or a request (ends with "?", or opens with what/how/solve/calculate/...).
   useEffect(() => {
     if (!autoAnswer || !listening) return;
-    let from = answeredIdx.current;
-    let qi: number;
-    while ((qi = transcript.indexOf("?", from)) !== -1) {
-      const segment = transcript.slice(from, qi + 1).trim();
-      const sentences = segment.split(/(?<=[.!?])\s+/);
-      const detected = (sentences[sentences.length - 1] || segment).trim();
-      from = qi + 1;
-      if (detected.length >= 3) void ask(detected, transcript.slice(0, qi + 1));
+    const pending = transcript.slice(answeredIdx.current);
+    const sentenceRe = /[^.!?]*[.!?]/g;
+    let m: RegExpExecArray | null;
+    let consumed = 0;
+    while ((m = sentenceRe.exec(pending)) !== null) {
+      const sentence = m[0].trim();
+      consumed = m.index + m[0].length;
+      if (sentence.length >= 4 && isQuestionLike(sentence)) {
+        void ask(sentence, transcript.slice(0, answeredIdx.current + consumed));
+      }
     }
-    answeredIdx.current = from;
+    answeredIdx.current += consumed;
   }, [transcript, autoAnswer, listening, ask]);
 
   const saveKey = async () => {
@@ -143,6 +157,11 @@ export function AssistantView() {
   const changeEngine = async (e: string) => {
     setSttEngine(e);
     await api.setSttEngine(e);
+  };
+
+  const changeCaptureSource = async (s: string) => {
+    setCaptureSource(s);
+    await api.setCaptureSource(s);
   };
 
   const toggleListen = async () => {
@@ -220,6 +239,19 @@ export function AssistantView() {
             <select value={sttEngine} onChange={(e) => void changeEngine(e.target.value)} disabled={listening}>
               <option value="deepgram">Cloud (Deepgram)</option>
               <option value="local">Local (Whisper, on-device)</option>
+            </select>
+          </div>
+
+          <div className="listen-engine">
+            <span className="muted sm">Capture:</span>
+            <select
+              value={captureSource}
+              onChange={(e) => void changeCaptureSource(e.target.value)}
+              disabled={listening}
+            >
+              <option value="system">System audio (the call/video)</option>
+              <option value="mic">Microphone (you)</option>
+              <option value="both">System + Mic (both sides)</option>
             </select>
           </div>
 

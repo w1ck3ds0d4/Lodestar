@@ -96,6 +96,7 @@ pub fn run() {
             commands::ask_assistant,
             commands::set_deepgram_key,
             commands::set_stt_engine,
+            commands::set_capture_source,
             commands::start_listening,
             commands::stop_listening,
         ])
