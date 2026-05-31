@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Channel } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { Bot, Crop, Ear, KeyRound, Monitor, ScanSearch, Send, Square } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -8,7 +9,15 @@ import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import "katex/dist/katex.min.css";
 import * as api from "../api";
-import { ASSISTANT_MODELS, type AudioDevices, type MonitorInfo } from "../types";
+import {
+  ASSISTANT_MODELS,
+  STT_LANGUAGES,
+  estimateCost,
+  type AudioDevices,
+  type ClaudeUsage,
+  type DeepgramBalance,
+  type MonitorInfo,
+} from "../types";
 
 interface QA {
   id: number;
@@ -188,6 +197,8 @@ export function AssistantView() {
   const [hasKey, setHasKey] = useState(false);
   const [hasSttKey, setHasSttKey] = useState(false);
   const [sttEngine, setSttEngine] = useState("deepgram");
+  const [sttLanguage, setSttLanguage] = useState("multi");
+  const [sttDiarize, setSttDiarize] = useState(false);
   const [captureSource, setCaptureSource] = useState("system");
   const [devices, setDevices] = useState<AudioDevices>({ inputs: [], outputs: [] });
   const [inputDevice, setInputDevice] = useState("");
@@ -204,6 +215,14 @@ export function AssistantView() {
   const [listening, setListening] = useState(false);
   const [listenStatus, setListenStatus] = useState("");
   const [segments, setSegments] = useState<DialogSegment[]>([]);
+  // Live transcription, accumulated per source role into one bubble per utterance.
+  // `fin` is finalized-but-still-open text (won't change); `int` is the interim tail
+  // that keeps being replaced as Deepgram refines it. The two are shown together as a
+  // single growing line; on speech-final the whole thing commits into `segments`.
+  // liveRef is the synchronous source of truth; `live` mirrors it for rendering.
+  const emptyLive = () => ({ you: { fin: "", int: "" }, them: { fin: "", int: "" } });
+  const liveRef = useRef(emptyLive());
+  const [live, setLive] = useState(emptyLive());
   const [listenError, setListenError] = useState("");
   const [autoAnswer, setAutoAnswer] = useState(true);
   const [captureInfo, setCaptureInfo] = useState<CaptureDevice[]>([]);
@@ -224,6 +243,11 @@ export function AssistantView() {
   const [contextResume, setContextResume] = useState("");
   const [contextNotes, setContextNotes] = useState("");
   const [contextSaved, setContextSaved] = useState(false);
+
+  const [claudeUsage, setClaudeUsage] = useState<ClaudeUsage | null>(null);
+  const [dgBalance, setDgBalance] = useState<DeepgramBalance | null>(null);
+  const [dgError, setDgError] = useState("");
+  const [dgLoading, setDgLoading] = useState(false);
 
   const [question, setQuestion] = useState("");
   const [context, setContext] = useState("");
@@ -255,6 +279,8 @@ export function AssistantView() {
       setHasKey(s.hasKey);
       setHasSttKey(s.hasSttKey);
       setSttEngine(s.sttEngine);
+      setSttLanguage(s.sttLanguage || "multi");
+      setSttDiarize(s.sttDiarize);
       setCaptureSource(s.captureSource);
       setInputDevice(s.inputDevice);
       setOutputDevice(s.outputDevice);
@@ -393,8 +419,30 @@ export function AssistantView() {
     const add = (p: Promise<UnlistenFn>) =>
       void p.then((u) => (cancelled ? u() : unlisteners.push(u)));
     add(
-      listen<{ role: "you" | "them"; speaker: string; text: string }>("transcript", (e) =>
-        setSegments((s) => [...s, { id: ++segIdRef.current, ...e.payload }]),
+      listen<{ role: "you" | "them"; speaker: string; text: string; final?: boolean; speechFinal?: boolean }>(
+        "transcript",
+        (e) => {
+          const { role, speaker, text, final, speechFinal } = e.payload;
+          const slot = liveRef.current[role];
+          const sync = () =>
+            setLive({ you: { ...liveRef.current.you }, them: { ...liveRef.current.them } });
+          if (final === false) {
+            // Interim refinement: replace the live tail (don't touch finalized text).
+            slot.int = text;
+            sync();
+            return;
+          }
+          // Final span: append to the finalized text and clear the tail. Only on a
+          // speech-final (the speaker paused) do we commit the whole utterance.
+          if (text.trim()) slot.fin = slot.fin ? slot.fin + " " + text.trim() : text.trim();
+          slot.int = "";
+          if (speechFinal) {
+            const acc = slot.fin.trim();
+            if (acc) setSegments((s) => [...s, { id: ++segIdRef.current, role, speaker, text: acc }]);
+            slot.fin = "";
+          }
+          sync();
+        },
       ),
     );
     add(listen<string>("listen-status", (e) => setListenStatus(String(e.payload))));
@@ -403,6 +451,19 @@ export function AssistantView() {
     add(listen<{ peak: number; buffered: number }>("listen-level", (e) => setLevel(e.payload)));
     add(
       listen("listen-stopped", () => {
+        // Flush any open live utterance so a sentence in progress isn't lost on stop.
+        (["them", "you"] as const).forEach((role) => {
+          const slot = liveRef.current[role];
+          const acc = (slot.fin + " " + slot.int).trim();
+          if (acc) {
+            setSegments((s) => [
+              ...s,
+              { id: ++segIdRef.current, role, speaker: role === "them" ? "Them" : "You", text: acc },
+            ]);
+          }
+        });
+        liveRef.current = emptyLive();
+        setLive(emptyLive());
         setListening(false);
         setListenStatus("");
         setCaptureInfo([]);
@@ -488,6 +549,45 @@ export function AssistantView() {
     await api.setCaptureSource(s);
   };
 
+  const changeLanguage = async (lang: string) => {
+    setSttLanguage(lang);
+    await api.setSttLanguage(lang);
+  };
+
+  const changeDiarize = async (on: boolean) => {
+    setSttDiarize(on);
+    await api.setSttDiarize(on);
+  };
+
+  // Lazily loaded when the Usage accordion is opened (and on Refresh).
+  const refreshUsage = useCallback(async () => {
+    void api.getClaudeUsage().then(setClaudeUsage).catch(() => {});
+    if (!hasSttKey) {
+      setDgBalance(null);
+      setDgError("Add a Deepgram key to see your balance.");
+      return;
+    }
+    setDgLoading(true);
+    setDgError("");
+    try {
+      setDgBalance(await api.deepgramBalance());
+    } catch (e) {
+      setDgBalance(null);
+      setDgError(String(e));
+    } finally {
+      setDgLoading(false);
+    }
+  }, [hasSttKey]);
+
+  const resetUsage = async () => {
+    await api.resetClaudeUsage();
+    setClaudeUsage(await api.getClaudeUsage());
+  };
+
+  const claudeCost = (claudeUsage?.items ?? []).reduce((s, it) => s + estimateCost(it), 0);
+  const claudeTokens = (claudeUsage?.items ?? []).reduce((s, it) => s + it.input + it.output, 0);
+  const modelLabel = (id: string) => ASSISTANT_MODELS.find((m) => m.id === id)?.label ?? id;
+
   const changeOutputDevice = async (name: string) => {
     setOutputDevice(name);
     await api.setOutputDevice(name);
@@ -506,6 +606,8 @@ export function AssistantView() {
       return;
     }
     setListenError("");
+    liveRef.current = emptyLive();
+    setLive(emptyLive());
     try {
       await api.startListening();
       setListening(true);
@@ -516,6 +618,8 @@ export function AssistantView() {
 
   const clearTranscript = () => {
     setSegments([]);
+    liveRef.current = emptyLive();
+    setLive(emptyLive());
     answeredIdx.current = 0;
   };
 
@@ -768,6 +872,40 @@ export function AssistantView() {
               </div>
             </div>
 
+            {sttEngine === "deepgram" && (
+              <>
+                <div className="setup-row">
+                  <span className="setup-label">Language</span>
+                  <select
+                    value={sttLanguage}
+                    disabled={listening}
+                    title="Spoken language for Deepgram. Streaming can't auto-detect, so pick the language of the call (or Multilingual)."
+                    onChange={(e) => void changeLanguage(e.target.value)}
+                  >
+                    {STT_LANGUAGES.map((l) => (
+                      <option key={l.code} value={l.code}>
+                        {l.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="setup-row">
+                  <label
+                    className="switch"
+                    title="Separate the other side into Speaker 1/2/... Leave off for 1-on-1 calls - it tends to mislabel one person as several."
+                  >
+                    <input
+                      type="checkbox"
+                      checked={sttDiarize}
+                      disabled={listening}
+                      onChange={(e) => void changeDiarize(e.target.checked)}
+                    />
+                    Separate speakers
+                  </label>
+                </div>
+              </>
+            )}
+
             <div className="setup-row">
               <span className="setup-label">Capture</span>
               <div className="seg" role="group" aria-label="Capture source">
@@ -936,6 +1074,72 @@ export function AssistantView() {
             </div>
             </div>
           </details>
+
+          <details
+            className="acc"
+            onToggle={(e) => {
+              if ((e.target as HTMLDetailsElement).open) void refreshUsage();
+            }}
+          >
+            <summary>Usage &amp; cost</summary>
+            <div className="acc-body">
+              <div className="usage-row">
+                <span className="usage-name">Claude (estimate)</span>
+                <span className="usage-val">${claudeCost.toFixed(2)}</span>
+              </div>
+              <div className="muted sm">
+                {claudeUsage?.since
+                  ? `~${(claudeTokens / 1000).toFixed(0)}k tokens since ${new Date(
+                      claudeUsage.since * 1000,
+                    ).toLocaleDateString()}`
+                  : "No Claude usage tracked yet."}
+              </div>
+              {(claudeUsage?.items ?? []).map((it) => (
+                <div key={it.model} className="muted sm usage-line">
+                  {modelLabel(it.model)}: {(it.input / 1000).toFixed(0)}k in / {(it.output / 1000).toFixed(0)}k out
+                </div>
+              ))}
+              <div className="usage-actions">
+                <button className="link-btn" onClick={() => void resetUsage()}>
+                  Reset
+                </button>
+                <button
+                  className="link-btn"
+                  onClick={() => void openUrl("https://console.anthropic.com/settings/usage")}
+                >
+                  Open Anthropic console
+                </button>
+              </div>
+              <div className="muted sm">
+                Estimated from token counts and list prices - the exact bill lives in the Anthropic console.
+              </div>
+
+              <hr className="usage-sep" />
+
+              <div className="usage-row">
+                <span className="usage-name">Deepgram credit</span>
+                <span className="usage-val">
+                  {dgLoading ? "…" : dgBalance ? `$${dgBalance.amount.toFixed(2)}` : "—"}
+                </span>
+              </div>
+              {dgError ? (
+                <div className="muted sm">{dgError}</div>
+              ) : dgBalance?.project ? (
+                <div className="muted sm">Project: {dgBalance.project}</div>
+              ) : null}
+              <div className="usage-actions">
+                <button className="link-btn" onClick={() => void refreshUsage()} disabled={dgLoading}>
+                  Refresh
+                </button>
+                <button className="link-btn" onClick={() => void openUrl("https://console.deepgram.com/")}>
+                  Open Deepgram console
+                </button>
+              </div>
+
+              <hr className="usage-sep" />
+              <div className="muted sm">Local (Ollama / Whisper): free - runs on your machine.</div>
+            </div>
+          </details>
           </section>
 
           <section className="assistant-col col-dialog">
@@ -964,6 +1168,18 @@ export function AssistantView() {
                     <div className="seg-bubble">{s.text}</div>
                   </div>
                 ))}
+                {(["them", "you"] as const).map((role) => {
+                  const t = `${live[role].fin} ${live[role].int}`.trim();
+                  return t ? (
+                    <div key={"live-" + role} className={"seg-msg seg-" + role + " seg-interim"}>
+                      {role === "them" && <span className="seg-chip seg-chip--live">Speaking…</span>}
+                      <div className="seg-bubble">
+                        {t}
+                        <span className="seg-caret" />
+                      </div>
+                    </div>
+                  ) : null;
+                })}
               </div>
             ) : (
               <div className="dialog-empty">

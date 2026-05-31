@@ -122,6 +122,11 @@ async fn complete_content(
             .json()
             .await
             .map_err(|e| anyhow!("Unexpected response from the Claude API: {e}"))?;
+        crate::usage::record_claude(
+            model,
+            payload["usage"]["input_tokens"].as_u64().unwrap_or(0),
+            payload["usage"]["output_tokens"].as_u64().unwrap_or(0),
+        );
         let answer = payload["content"]
             .as_array()
             .and_then(|blocks| blocks.iter().find(|b| b["type"] == "text"))
@@ -142,6 +147,10 @@ async fn complete_content(
     let mut full = String::new();
     let mut buf = String::new();
     let mut refusal = false;
+    // Token usage arrives split across events: input on `message_start`, the (cumulative)
+    // output on each `message_delta`.
+    let mut usage_in = 0u64;
+    let mut usage_out = 0u64;
     while let Some(chunk) = resp
         .chunk()
         .await
@@ -161,14 +170,22 @@ async fn complete_content(
                 continue;
             };
             match ev["type"].as_str() {
+                Some("message_start") => {
+                    usage_in = ev["message"]["usage"]["input_tokens"].as_u64().unwrap_or(0);
+                }
                 Some("content_block_delta") => {
                     if let Some(t) = ev["delta"]["text"].as_str() {
                         full.push_str(t);
                         on_token(t);
                     }
                 }
-                Some("message_delta") if ev["delta"]["stop_reason"] == "refusal" => {
-                    refusal = true;
+                Some("message_delta") => {
+                    if let Some(o) = ev["usage"]["output_tokens"].as_u64() {
+                        usage_out = o;
+                    }
+                    if ev["delta"]["stop_reason"] == "refusal" {
+                        refusal = true;
+                    }
                 }
                 Some("error") => {
                     let msg = ev["error"]["message"].as_str().unwrap_or("stream error");
@@ -178,6 +195,7 @@ async fn complete_content(
             }
         }
     }
+    crate::usage::record_claude(model, usage_in, usage_out);
     if full.trim().is_empty() {
         return Err(if refusal {
             anyhow!("The model declined to answer this request.")

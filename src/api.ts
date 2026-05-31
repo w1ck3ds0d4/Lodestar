@@ -3,6 +3,8 @@ import type {
   Alert,
   AssistantSettings,
   AudioDevices,
+  ClaudeUsage,
+  DeepgramBalance,
   Job,
   MonitorInfo,
   ScreenAnswer,
@@ -122,9 +124,16 @@ export const askAssistant = (question: string, context: string | null, onEvent: 
 export const autoAnswer = (transcript: string, latest: string) =>
   invoke<string>("auto_answer", { transcript, latest });
 
+// --- Usage / cost ---
+export const getClaudeUsage = () => invoke<ClaudeUsage>("get_claude_usage");
+export const resetClaudeUsage = () => invoke<void>("reset_claude_usage");
+export const deepgramBalance = () => invoke<DeepgramBalance>("deepgram_balance");
+
 // --- Live listening (system-audio capture -> Deepgram) ---
 export const setDeepgramKey = (key: string) => invoke<void>("set_deepgram_key", { key });
 export const setSttEngine = (engine: string) => invoke<void>("set_stt_engine", { engine });
+export const setSttLanguage = (language: string) => invoke<void>("set_stt_language", { language });
+export const setSttDiarize = (diarize: boolean) => invoke<void>("set_stt_diarize", { diarize });
 export const setCaptureSource = (source: string) => invoke<void>("set_capture_source", { source });
 export const listAudioDevices = () => invoke<AudioDevices>("list_audio_devices");
 export const setInputDevice = (name: string) => invoke<void>("set_input_device", { name });

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { Bell, Bot, ClipboardList, Eye, EyeOff, GraduationCap, Radar, RefreshCw, Search, Settings } from "lucide-react";
+import { Bell, Bot, ClipboardList, Eye, EyeOff, GraduationCap, Radar, RefreshCw, Search, Settings, X } from "lucide-react";
 import * as api from "./api";
 import { KIND_LABELS, LEVELS, WORKPLACES, type Alert, type Job, type Source, type Stats } from "./types";
 import { JobCard } from "./components/JobCard";
@@ -111,6 +111,13 @@ export default function App() {
   }, []);
   const locationName = (workCountry && regionNames?.of(workCountry)) || workCountry || "my location";
 
+  const hasActiveFilters =
+    selectedKinds.length > 0 ||
+    workplaces.length > 0 ||
+    levels.length > 0 ||
+    remoteEligible ||
+    relocationOnly;
+
   const toggle = (setter: Dispatch<SetStateAction<string[]>>, k: string) =>
     setter((prev) => (prev.includes(k) ? prev.filter((x) => x !== k) : [...prev, k]));
 
@@ -158,106 +165,119 @@ export default function App() {
 
       {view === "search" ? (
         <>
-          <div className="controls">
+          <div className="searchbar">
             <div className="search-box">
-              <Search size={16} className="search-icon" />
+              <Search size={17} className="search-icon" />
               <input
                 autoFocus
                 placeholder="Search title, company, location, description…"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
               />
-            </div>
-          </div>
-
-          <div className="filters">
-            <div className="filter-group">
-              <span className="filter-label">Workplace</span>
-              {WORKPLACES.map((w) => (
-                <button
-                  key={w.key}
-                  className={"chip" + (workplaces.includes(w.key) ? " active" : "")}
-                  onClick={() => toggle(setWorkplaces, w.key)}
-                >
-                  {w.label}
-                </button>
-              ))}
-            </div>
-            <div className="filter-group">
-              <span className="filter-label">Level</span>
-              {LEVELS.map((l) => (
-                <button
-                  key={l.key}
-                  className={"chip" + (levels.includes(l.key) ? " active" : "")}
-                  onClick={() => toggle(setLevels, l.key)}
-                >
-                  {l.label}
-                </button>
-              ))}
-            </div>
-            <div className="filter-group">
-              <span className="filter-label">Remote fit</span>
-              <button
-                className={"chip" + (remoteEligible ? " active" : "")}
-                title={`Remote roles workable from ${locationName}: hides ones restricted to another region`}
-                onClick={() => setRemoteEligible((v) => !v)}
-              >
-                Workable from <span className="chip-country">{locationName}</span>
-              </button>
-              {editingCountry ? (
-                <input
-                  className="country-input"
-                  autoFocus
-                  maxLength={2}
-                  placeholder="MT"
-                  defaultValue={workCountry}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") (e.target as HTMLInputElement).blur();
-                    if (e.key === "Escape") setEditingCountry(false);
-                  }}
-                  onBlur={async (e) => {
-                    const code = e.currentTarget.value.trim();
-                    await api.setWorkCountry(code);
-                    setWorkCountry(code ? code.toUpperCase() : await api.workCountry());
-                    setEditingCountry(false);
-                  }}
-                />
-              ) : (
-                <button
-                  className="chip-edit"
-                  title="Change the country you can work from (2-letter code, blank to auto-detect)"
-                  onClick={() => setEditingCountry(true)}
-                >
-                  change
+              {query && (
+                <button className="search-clear" title="Clear search" onClick={() => setQuery("")}>
+                  <X size={15} />
                 </button>
               )}
-              <button
-                className={"chip" + (relocationOnly ? " active" : "")}
-                title="Only jobs whose description mentions relocation help"
-                onClick={() => setRelocationOnly((v) => !v)}
-              >
-                Pays relocation
-              </button>
             </div>
-          </div>
 
-          {availableKinds.length > 0 && (
-            <div className="chips">
-              <span className="filter-label">Source</span>
-              {availableKinds.map((k) => (
+            <div className="filter-grid">
+              <span className="filter-label">Workplace</span>
+              <div className="chip-row">
+                {WORKPLACES.map((w) => (
+                  <button
+                    key={w.key}
+                    className={"chip" + (workplaces.includes(w.key) ? " active" : "")}
+                    onClick={() => toggle(setWorkplaces, w.key)}
+                  >
+                    {w.label}
+                  </button>
+                ))}
+              </div>
+
+              <span className="filter-label">Level</span>
+              <div className="chip-row">
+                {LEVELS.map((l) => (
+                  <button
+                    key={l.key}
+                    className={"chip" + (levels.includes(l.key) ? " active" : "")}
+                    onClick={() => toggle(setLevels, l.key)}
+                  >
+                    {l.label}
+                  </button>
+                ))}
+              </div>
+
+              <span className="filter-label">Remote fit</span>
+              <div className="chip-row">
                 <button
-                  key={k}
-                  className={"chip" + (selectedKinds.includes(k) ? " active" : "")}
-                  onClick={() => toggle(setSelectedKinds, k)}
+                  className={"chip" + (remoteEligible ? " active" : "")}
+                  title={`Remote roles workable from ${locationName}: hides ones restricted to another region`}
+                  onClick={() => setRemoteEligible((v) => !v)}
                 >
-                  {KIND_LABELS[k] ?? k}
+                  Workable from <span className="chip-country">{locationName}</span>
                 </button>
-              ))}
-              {(selectedKinds.length > 0 ||
-                workplaces.length > 0 ||
-                levels.length > 0 ||
-                remoteEligible ||
-                relocationOnly) && (
+                {editingCountry ? (
+                  <input
+                    className="country-input"
+                    autoFocus
+                    maxLength={2}
+                    placeholder="MT"
+                    defaultValue={workCountry}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                      if (e.key === "Escape") setEditingCountry(false);
+                    }}
+                    onBlur={async (e) => {
+                      const code = e.currentTarget.value.trim();
+                      await api.setWorkCountry(code);
+                      setWorkCountry(code ? code.toUpperCase() : await api.workCountry());
+                      setEditingCountry(false);
+                    }}
+                  />
+                ) : (
+                  <button
+                    className="chip-edit"
+                    title="Change the country you can work from (2-letter code, blank to auto-detect)"
+                    onClick={() => setEditingCountry(true)}
+                  >
+                    change
+                  </button>
+                )}
+                <button
+                  className={"chip" + (relocationOnly ? " active" : "")}
+                  title="Only jobs whose description mentions relocation help"
+                  onClick={() => setRelocationOnly((v) => !v)}
+                >
+                  Pays relocation
+                </button>
+              </div>
+
+              {availableKinds.length > 0 && (
+                <>
+                  <span className="filter-label">Source</span>
+                  <div className="chip-row">
+                    {availableKinds.map((k) => (
+                      <button
+                        key={k}
+                        className={"chip" + (selectedKinds.includes(k) ? " active" : "")}
+                        onClick={() => toggle(setSelectedKinds, k)}
+                      >
+                        {KIND_LABELS[k] ?? k}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+
+            <div className="searchbar-meta">
+              <span className="result-count">
+                {loading && jobs.length === 0
+                  ? "Searching…"
+                  : `${jobs.length} result${jobs.length === 1 ? "" : "s"}`}
+              </span>
+              {hasActiveFilters && (
                 <button
                   className="chip clear"
                   onClick={() => {
@@ -268,11 +288,11 @@ export default function App() {
                     setRelocationOnly(false);
                   }}
                 >
-                  Clear all
+                  <X size={13} /> Clear all
                 </button>
               )}
             </div>
-          )}
+          </div>
 
           <main className="results">
             {loading && jobs.length === 0 ? (
@@ -284,7 +304,6 @@ export default function App() {
               </div>
             ) : (
               <>
-                <div className="result-count">{jobs.length} result{jobs.length === 1 ? "" : "s"}</div>
                 {jobs.map((j) => (
                   <JobCard
                     key={j.id}
