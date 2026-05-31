@@ -26,7 +26,9 @@ language. Look at the NEW text, using the earlier transcript as context. If it c
 asked, or a problem to solve (math, code, a factual lookup, a definition, etc.), answer it directly and \
 concisely in the SAME language as the speaker, using GitHub-flavored Markdown - fenced code blocks for code \
 and LaTeX ($...$ or $$...$$) for math. If the new text is just ordinary conversation with nothing being \
-asked and no problem to solve, reply with exactly one word: NONE";
+asked and no problem to solve, reply with exactly one word: NONE. \
+Transcript lines are speaker-prefixed (\"You:\" is the app's user; \"Them:\" or \"Speaker N:\" is the other party); \
+answer questions asked BY the other party, using the user's own lines only as context.";
 
 /// Models that accept `thinking: {type: "adaptive"}`. Haiku and any unknown model
 /// omit it so a model switch in Settings can never produce a 400.

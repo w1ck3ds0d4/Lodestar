@@ -3,11 +3,18 @@
 //!
 //! Captures the default output device via WASAPI loopback (the other side of a call
 //! or a video) and/or the default input device (your mic), per the chosen source.
-//! Each source is downmixed to mono and resampled to 16 kHz; when both are active
-//! they are mixed. Audio is buffered into ~4s chunks and turned into text by the
-//! selected engine - Deepgram (cloud) or a local Whisper model (Candle, on-device).
-//! Transcripts are emitted as `transcript` events; progress/errors as
-//! `listen-status`/`listen-error`.
+//! Each source is downmixed to mono, resampled to 16 kHz, and transcribed
+//! independently (no mixing) so every `transcript` event carries a speaker role: the
+//! microphone is labeled "you"; system/loopback audio is labeled "them" (local
+//! engine) or diarized into "Speaker 1/2/..." by Deepgram. Audio is buffered into ~4s
+//! chunks and turned into text by the selected engine - Deepgram (cloud) or a local
+//! Whisper model (Candle, on-device). Progress/errors are emitted as
+//! `listen-status`/`listen-error`; capture diagnostics as `listen-device`/`listen-level`.
+//!
+//! KNOWN LIMITATION: Deepgram speaker numbering is only stable within a single
+//! request, and each chunk is a separate pre-recorded call - so "Speaker 1" in one
+//! chunk is not guaranteed to be the same person in the next (true cross-chunk
+//! diarization needs the streaming WebSocket API, out of scope here).
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -99,6 +106,12 @@ fn pick_device(host: &cpal::Host, name: Option<&str>, input: bool) -> Option<Dev
     }
 }
 
+#[derive(Clone, Copy, PartialEq)]
+enum SrcKind {
+    System,
+    Mic,
+}
+
 /// One captured source: its accumulation buffer plus native format.
 struct Source {
     buffer: Arc<Mutex<Vec<f32>>>,
@@ -106,6 +119,13 @@ struct Source {
     channels: usize,
     name: String,
     role: &'static str,
+    kind: SrcKind,
+}
+
+impl Source {
+    fn is_system(&self) -> bool {
+        self.kind == SrcKind::System
+    }
 }
 
 fn on_stream_error(err: cpal::StreamError) {
@@ -186,6 +206,7 @@ pub fn run(
             channels,
             name,
             role: "System (loopback)",
+            kind: SrcKind::System,
         });
     }
     if capture.mic() {
@@ -207,6 +228,7 @@ pub fn run(
             channels,
             name,
             role: "Microphone",
+            kind: SrcKind::Mic,
         });
     }
 
@@ -254,9 +276,13 @@ pub fn run(
         }
         tick_count = 0;
 
-        // Pull each source, downmix to mono, resample to 16 kHz, and mix together.
-        let mut mixed: Vec<f32> = Vec::new();
+        // Transcribe each source SEPARATELY (no mixing) so every transcript is
+        // attributed: the mic is "you"; system/loopback is "them" (or diarized into
+        // "Speaker N" by Deepgram). Speaker numbering is only stable within a single
+        // ~4s request, not across chunks (true cross-chunk diarization needs the
+        // streaming API, out of scope).
         let mut had_audio = false;
+        let mut saw_speech = false;
         for src in &sources {
             let samples = {
                 let mut g = src.buffer.lock().unwrap();
@@ -268,7 +294,59 @@ pub fn run(
             had_audio = true;
             let mono = downmix_mono(&samples, src.channels);
             let resampled = resample(&mono, src.rate, TARGET_RATE);
-            mix_into(&mut mixed, &resampled);
+            // Skip near-silent audio so dead air doesn't spend requests / CPU.
+            let peak = resampled.iter().fold(0f32, |m, &s| m.max(s.abs()));
+            if peak < SILENCE_PEAK {
+                continue;
+            }
+            saw_speech = true;
+            status(app, "Transcribing...");
+
+            let result: Result<Vec<(String, String)>> = match &engine {
+                EngineConfig::Deepgram { key } => {
+                    let pcm = mono_to_linear16(&resampled);
+                    tauri::async_runtime::block_on(transcribe_deepgram(
+                        &http,
+                        key,
+                        TARGET_RATE,
+                        pcm,
+                        src.is_system(),
+                    ))
+                }
+                EngineConfig::Local { .. } => local
+                    .as_mut()
+                    .expect("local engine initialized above")
+                    .transcribe(&resampled)
+                    .map(|t| vec![(String::new(), t)]),
+            };
+            match result {
+                Ok(segs) => {
+                    for (sp, text) in segs {
+                        if text.trim().is_empty() {
+                            continue;
+                        }
+                        let (role, speaker) = if src.is_system() {
+                            (
+                                "them",
+                                if sp.is_empty() {
+                                    "Them".to_string()
+                                } else {
+                                    sp
+                                },
+                            )
+                        } else {
+                            ("you", "You".to_string())
+                        };
+                        let _ = app.emit(
+                            "transcript",
+                            json!({ "role": role, "speaker": speaker, "text": text }),
+                        );
+                    }
+                }
+                Err(e) => {
+                    let _ = app.emit("listen-error", e.to_string());
+                }
+            }
         }
 
         if !had_audio {
@@ -282,33 +360,8 @@ pub fn run(
             continue;
         }
         empty_cycles = 0;
-
-        // Skip near-silent chunks so dead air doesn't spend requests / CPU.
-        let peak = mixed.iter().fold(0f32, |m, &s| m.max(s.abs()));
-        if peak < SILENCE_PEAK {
+        if !saw_speech {
             status(app, "Listening (only silence so far)...");
-            continue;
-        }
-        status(app, "Transcribing...");
-
-        let text = match &engine {
-            EngineConfig::Deepgram { key } => {
-                let pcm = mono_to_linear16(&mixed);
-                tauri::async_runtime::block_on(transcribe_deepgram(&http, key, TARGET_RATE, pcm))
-            }
-            EngineConfig::Local { .. } => local
-                .as_mut()
-                .expect("local engine initialized above")
-                .transcribe(&mixed),
-        };
-        match text {
-            Ok(t) if !t.trim().is_empty() => {
-                let _ = app.emit("transcript", json!({ "text": t }));
-            }
-            Ok(_) => {}
-            Err(e) => {
-                let _ = app.emit("listen-error", e.to_string());
-            }
         }
     }
 
@@ -323,21 +376,6 @@ fn downmix_mono(samples: &[f32], channels: usize) -> Vec<f32> {
         .chunks(ch)
         .map(|f| f.iter().copied().sum::<f32>() / f.len() as f32)
         .collect()
-}
-
-/// Add `add` into `acc` element-wise (clamped), extending `acc` when `add` is longer.
-fn mix_into(acc: &mut Vec<f32>, add: &[f32]) {
-    if acc.is_empty() {
-        acc.extend_from_slice(add);
-        return;
-    }
-    let n = acc.len().min(add.len());
-    for i in 0..n {
-        acc[i] = (acc[i] + add[i]).clamp(-1.0, 1.0);
-    }
-    if add.len() > n {
-        acc.extend_from_slice(&add[n..]);
-    }
 }
 
 /// Mono f32 [-1,1] -> signed 16-bit little-endian PCM bytes.
@@ -368,17 +406,23 @@ fn resample(mono: &[f32], src_rate: u32, dst_rate: u32) -> Vec<f32> {
     out
 }
 
-/// POST a raw linear16 chunk to Deepgram's pre-recorded endpoint; returns the
-/// transcript text (empty when nothing was recognised).
+/// POST a raw linear16 chunk to Deepgram's pre-recorded endpoint. Returns labeled
+/// utterances as (speaker, text). When `diarize` is set, the call audio is split by
+/// speaker into "Speaker 1/2/..."; otherwise a single utterance with an empty speaker
+/// label is returned (the caller assigns the role).
 async fn transcribe_deepgram(
     http: &reqwest::Client,
     key: &str,
     sample_rate: u32,
     pcm: Vec<u8>,
-) -> Result<String> {
-    let url = format!(
+    diarize: bool,
+) -> Result<Vec<(String, String)>> {
+    let mut url = format!(
         "https://api.deepgram.com/v1/listen?model=nova-2&encoding=linear16&sample_rate={sample_rate}&channels=1&punctuate=true&detect_language=true"
     );
+    if diarize {
+        url.push_str("&diarize=true");
+    }
     let resp = http
         .post(url)
         .header("Authorization", format!("Token {key}"))
@@ -407,10 +451,55 @@ async fn transcribe_deepgram(
         });
     }
 
-    Ok(
-        payload["results"]["channels"][0]["alternatives"][0]["transcript"]
-            .as_str()
-            .unwrap_or("")
-            .to_string(),
-    )
+    let alt = &payload["results"]["channels"][0]["alternatives"][0];
+    if diarize {
+        // Group consecutive words by their speaker index into utterances.
+        if let Some(words) = alt["words"].as_array().filter(|w| !w.is_empty()) {
+            let mut out: Vec<(String, String)> = Vec::new();
+            let mut cur: Option<i64> = None;
+            let mut buf = String::new();
+            let flush = |out: &mut Vec<(String, String)>, spk: i64, buf: &str| {
+                if !buf.trim().is_empty() {
+                    out.push((format!("Speaker {}", spk + 1), buf.trim().to_string()));
+                }
+            };
+            for w in words {
+                let spk = w["speaker"].as_i64().unwrap_or(0);
+                let word = w["punctuated_word"]
+                    .as_str()
+                    .or_else(|| w["word"].as_str())
+                    .unwrap_or("");
+                if cur != Some(spk) {
+                    if let Some(prev) = cur {
+                        flush(&mut out, prev, &buf);
+                    }
+                    cur = Some(spk);
+                    buf.clear();
+                }
+                buf.push_str(word);
+                buf.push(' ');
+            }
+            if let Some(prev) = cur {
+                flush(&mut out, prev, &buf);
+            }
+            if !out.is_empty() {
+                return Ok(out);
+            }
+        }
+    }
+
+    // No diarization (mic side), or diarize returned no words: flat transcript.
+    let t = alt["transcript"].as_str().unwrap_or("").to_string();
+    if t.trim().is_empty() {
+        Ok(vec![])
+    } else {
+        Ok(vec![(
+            if diarize {
+                "Speaker 1".to_string()
+            } else {
+                String::new()
+            },
+            t,
+        )])
+    }
 }
