@@ -104,6 +104,8 @@ struct Source {
     buffer: Arc<Mutex<Vec<f32>>>,
     rate: u32,
     channels: usize,
+    name: String,
+    role: &'static str,
 }
 
 fn on_stream_error(err: cpal::StreamError) {
@@ -170,6 +172,7 @@ pub fn run(
     if capture.system() {
         let device = pick_device(&host, devices.output.as_deref(), false)
             .ok_or_else(|| anyhow!("No audio output device found to capture."))?;
+        let name = device.name().unwrap_or_else(|_| "Default output".into());
         let supported = device
             .default_output_config()
             .map_err(|e| anyhow!("Could not read the output device format: {e}"))?;
@@ -181,11 +184,16 @@ pub fn run(
             buffer,
             rate,
             channels,
+            name,
+            role: "System (loopback)",
         });
     }
     if capture.mic() {
         let device = pick_device(&host, devices.input.as_deref(), true)
             .ok_or_else(|| anyhow!("No microphone found to capture."))?;
+        let name = device
+            .name()
+            .unwrap_or_else(|_| "Default microphone".into());
         let supported = device
             .default_input_config()
             .map_err(|e| anyhow!("Could not read the microphone format: {e}"))?;
@@ -197,6 +205,8 @@ pub fn run(
             buffer,
             rate,
             channels,
+            name,
+            role: "Microphone",
         });
     }
 
@@ -206,9 +216,43 @@ pub fn run(
     }
     status(app, "Listening");
 
+    // Tell the UI exactly which devices are being captured (diagnostics panel).
+    let device_info: Vec<Value> = sources
+        .iter()
+        .map(|s| json!({ "role": s.role, "name": s.name, "rate": s.rate, "channels": s.channels }))
+        .collect();
+    let _ = app.emit("listen-device", json!(device_info));
+
+    // Peek the buffers ~5x/sec for a live input-level meter, and drain + transcribe
+    // once every CHUNK_SECS. A flat meter at 0 means no audio is reaching the chosen
+    // device (wrong output for loopback); a moving meter with no transcript points at
+    // the STT engine instead.
+    let tick = Duration::from_millis(200);
+    let ticks_per_chunk = (CHUNK_SECS * 1000 / 200).max(1);
+    let mut tick_count = 0u64;
     let mut empty_cycles = 0u32;
     while flag.load(Ordering::SeqCst) {
-        std::thread::sleep(Duration::from_secs(CHUNK_SECS));
+        std::thread::sleep(tick);
+
+        let mut live_peak = 0f32;
+        let mut buffered = 0usize;
+        for src in &sources {
+            let g = src.buffer.lock().unwrap();
+            buffered += g.len();
+            for &s in g.iter() {
+                live_peak = live_peak.max(s.abs());
+            }
+        }
+        let _ = app.emit(
+            "listen-level",
+            json!({ "peak": live_peak, "buffered": buffered }),
+        );
+
+        tick_count += 1;
+        if tick_count < ticks_per_chunk {
+            continue;
+        }
+        tick_count = 0;
 
         // Pull each source, downmix to mono, resample to 16 kHz, and mix together.
         let mut mixed: Vec<f32> = Vec::new();
