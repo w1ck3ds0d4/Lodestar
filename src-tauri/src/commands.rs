@@ -350,6 +350,28 @@ fn build_engine(conn: &rusqlite::Connection) -> Result<crate::assistant::Engine,
     }
 }
 
+/// Build the user's interview/study profile (role, resume, notes) from settings, so
+/// answers can be tailored. `None` when nothing is set.
+fn interview_profile(conn: &rusqlite::Connection) -> Option<String> {
+    let get = |k: &str| {
+        db::get_setting(conn, k)
+            .ok()
+            .flatten()
+            .filter(|s| !s.trim().is_empty())
+    };
+    let mut parts = Vec::new();
+    if let Some(role) = get("context_role") {
+        parts.push(format!("Target role / focus: {role}"));
+    }
+    if let Some(resume) = get("context_resume") {
+        parts.push(format!("Resume / background:\n{resume}"));
+    }
+    if let Some(notes) = get("context_notes") {
+        parts.push(format!("Notes / materials:\n{notes}"));
+    }
+    (!parts.is_empty()).then(|| parts.join("\n\n"))
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AssistantSettings {
@@ -363,6 +385,9 @@ pub struct AssistantSettings {
     pub answer_engine: String,
     pub ollama_url: String,
     pub ollama_model: String,
+    pub context_role: String,
+    pub context_resume: String,
+    pub context_notes: String,
 }
 
 #[tauri::command]
@@ -411,7 +436,32 @@ pub fn get_assistant_settings(state: State<'_, AppState>) -> Result<AssistantSet
         answer_engine,
         ollama_url,
         ollama_model,
+        context_role: get("context_role")?,
+        context_resume: get("context_resume")?,
+        context_notes: get("context_notes")?,
     })
+}
+
+/// Save the interview/study context (role, resume, notes) used to tailor answers.
+#[tauri::command]
+pub fn set_interview_context(
+    state: State<'_, AppState>,
+    role: String,
+    resume: String,
+    notes: String,
+) -> Result<(), String> {
+    let conn = state.db.lock().map_err(|_| "db poisoned")?;
+    let save = |k: &str, v: &str| -> Result<(), String> {
+        if v.trim().is_empty() {
+            db::delete_setting(&conn, k).map_err(|e| e.to_string())
+        } else {
+            db::set_setting(&conn, k, v.trim()).map_err(|e| e.to_string())
+        }
+    };
+    save("context_role", &role)?;
+    save("context_resume", &resume)?;
+    save("context_notes", &notes)?;
+    Ok(())
 }
 
 /// Set the answer engine: "claude" (default) or "ollama".
@@ -532,10 +582,10 @@ pub async fn ask_assistant(
         });
         return Ok(());
     }
-    // Build the engine under a brief lock, then drop it before the await.
-    let engine = {
+    // Build the engine + profile under a brief lock, then drop it before the await.
+    let (engine, profile) = {
         let conn = state.db.lock().map_err(|_| "db poisoned")?;
-        build_engine(&conn)
+        (build_engine(&conn), interview_profile(&conn))
     };
     let engine = match engine {
         Ok(e) => e,
@@ -550,7 +600,16 @@ pub async fn ask_assistant(
             text: t.to_string(),
         });
     };
-    match crate::assistant::ask(&http, &engine, &question, context.as_deref(), Some(&emit)).await {
+    match crate::assistant::ask(
+        &http,
+        &engine,
+        &question,
+        context.as_deref(),
+        profile.as_deref(),
+        Some(&emit),
+    )
+    .await
+    {
         Ok(full) => {
             let _ = on_event.send(AnswerChunk::Done { text: full });
         }
@@ -574,12 +633,12 @@ pub async fn auto_answer(
     if latest.trim().is_empty() {
         return Ok("NONE".into());
     }
-    let engine = {
+    let (engine, profile) = {
         let conn = state.db.lock().map_err(|_| "db poisoned")?;
-        build_engine(&conn)?
+        (build_engine(&conn)?, interview_profile(&conn))
     };
     let http = state.http.clone();
-    crate::assistant::auto_answer(&http, &engine, &transcript, &latest)
+    crate::assistant::auto_answer(&http, &engine, &transcript, &latest, profile.as_deref())
         .await
         .map_err(|e| e.to_string())
 }
@@ -637,20 +696,47 @@ pub async fn answer_screen(
         *last = Some(cap.hash);
     }
 
-    let engine = {
+    let (engine, profile) = {
         let conn = state.db.lock().map_err(|_| "db poisoned")?;
-        build_engine(&conn)?
+        (build_engine(&conn)?, interview_profile(&conn))
     };
 
     let b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &cap.png);
     let http = state.http.clone();
-    let answer = crate::assistant::answer_screen(&http, &engine, &b64)
+    let answer = crate::assistant::answer_screen(&http, &engine, &b64, profile.as_deref())
         .await
         .map_err(|e| e.to_string())?;
     Ok(ScreenAnswer {
         changed: true,
         answer,
     })
+}
+
+/// Capture the chosen monitor as a base64 PNG, for the in-app snip-to-explain
+/// selector (the frontend crops a region and sends it to `explain_region`).
+#[tauri::command]
+pub fn capture_screen_png(monitor: usize) -> Result<String, String> {
+    let cap = crate::screen::capture(monitor).map_err(|e| e.to_string())?;
+    Ok(base64::Engine::encode(
+        &base64::engine::general_purpose::STANDARD,
+        &cap.png,
+    ))
+}
+
+/// Explain a user-cropped screen region (base64 PNG) via the answer engine's vision.
+#[tauri::command]
+pub async fn explain_region(
+    state: State<'_, AppState>,
+    png_base64: String,
+) -> Result<String, String> {
+    let (engine, profile) = {
+        let conn = state.db.lock().map_err(|_| "db poisoned")?;
+        (build_engine(&conn)?, interview_profile(&conn))
+    };
+    let http = state.http.clone();
+    crate::assistant::explain_image(&http, &engine, &png_base64, profile.as_deref())
+        .await
+        .map_err(|e| e.to_string())
 }
 
 // --- Live listening (system-audio loopback capture -> Deepgram) ---

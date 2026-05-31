@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { Channel } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { Bot, Ear, KeyRound, Monitor, ScanSearch, Send, Square } from "lucide-react";
+import { Bot, Crop, Ear, KeyRound, Monitor, ScanSearch, Send, Square } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
@@ -56,6 +56,86 @@ function hasCodeOrMath(a: string): boolean {
   return a.includes("```") || a.includes("$$") || /\$[^$\n]+\$/.test(a);
 }
 
+// Fullscreen "snip & explain": shows a captured screenshot, drag to select a
+// region, and crops it client-side to a base64 PNG for the vision call.
+function SnipOverlay({
+  src,
+  onCancel,
+  onSelect,
+}: {
+  src: string;
+  onCancel: () => void;
+  onSelect: (base64: string) => void;
+}) {
+  const imgRef = useRef<HTMLImageElement>(null);
+  const [start, setStart] = useState<{ x: number; y: number } | null>(null);
+  const [cur, setCur] = useState<{ x: number; y: number } | null>(null);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onCancel();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onCancel]);
+
+  const rectStyle: CSSProperties | undefined =
+    start && cur
+      ? {
+          left: Math.min(start.x, cur.x),
+          top: Math.min(start.y, cur.y),
+          width: Math.abs(cur.x - start.x),
+          height: Math.abs(cur.y - start.y),
+        }
+      : undefined;
+
+  const finish = () => {
+    const img = imgRef.current;
+    if (!img || !start || !cur) {
+      setStart(null);
+      setCur(null);
+      return;
+    }
+    const r = img.getBoundingClientRect();
+    const fx = img.naturalWidth / r.width;
+    const fy = img.naturalHeight / r.height;
+    const sx = (Math.min(start.x, cur.x) - r.left) * fx;
+    const sy = (Math.min(start.y, cur.y) - r.top) * fy;
+    const sw = Math.abs(cur.x - start.x) * fx;
+    const sh = Math.abs(cur.y - start.y) * fy;
+    setStart(null);
+    setCur(null);
+    if (sw < 8 || sh < 8) return; // ignore stray clicks / tiny selections
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(sw);
+    canvas.height = Math.round(sh);
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.drawImage(img, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+    onSelect(canvas.toDataURL("image/png").split(",")[1]);
+  };
+
+  return (
+    <div className="snip-overlay" onMouseUp={finish}>
+      <div className="snip-hint">Drag to select a region to explain · Esc to cancel</div>
+      <div
+        className="snip-stage"
+        onMouseDown={(e) => {
+          setStart({ x: e.clientX, y: e.clientY });
+          setCur({ x: e.clientX, y: e.clientY });
+        }}
+        onMouseMove={(e) => start && setCur({ x: e.clientX, y: e.clientY })}
+      >
+        <img ref={imgRef} className="snip-img" src={src} draggable={false} alt="screen capture" />
+      </div>
+      {rectStyle && <div className="snip-rect" style={rectStyle} />}
+      <button className="btn-ghost snip-cancel" onClick={onCancel}>
+        Cancel
+      </button>
+    </div>
+  );
+}
+
 function QaCard({ e }: { e: QA }) {
   return (
     <div className="qa">
@@ -101,10 +181,16 @@ export function AssistantView() {
   const [screenMonitor, setScreenMonitor] = useState(0);
   const [watchingScreen, setWatchingScreen] = useState(false);
   const [screenError, setScreenError] = useState("");
+  const [snipSrc, setSnipSrc] = useState<string | null>(null);
   const screenBusy = useRef(false);
 
   const [opacity, setOpacity] = useState(1);
   const [onTop, setOnTop] = useState(false);
+
+  const [contextRole, setContextRole] = useState("");
+  const [contextResume, setContextResume] = useState("");
+  const [contextNotes, setContextNotes] = useState("");
+  const [contextSaved, setContextSaved] = useState(false);
 
   const [question, setQuestion] = useState("");
   const [context, setContext] = useState("");
@@ -142,10 +228,19 @@ export function AssistantView() {
       setModel(s.model);
       setAnswerEngine(s.answerEngine);
       setOllamaModel(s.ollamaModel);
+      setContextRole(s.contextRole);
+      setContextResume(s.contextResume);
+      setContextNotes(s.contextNotes);
     } finally {
       setLoaded(true);
     }
   }, []);
+
+  const saveContext = async () => {
+    await api.setInterviewContext(contextRole, contextResume, contextNotes);
+    setContextSaved(true);
+    setTimeout(() => setContextSaved(false), 1500);
+  };
   const refreshOllamaModels = useCallback(() => {
     void api
       .listOllamaModels()
@@ -181,6 +276,31 @@ export function AssistantView() {
     },
     [screenMonitor],
   );
+
+  // Snip & explain: capture the chosen monitor, then crop a region to explain.
+  const startSnip = useCallback(async () => {
+    try {
+      const b64 = await api.captureScreenPng(screenMonitor);
+      setSnipSrc("data:image/png;base64," + b64);
+      setScreenError("");
+    } catch (e) {
+      setScreenError(String(e));
+    }
+  }, [screenMonitor]);
+
+  const onSnipSelect = useCallback((base64: string) => {
+    setSnipSrc(null);
+    const id = ++idRef.current;
+    setQa((prev) => [{ id, q: "Screen snip", a: "", pending: true }, ...prev]);
+    void (async () => {
+      try {
+        const a = await api.explainRegion(base64);
+        setQa((prev) => prev.map((e) => (e.id === id ? { ...e, a, pending: false } : e)));
+      } catch (e) {
+        setQa((prev) => prev.map((e) => (e.id === id ? { ...e, error: String(e), pending: false } : e)));
+      }
+    })();
+  }, []);
 
   // Auto-watch: poll the chosen screen while the toggle is on.
   useEffect(() => {
@@ -666,6 +786,9 @@ export function AssistantView() {
             <button className="btn-ghost" onClick={() => void runScreen(true)} disabled={watchingScreen}>
               Answer screen now
             </button>
+            <button className="btn-ghost" onClick={() => void startSnip()} disabled={watchingScreen} title="Snip a region of the screen and explain it">
+              <Crop size={14} /> Snip
+            </button>
           </div>
           {screenError && <div className="assistant-error">{screenError}</div>}
 
@@ -695,6 +818,40 @@ export function AssistantView() {
             </label>
             <div className="muted sm">Dims the whole window (this UI too); min 30%.</div>
           </div>
+
+          <details className="context-card">
+            <summary className="setup-title">Interview context</summary>
+            <p className="muted sm">Fed to the assistant so answers fit you and the role.</p>
+            <div className="setup-field">
+              <span className="setup-label">Target role / focus</span>
+              <input
+                value={contextRole}
+                onChange={(e) => setContextRole(e.target.value)}
+                placeholder="e.g. Senior Backend Engineer"
+              />
+            </div>
+            <div className="setup-field">
+              <span className="setup-label">Resume / background</span>
+              <textarea
+                rows={4}
+                value={contextResume}
+                onChange={(e) => setContextResume(e.target.value)}
+                placeholder="Paste your resume or a short summary…"
+              />
+            </div>
+            <div className="setup-field">
+              <span className="setup-label">Notes / materials</span>
+              <textarea
+                rows={3}
+                value={contextNotes}
+                onChange={(e) => setContextNotes(e.target.value)}
+                placeholder="Job description, talking points, anything to tailor answers…"
+              />
+            </div>
+            <button className="btn-open" onClick={() => void saveContext()}>
+              {contextSaved ? "Saved ✓" : "Save context"}
+            </button>
+          </details>
           </section>
 
           <section className="assistant-col col-dialog">
@@ -779,6 +936,10 @@ export function AssistantView() {
             )}
           </aside>
         </div>
+      )}
+
+      {snipSrc && (
+        <SnipOverlay src={snipSrc} onCancel={() => setSnipSrc(null)} onSelect={onSnipSelect} />
       )}
     </div>
   );

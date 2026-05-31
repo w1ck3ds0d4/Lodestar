@@ -222,6 +222,9 @@ export interface AssistantSettings {
   answerEngine: string;
   ollamaUrl: string;
   ollamaModel: string;
+  contextRole: string;
+  contextResume: string;
+  contextNotes: string;
 }
 
 export interface AudioDevices {
