@@ -202,6 +202,8 @@ export const CONFIG_FIELDS: Record<string, { key: string; label: string; placeho
 
 export interface AssistantSettings {
   hasKey: boolean;
+  hasSttKey: boolean;
+  sttEngine: string;
   model: string;
 }
 

@@ -262,20 +262,34 @@ const DEFAULT_MODEL: &str = "claude-opus-4-8";
 #[serde(rename_all = "camelCase")]
 pub struct AssistantSettings {
     pub has_key: bool,
+    pub has_stt_key: bool,
+    pub stt_engine: String,
     pub model: String,
 }
 
 #[tauri::command]
 pub fn get_assistant_settings(state: State<'_, AppState>) -> Result<AssistantSettings, String> {
     let conn = state.db.lock().map_err(|_| "db poisoned")?;
-    let has_key = db::get_setting(&conn, "anthropic_api_key")
+    let present = |k: &str| -> Result<bool, String> {
+        Ok(db::get_setting(&conn, k)
+            .map_err(|e| e.to_string())?
+            .map(|v| !v.trim().is_empty())
+            .unwrap_or(false))
+    };
+    let has_key = present("anthropic_api_key")?;
+    let has_stt_key = present("deepgram_api_key")?;
+    let stt_engine = db::get_setting(&conn, "stt_engine")
         .map_err(|e| e.to_string())?
-        .map(|k| !k.trim().is_empty())
-        .unwrap_or(false);
+        .unwrap_or_else(|| "deepgram".to_string());
     let model = db::get_setting(&conn, "assistant_model")
         .map_err(|e| e.to_string())?
         .unwrap_or_else(|| DEFAULT_MODEL.to_string());
-    Ok(AssistantSettings { has_key, model })
+    Ok(AssistantSettings {
+        has_key,
+        has_stt_key,
+        stt_engine,
+        model,
+    })
 }
 
 /// Store (or, when blank, clear) the Anthropic API key in local SQLite.
@@ -321,4 +335,81 @@ pub async fn ask_assistant(
     crate::assistant::ask(&http, &key, &model, &question, context.as_deref())
         .await
         .map_err(|e| e.to_string())
+}
+
+// --- Live listening (system-audio loopback capture -> Deepgram) ---
+
+/// Store (or, when blank, clear) the Deepgram API key in local SQLite.
+#[tauri::command]
+pub fn set_deepgram_key(state: State<'_, AppState>, key: String) -> Result<(), String> {
+    let conn = state.db.lock().map_err(|_| "db poisoned")?;
+    let trimmed = key.trim();
+    if trimmed.is_empty() {
+        db::delete_setting(&conn, "deepgram_api_key").map_err(|e| e.to_string())
+    } else {
+        db::set_setting(&conn, "deepgram_api_key", trimmed).map_err(|e| e.to_string())
+    }
+}
+
+/// Start capturing computer audio on a background thread. Transcripts arrive on
+/// the frontend as `transcript` events; failures as `listen-error`.
+#[tauri::command]
+pub fn set_stt_engine(state: State<'_, AppState>, engine: String) -> Result<(), String> {
+    let conn = state.db.lock().map_err(|_| "db poisoned")?;
+    db::set_setting(&conn, "stt_engine", &engine).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn start_listening(state: State<'_, AppState>, app: AppHandle) -> Result<(), String> {
+    use std::sync::atomic::Ordering;
+    use tauri::Manager;
+
+    let engine_kind = {
+        let conn = state.db.lock().map_err(|_| "db poisoned")?;
+        db::get_setting(&conn, "stt_engine")
+            .map_err(|e| e.to_string())?
+            .unwrap_or_else(|| "deepgram".to_string())
+    };
+
+    let engine = if engine_kind == "local" {
+        let models_dir = app
+            .path()
+            .app_data_dir()
+            .map_err(|e| e.to_string())?
+            .join("models");
+        std::fs::create_dir_all(&models_dir).map_err(|e| e.to_string())?;
+        crate::listen::EngineConfig::Local { models_dir }
+    } else {
+        let key = {
+            let conn = state.db.lock().map_err(|_| "db poisoned")?;
+            db::get_setting(&conn, "deepgram_api_key").map_err(|e| e.to_string())?
+        };
+        let key = key.filter(|k| !k.trim().is_empty()).ok_or(
+            "No Deepgram API key set. Add it in the Assistant tab, or switch the engine to Local.",
+        )?;
+        crate::listen::EngineConfig::Deepgram { key }
+    };
+
+    if state.listening.swap(true, Ordering::SeqCst) {
+        return Ok(()); // already running
+    }
+    let http = state.http.clone();
+    let flag = state.listening.clone();
+    std::thread::spawn(move || {
+        use tauri::Emitter;
+        if let Err(e) = crate::listen::run(&app, http, engine, flag.clone()) {
+            let _ = app.emit("listen-error", e.to_string());
+        }
+        flag.store(false, Ordering::SeqCst);
+        let _ = app.emit("listen-stopped", ());
+    });
+    Ok(())
+}
+
+#[tauri::command]
+pub fn stop_listening(state: State<'_, AppState>) -> Result<(), String> {
+    state
+        .listening
+        .store(false, std::sync::atomic::Ordering::SeqCst);
+    Ok(())
 }

@@ -197,6 +197,72 @@ select:focus {
   font: inherit;
   text-decoration: underline;
 }
+.listen-engine {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.listen-engine select {
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 10px;
+}
+.listen-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.btn-listen {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 14px;
+  cursor: pointer;
+}
+.btn-listen:hover {
+  border-color: var(--accent);
+}
+.btn-listen.on {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+.transcript {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+}
+.transcript-text {
+  white-space: pre-wrap;
+  line-height: 1.5;
+  max-height: 160px;
+  overflow-y: auto;
+}
+.transcript .btn-open {
+  align-self: flex-start;
+}
+.pulse {
+  animation: pulse 1.4s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 1;
+  }
+}
 
 .icon-btn.danger:hover {
   border-color: var(--danger);
