@@ -1,8 +1,31 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { Bot, Ear, KeyRound, Send, Square } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
+import "katex/dist/katex.min.css";
 import * as api from "../api";
 import { ASSISTANT_MODELS } from "../types";
+
+interface QA {
+  id: number;
+  q: string;
+  a: string;
+  pending: boolean;
+  error?: string;
+}
+
+function Answer({ text }: { text: string }) {
+  return (
+    <div className="assistant-answer">
+      <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>
+        {text}
+      </ReactMarkdown>
+    </div>
+  );
+}
 
 export function AssistantView() {
   const [hasKey, setHasKey] = useState(false);
@@ -18,12 +41,14 @@ export function AssistantView() {
   const [listenStatus, setListenStatus] = useState("");
   const [transcript, setTranscript] = useState("");
   const [listenError, setListenError] = useState("");
+  const [autoAnswer, setAutoAnswer] = useState(true);
 
   const [question, setQuestion] = useState("");
   const [context, setContext] = useState("");
-  const [answer, setAnswer] = useState("");
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [qa, setQa] = useState<QA[]>([]);
+
+  const idRef = useRef(0);
+  const answeredIdx = useRef(0);
 
   const loadSettings = useCallback(async () => {
     const s = await api.getAssistantSettings();
@@ -35,6 +60,20 @@ export function AssistantView() {
   useEffect(() => {
     void loadSettings();
   }, [loadSettings]);
+
+  // Ask the assistant; result is appended to the Q&A feed (newest first).
+  const ask = useCallback(async (q: string, ctx: string | null) => {
+    const question = q.trim();
+    if (!question) return;
+    const id = ++idRef.current;
+    setQa((prev) => [{ id, q: question, a: "", pending: true }, ...prev]);
+    try {
+      const a = await api.askAssistant(question, ctx && ctx.trim() ? ctx.trim() : null);
+      setQa((prev) => prev.map((e) => (e.id === id ? { ...e, a, pending: false } : e)));
+    } catch (e) {
+      setQa((prev) => prev.map((e) => (e.id === id ? { ...e, error: String(e), pending: false } : e)));
+    }
+  }, []);
 
   // Live transcript + listen lifecycle events from the Rust capture loop.
   useEffect(() => {
@@ -56,6 +95,21 @@ export function AssistantView() {
     }).then((u) => unlisteners.push(u));
     return () => unlisteners.forEach((u) => u());
   }, []);
+
+  // Auto-answer: when a new question ("...?") appears in the transcript, answer it.
+  useEffect(() => {
+    if (!autoAnswer || !listening) return;
+    let from = answeredIdx.current;
+    let qi: number;
+    while ((qi = transcript.indexOf("?", from)) !== -1) {
+      const segment = transcript.slice(from, qi + 1).trim();
+      const sentences = segment.split(/(?<=[.!?])\s+/);
+      const detected = (sentences[sentences.length - 1] || segment).trim();
+      from = qi + 1;
+      if (detected.length >= 3) void ask(detected, transcript.slice(0, qi + 1));
+    }
+    answeredIdx.current = from;
+  }, [transcript, autoAnswer, listening, ask]);
 
   const saveKey = async () => {
     if (!keyInput.trim()) return;
@@ -107,18 +161,15 @@ export function AssistantView() {
     }
   };
 
-  const ask = async () => {
-    if (!question.trim() || loading) return;
-    setLoading(true);
-    setError("");
-    setAnswer("");
-    try {
-      setAnswer(await api.askAssistant(question.trim(), context.trim() || null));
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setLoading(false);
-    }
+  const clearTranscript = () => {
+    setTranscript("");
+    answeredIdx.current = 0;
+  };
+
+  const askManual = () => {
+    if (!question.trim()) return;
+    void ask(question, context.trim() || transcript);
+    setQuestion("");
   };
 
   const needsDeepgramKey = sttEngine === "deepgram" && !hasSttKey;
@@ -145,7 +196,7 @@ export function AssistantView() {
           </h3>
           <p className="muted sm">
             Stored locally on this machine only. Create a key at console.anthropic.com. When you ask, the
-            assistant sends your question and any context you paste to Anthropic to generate the answer.
+            assistant sends your question and any context to Anthropic to generate the answer.
           </p>
           <div className="add-row">
             <input
@@ -203,56 +254,83 @@ export function AssistantView() {
                 {listening ? <Square size={15} /> : <Ear size={15} />}
                 {listening ? "Stop listening" : "Listen to call"}
               </button>
-              {listening && <span className="muted sm pulse">{listenStatus || "Capturing..."}</span>}
-              {!listening && sttEngine === "local" && (
-                <span className="muted sm">
-                  Runs on your CPU, audio stays local. First run downloads a model (~290MB).
-                </span>
-              )}
-              {transcript && (
-                <button className="link-btn" onClick={() => setTranscript("")}>
-                  Clear
-                </button>
-              )}
+              <label className="auto-toggle muted sm">
+                <input
+                  type="checkbox"
+                  checked={autoAnswer}
+                  onChange={(e) => setAutoAnswer(e.target.checked)}
+                />
+                Auto-answer questions
+              </label>
             </div>
           )}
 
           {listenError && <div className="assistant-error">{listenError}</div>}
 
-          {transcript && (
+          {(listening || transcript) && (
             <div className="transcript">
-              <div className="transcript-text">{transcript}</div>
-              <button className="btn-open" onClick={() => setContext(transcript)}>
-                Use as context
+              <div className="transcript-head">
+                <span className="muted sm">{listening ? listenStatus || "Listening..." : "Transcript"}</span>
+                <span className="transcript-actions">
+                  {transcript && (
+                    <button className="link-btn" onClick={() => setContext(transcript)}>
+                      Use as context
+                    </button>
+                  )}
+                  {transcript && (
+                    <button className="link-btn" onClick={clearTranscript}>
+                      Clear
+                    </button>
+                  )}
+                </span>
+              </div>
+              <div className="transcript-text">
+                {transcript || (
+                  <span className="muted">
+                    {sttEngine === "local"
+                      ? "Waiting for the model and for system audio to play..."
+                      : "Waiting for system audio to play..."}
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+
+          <div className="assistant-ask">
+            <textarea
+              placeholder="Ask directly, e.g. 'Solve 3x + 7 = 22' - or just hit Listen and let it auto-answer"
+              value={question}
+              onChange={(e) => setQuestion(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) askManual();
+              }}
+              rows={2}
+            />
+            <button className="btn-sync" onClick={askManual} disabled={!question.trim()}>
+              <Send size={16} /> Ask
+            </button>
+          </div>
+          {context && (
+            <div className="muted sm context-note">
+              Context attached ({context.length} chars).{" "}
+              <button className="link-btn" onClick={() => setContext("")}>
+                clear
               </button>
             </div>
           )}
 
-          <textarea
-            className="assistant-context"
-            placeholder="Optional context: paste a problem statement or notes, or use the live transcript above..."
-            value={context}
-            onChange={(e) => setContext(e.target.value)}
-            rows={3}
-          />
-          <div className="assistant-ask">
-            <textarea
-              placeholder="What do you need? e.g. 'Solve 3x + 7 = 22' or 'Answer what they just asked'"
-              value={question}
-              onChange={(e) => setQuestion(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) void ask();
-              }}
-              rows={2}
-            />
-            <button className="btn-sync" onClick={ask} disabled={loading || !question.trim()}>
-              <Send size={16} /> {loading ? "Thinking..." : "Ask"}
-            </button>
-          </div>
-          <div className="muted sm assistant-hint">Ctrl+Enter to ask.</div>
-
-          {error && <div className="assistant-error">{error}</div>}
-          {answer && <div className="assistant-answer">{answer}</div>}
+          {qa.map((e) => (
+            <div className="qa" key={e.id}>
+              <div className="qa-q">{e.q}</div>
+              {e.pending ? (
+                <div className="muted sm">Thinking...</div>
+              ) : e.error ? (
+                <div className="assistant-error">{e.error}</div>
+              ) : (
+                <Answer text={e.a} />
+              )}
+            </div>
+          ))}
         </>
       )}
     </div>

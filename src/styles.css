@@ -168,13 +168,69 @@ select:focus {
   margin-top: -4px;
 }
 .assistant-answer {
-  white-space: pre-wrap;
   line-height: 1.55;
+}
+.assistant-answer > :first-child {
+  margin-top: 0;
+}
+.assistant-answer > :last-child {
+  margin-bottom: 0;
+}
+.assistant-answer p {
+  margin: 0.5em 0;
+}
+.assistant-answer pre {
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  overflow-x: auto;
+}
+.assistant-answer code {
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  font-size: 12.5px;
+}
+.assistant-answer :not(pre) > code {
+  background: var(--bg-2);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+.assistant-answer ul,
+.assistant-answer ol {
+  margin: 0.4em 0;
+  padding-left: 1.4em;
+}
+
+/* Q&A feed */
+.qa {
   background: var(--panel);
   border: 1px solid var(--border);
   border-left: 3px solid var(--accent);
   border-radius: 8px;
-  padding: 14px 16px;
+  padding: 12px 14px;
+}
+.qa-q {
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.transcript-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.transcript-actions {
+  display: inline-flex;
+  gap: 10px;
+}
+.auto-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+.context-note {
+  margin-top: -4px;
 }
 .assistant-error {
   background: rgba(239, 68, 68, 0.08);
