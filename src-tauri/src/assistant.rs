@@ -246,16 +246,23 @@ Markdown: fenced code blocks for code (```python ... ```) and LaTeX ($...$ or $$
 questions are visible, answer each briefly with a short label. If no question or problem is visible (just \
 an ordinary app, desktop, or chat with nothing being asked), reply with exactly one word: NONE";
 
-/// Look at a screenshot (base64 PNG) and answer any question/problem on it, or
-/// return the literal "NONE" when there is nothing to answer.
-pub async fn answer_screen(
+/// System prompt for an explicit user-selected screen region ("snip & explain").
+const EXPLAIN_PROMPT: &str = "You are shown a region of the user's screen that they selected with a snipping \
+tool because they want help understanding it. Explain what it shows and help with it concisely: define terms, \
+summarize, and if it contains a question or problem (math, code, a diagram, an error message, a form), answer \
+or resolve it. Use GitHub-flavored Markdown - fenced code blocks for code (```python ... ```) and LaTeX \
+($...$ or $$...$$) for math. If the image is unreadable, say so briefly.";
+
+/// Shared vision call: send a base64 PNG plus a short instruction under `system`.
+async fn vision(
     http: &reqwest::Client,
     engine: &Engine,
+    system: &str,
+    user_prompt: &str,
     png_base64: &str,
     profile: Option<&str>,
 ) -> Result<String> {
-    let prompt = "Find and answer any question or problem visible on this screen.";
-    let system = with_profile(SCREEN_PROMPT, profile);
+    let system = with_profile(system, profile);
     match engine {
         Engine::Claude { api_key, model } => {
             let content = json!([
@@ -263,7 +270,7 @@ pub async fn answer_screen(
                     "type": "image",
                     "source": { "type": "base64", "media_type": "image/png", "data": png_base64 }
                 },
-                { "type": "text", "text": prompt }
+                { "type": "text", "text": user_prompt }
             ]);
             complete_content(http, api_key, model, &system, content, None).await
         }
@@ -273,13 +280,50 @@ pub async fn answer_screen(
                 url,
                 model,
                 &system,
-                prompt.to_string(),
+                user_prompt.to_string(),
                 Some(png_base64),
                 None,
             )
             .await
         }
     }
+}
+
+/// Look at a screenshot (base64 PNG) and answer any question/problem on it, or
+/// return the literal "NONE" when there is nothing to answer.
+pub async fn answer_screen(
+    http: &reqwest::Client,
+    engine: &Engine,
+    png_base64: &str,
+    profile: Option<&str>,
+) -> Result<String> {
+    vision(
+        http,
+        engine,
+        SCREEN_PROMPT,
+        "Find and answer any question or problem visible on this screen.",
+        png_base64,
+        profile,
+    )
+    .await
+}
+
+/// Explain a user-selected screen region (the "snip & explain" tool).
+pub async fn explain_image(
+    http: &reqwest::Client,
+    engine: &Engine,
+    png_base64: &str,
+    profile: Option<&str>,
+) -> Result<String> {
+    vision(
+        http,
+        engine,
+        EXPLAIN_PROMPT,
+        "Explain and help me with what's shown in this screen selection.",
+        png_base64,
+        profile,
+    )
+    .await
 }
 
 /// Chat with a local Ollama model via `POST {url}/api/chat`. Streams NDJSON when

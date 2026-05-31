@@ -131,6 +131,9 @@ export const stopListening = () => invoke<void>("stop_listening");
 export const listMonitors = () => invoke<MonitorInfo[]>("list_monitors");
 export const answerScreen = (monitor: number, force: boolean) =>
   invoke<ScreenAnswer>("answer_screen", { monitor, force });
+// Snip-to-explain: grab the monitor as a base64 PNG, crop client-side, explain the crop.
+export const captureScreenPng = (monitor: number) => invoke<string>("capture_screen_png", { monitor });
+export const explainRegion = (pngBase64: string) => invoke<string>("explain_region", { pngBase64 });
 
 // --- Overlay window controls (translucency + always-on-top; Windows-backed) ---
 export const setWindowOpacity = (opacity: number) => invoke<void>("set_window_opacity", { opacity });

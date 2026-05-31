@@ -112,6 +112,8 @@ pub fn run() {
             commands::set_capture_source,
             commands::list_monitors,
             commands::answer_screen,
+            commands::capture_screen_png,
+            commands::explain_region,
             commands::list_audio_devices,
             commands::set_input_device,
             commands::set_output_device,

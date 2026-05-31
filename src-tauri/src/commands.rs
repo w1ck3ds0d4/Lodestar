@@ -712,6 +712,33 @@ pub async fn answer_screen(
     })
 }
 
+/// Capture the chosen monitor as a base64 PNG, for the in-app snip-to-explain
+/// selector (the frontend crops a region and sends it to `explain_region`).
+#[tauri::command]
+pub fn capture_screen_png(monitor: usize) -> Result<String, String> {
+    let cap = crate::screen::capture(monitor).map_err(|e| e.to_string())?;
+    Ok(base64::Engine::encode(
+        &base64::engine::general_purpose::STANDARD,
+        &cap.png,
+    ))
+}
+
+/// Explain a user-cropped screen region (base64 PNG) via the answer engine's vision.
+#[tauri::command]
+pub async fn explain_region(
+    state: State<'_, AppState>,
+    png_base64: String,
+) -> Result<String, String> {
+    let (engine, profile) = {
+        let conn = state.db.lock().map_err(|_| "db poisoned")?;
+        (build_engine(&conn)?, interview_profile(&conn))
+    };
+    let http = state.http.clone();
+    crate::assistant::explain_image(&http, &engine, &png_base64, profile.as_deref())
+        .await
+        .map_err(|e| e.to_string())
+}
+
 // --- Live listening (system-audio loopback capture -> Deepgram) ---
 
 /// Store (or, when blank, clear) the Deepgram API key in local SQLite.
