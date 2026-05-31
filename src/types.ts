@@ -217,6 +217,13 @@ export interface AssistantSettings {
   sttEngine: string;
   captureSource: string;
   model: string;
+  inputDevice: string;
+  outputDevice: string;
+}
+
+export interface AudioDevices {
+  inputs: string[];
+  outputs: string[];
 }
 
 export const ASSISTANT_MODELS: { id: string; label: string; note: string }[] = [

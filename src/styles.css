@@ -323,6 +323,22 @@ select:focus {
   max-height: 160px;
   overflow-y: auto;
 }
+.transcript-field {
+  width: 100%;
+  resize: vertical;
+  min-height: 110px;
+  background: var(--bg-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px;
+  font: inherit;
+  line-height: 1.5;
+}
+.transcript-field:focus {
+  border-color: var(--accent);
+  outline: none;
+}
 .transcript .btn-open {
   align-self: flex-start;
 }
