@@ -36,6 +36,26 @@ function isQuestionLike(s: string): boolean {
   return t.endsWith("?") || t.includes("¿") || QUESTION_START.test(t);
 }
 
+// True if an answer contains a fenced code block or LaTeX math.
+function hasCodeOrMath(a: string): boolean {
+  return a.includes("```") || a.includes("$$") || /\$[^$\n]+\$/.test(a);
+}
+
+function QaCard({ e }: { e: QA }) {
+  return (
+    <div className="qa">
+      <div className="qa-q">{e.q}</div>
+      {e.pending ? (
+        <div className="muted sm">Thinking...</div>
+      ) : e.error ? (
+        <div className="assistant-error">{e.error}</div>
+      ) : (
+        <Answer text={e.a} />
+      )}
+    </div>
+  );
+}
+
 export function AssistantView() {
   const [hasKey, setHasKey] = useState(false);
   const [hasSttKey, setHasSttKey] = useState(false);
@@ -351,18 +371,26 @@ export function AssistantView() {
             </div>
           )}
 
-          {qa.map((e) => (
-            <div className="qa" key={e.id}>
-              <div className="qa-q">{e.q}</div>
-              {e.pending ? (
-                <div className="muted sm">Thinking...</div>
-              ) : e.error ? (
-                <div className="assistant-error">{e.error}</div>
-              ) : (
-                <Answer text={e.a} />
-              )}
+          {qa.length > 0 && (
+            <div className="assistant-panes">
+              <div className="pane">
+                <div className="pane-title">History</div>
+                {qa.map((e) => (
+                  <QaCard key={e.id} e={e} />
+                ))}
+              </div>
+              <div className="pane">
+                <div className="pane-title">Code &amp; Math</div>
+                {qa.some((e) => !e.pending && !e.error && hasCodeOrMath(e.a)) ? (
+                  qa
+                    .filter((e) => !e.pending && !e.error && hasCodeOrMath(e.a))
+                    .map((e) => <QaCard key={e.id} e={e} />)
+                ) : (
+                  <div className="muted sm">Code snippets and equations from answers show up here.</div>
+                )}
+              </div>
             </div>
-          ))}
+          )}
         </>
       )}
     </div>
