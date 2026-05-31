@@ -128,9 +128,10 @@ select:focus {
 .assistant.three-col {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 12px;
-  max-width: none;
+  gap: 14px;
   width: 100%;
+  max-width: 1480px;
+  margin: 0 auto;
   min-height: 0;
 }
 .assistant.three-col .assistant-bar {
@@ -138,29 +139,47 @@ select:focus {
 }
 .assistant-body {
   display: grid;
-  grid-template-columns: 320px minmax(0, 1fr) 360px;
-  gap: 16px;
-  align-items: start;
+  grid-template-columns: 320px minmax(0, 1fr) 380px;
+  gap: 14px;
+  align-items: stretch;
   min-height: 0;
-  max-width: 1700px;
 }
+/* Each column is a bounded panel so the three sections read as distinct areas,
+   and all three are the same height to fill the space cleanly. */
 .assistant-col {
   display: flex;
   flex-direction: column;
   gap: 12px;
   min-height: 0;
+  height: calc(100vh - 132px);
   overflow-y: auto;
-  max-height: calc(100vh - 120px);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
 }
-.col-dialog {
-  gap: 0;
+/* In the Settings panel the inner cards become borderless sub-sections (the column
+   itself is the card), labeled by their SETUP / OVERLAY sub-titles. */
+.col-settings .setup-card {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 0;
 }
-.col-dialog .assistant-ask {
-  margin-top: 12px;
+/* Separate the Overlay sub-section from the controls above it. */
+.col-settings .setup-card.overlay-card {
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
 }
 .col-settings .setup-row {
   grid-template-columns: 1fr;
   gap: 6px;
+}
+.col-dialog {
+  gap: 8px;
+}
+.col-dialog .dialog-list {
+  flex: 1;
 }
 .results:has(.assistant.three-col) {
   overflow: hidden;
@@ -263,16 +282,20 @@ select:focus {
   margin-top: 10px;
 }
 
-/* Code & Math column header sticks while the column scrolls. */
-.col-code .pane-title {
+/* Column headers: full-bleed dividers that stick to the top while scrolling. */
+.col-code .pane-title,
+.col-dialog .dialog-head {
   position: sticky;
   top: 0;
-  background: var(--bg);
-  padding-bottom: 6px;
   z-index: 1;
+  margin: -16px -16px 0;
+  padding: 14px 16px 10px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
 }
 
-/* Overlay card (opacity + always-on-top). */
+/* Overlay card (opacity + always-on-top). Custom-styled range so the fill always
+   matches the value exactly (native accent-color leaves a sliver at 100%). */
 .overlay-row {
   display: flex;
   align-items: center;
@@ -280,7 +303,26 @@ select:focus {
 }
 .overlay-row input[type="range"] {
   flex: 1;
-  accent-color: var(--accent);
+  -webkit-appearance: none;
+  appearance: none;
+  height: 16px;
+  background: transparent;
+  cursor: pointer;
+}
+.overlay-row input[type="range"]::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--range-fill, var(--border));
+}
+.overlay-row input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 15px;
+  height: 15px;
+  margin-top: -4.5px;
+  border-radius: 50%;
+  background: var(--accent-2);
+  border: 2px solid var(--bg);
 }
 
 @media (max-width: 1399px) {
@@ -290,7 +332,7 @@ select:focus {
   .col-code {
     grid-column: 1 / -1;
     grid-row: 2;
-    max-height: 340px;
+    height: 340px;
   }
 }
 @media (max-width: 999px) {
@@ -298,6 +340,7 @@ select:focus {
     grid-template-columns: 1fr;
   }
   .assistant-col {
+    height: auto;
     max-height: none;
     overflow: visible;
   }
