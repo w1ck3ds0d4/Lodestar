@@ -3,8 +3,8 @@ import type {
   Alert,
   AssistantSettings,
   AudioDevices,
-  ClaudeUsage,
   DeepgramBalance,
+  UsageReport,
   Job,
   MonitorInfo,
   ScreenAnswer,
@@ -125,8 +125,10 @@ export const autoAnswer = (transcript: string, latest: string) =>
   invoke<string>("auto_answer", { transcript, latest });
 
 // --- Usage / cost ---
-export const getClaudeUsage = () => invoke<ClaudeUsage>("get_claude_usage");
-export const resetClaudeUsage = () => invoke<void>("reset_claude_usage");
+export const getUsage = () => invoke<UsageReport>("get_usage");
+export const resetUsage = () => invoke<void>("reset_usage");
+export const setUsageCredit = (provider: "claude" | "deepgram", amount: number) =>
+  invoke<void>("set_usage_credit", { provider, amount });
 export const deepgramBalance = () => invoke<DeepgramBalance>("deepgram_balance");
 
 // --- Live listening (system-audio capture -> Deepgram) ---

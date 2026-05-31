@@ -839,21 +839,37 @@ pub struct ClaudeUsageItem {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ClaudeUsage {
+pub struct UsageReport {
     /// Unix seconds when the tally started, or null if nothing recorded yet.
     pub since: Option<i64>,
-    pub items: Vec<ClaudeUsageItem>,
+    pub claude_items: Vec<ClaudeUsageItem>,
+    /// Seconds of audio streamed to Deepgram (summed across sources).
+    pub deepgram_seconds: f64,
+    /// Credit the user says they topped up, in USD (0 if unset), so the UI can show a
+    /// remaining figure for keys whose balance the API won't return.
+    pub claude_credit: f64,
+    pub deepgram_credit: f64,
 }
 
-/// Locally-tracked Claude token usage per model (Anthropic has no balance endpoint for
-/// a normal key, so the frontend turns these into an approximate cost).
+fn read_f64(conn: &rusqlite::Connection, key: &str) -> f64 {
+    db::get_setting(conn, key)
+        .ok()
+        .flatten()
+        .and_then(|s| s.parse::<f64>().ok())
+        .unwrap_or(0.0)
+}
+
+/// Locally-tracked usage: Claude tokens per model + Deepgram audio seconds, plus the
+/// user-entered top-up credits. Anthropic has no balance endpoint for a normal key (and
+/// Deepgram's needs an owner key), so the frontend turns these into an estimated spend
+/// and a remaining figure against the entered credit.
 #[tauri::command]
-pub fn get_claude_usage(state: State<'_, AppState>) -> Result<ClaudeUsage, String> {
+pub fn get_usage(state: State<'_, AppState>) -> Result<UsageReport, String> {
     let conn = state.db.lock().map_err(|_| "db poisoned")?;
-    let since = db::get_setting(&conn, "claude_usage_since")
+    let since = db::get_setting(&conn, "usage_since")
         .map_err(|e| e.to_string())?
         .and_then(|s| s.parse::<i64>().ok());
-    let items = db::get_setting(&conn, "claude_usage")
+    let claude_items = db::get_setting(&conn, "claude_usage")
         .map_err(|e| e.to_string())?
         .and_then(|s| serde_json::from_str::<Value>(&s).ok())
         .and_then(|v| v.as_object().cloned())
@@ -867,15 +883,44 @@ pub fn get_claude_usage(state: State<'_, AppState>) -> Result<ClaudeUsage, Strin
                 .collect()
         })
         .unwrap_or_default();
-    Ok(ClaudeUsage { since, items })
+    Ok(UsageReport {
+        since,
+        claude_items,
+        deepgram_seconds: read_f64(&conn, "deepgram_seconds"),
+        claude_credit: read_f64(&conn, "claude_credit"),
+        deepgram_credit: read_f64(&conn, "deepgram_credit"),
+    })
 }
 
-/// Reset the Claude usage tally (clears the per-model counts and the start time).
+/// Set (or, when <= 0, clear) the top-up credit the user has on a provider, in USD.
+/// `provider` is "claude" or "deepgram".
 #[tauri::command]
-pub fn reset_claude_usage(state: State<'_, AppState>) -> Result<(), String> {
+pub fn set_usage_credit(
+    state: State<'_, AppState>,
+    provider: String,
+    amount: f64,
+) -> Result<(), String> {
+    let key = match provider.as_str() {
+        "claude" => "claude_credit",
+        "deepgram" => "deepgram_credit",
+        _ => return Err("Unknown provider.".into()),
+    };
+    let conn = state.db.lock().map_err(|_| "db poisoned")?;
+    if amount > 0.0 {
+        db::set_setting(&conn, key, &amount.to_string()).map_err(|e| e.to_string())
+    } else {
+        db::delete_setting(&conn, key).map_err(|e| e.to_string())
+    }
+}
+
+/// Reset the usage tally (Claude tokens + Deepgram seconds + start time). The entered
+/// top-up credits are kept.
+#[tauri::command]
+pub fn reset_usage(state: State<'_, AppState>) -> Result<(), String> {
     let conn = state.db.lock().map_err(|_| "db poisoned")?;
     db::delete_setting(&conn, "claude_usage").map_err(|e| e.to_string())?;
-    db::delete_setting(&conn, "claude_usage_since").map_err(|e| e.to_string())?;
+    db::delete_setting(&conn, "deepgram_seconds").map_err(|e| e.to_string())?;
+    db::delete_setting(&conn, "usage_since").map_err(|e| e.to_string())?;
     Ok(())
 }
 

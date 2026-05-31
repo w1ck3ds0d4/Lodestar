@@ -384,8 +384,12 @@ async fn stream_source(
     let sender = async {
         let frame = Duration::from_millis(120);
         let mut idle = 0u32;
+        // Seconds of audio shipped, accumulated locally and flushed to the usage tally
+        // periodically (and on exit) so we don't lock the DB on every 120ms frame.
+        let mut pending_secs = 0f64;
         loop {
             if !flag.load(Ordering::SeqCst) {
+                crate::usage::record_deepgram_seconds(pending_secs);
                 let _ = write
                     .send(Message::Text("{\"type\":\"CloseStream\"}".to_string()))
                     .await;
@@ -411,11 +415,17 @@ async fn stream_source(
             let resampled = resample(&mono, meta.rate, TARGET_RATE);
             let peak = resampled.iter().fold(0f32, |m, &s| m.max(s.abs()));
             let _ = app.emit("listen-level", json!({ "peak": peak, "buffered": 0 }));
+            pending_secs += resampled.len() as f64 / TARGET_RATE as f64;
+            if pending_secs >= 15.0 {
+                crate::usage::record_deepgram_seconds(pending_secs);
+                pending_secs = 0.0;
+            }
             if write
                 .send(Message::Binary(mono_to_linear16(&resampled)))
                 .await
                 .is_err()
             {
+                crate::usage::record_deepgram_seconds(pending_secs);
                 break;
             }
         }
