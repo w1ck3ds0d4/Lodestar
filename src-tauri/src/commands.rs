@@ -420,14 +420,27 @@ pub fn set_assistant_model(state: State<'_, AppState>, model: String) -> Result<
     db::set_setting(&conn, "assistant_model", &model).map_err(|e| e.to_string())
 }
 
+/// Streamed answer chunks sent to the frontend over a Tauri channel.
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase", tag = "kind")]
+pub enum AnswerChunk {
+    Delta { text: String },
+    Done { text: String },
+    Error { message: String },
+}
+
 #[tauri::command]
 pub async fn ask_assistant(
     state: State<'_, AppState>,
     question: String,
     context: Option<String>,
-) -> Result<String, String> {
+    on_event: tauri::ipc::Channel<AnswerChunk>,
+) -> Result<(), String> {
     if question.trim().is_empty() {
-        return Err("Ask a question first.".into());
+        let _ = on_event.send(AnswerChunk::Error {
+            message: "Ask a question first.".into(),
+        });
+        return Ok(());
     }
     // Read the key + model under a brief lock, then drop it before the await.
     let (key, model) = {
@@ -438,13 +451,38 @@ pub async fn ask_assistant(
             .unwrap_or_else(|| DEFAULT_MODEL.to_string());
         (key, model)
     };
-    let key = key
-        .filter(|k| !k.trim().is_empty())
-        .ok_or("No API key set. Add your Anthropic API key in the Assistant tab.")?;
+    let Some(key) = key.filter(|k| !k.trim().is_empty()) else {
+        let _ = on_event.send(AnswerChunk::Error {
+            message: "No API key set. Add your Anthropic API key in the Assistant tab.".into(),
+        });
+        return Ok(());
+    };
     let http = state.http.clone();
-    crate::assistant::ask(&http, &key, &model, &question, context.as_deref())
-        .await
-        .map_err(|e| e.to_string())
+    let emit = |t: &str| {
+        let _ = on_event.send(AnswerChunk::Delta {
+            text: t.to_string(),
+        });
+    };
+    match crate::assistant::ask(
+        &http,
+        &key,
+        &model,
+        &question,
+        context.as_deref(),
+        Some(&emit),
+    )
+    .await
+    {
+        Ok(full) => {
+            let _ = on_event.send(AnswerChunk::Done { text: full });
+        }
+        Err(e) => {
+            let _ = on_event.send(AnswerChunk::Error {
+                message: e.to_string(),
+            });
+        }
+    }
+    Ok(())
 }
 
 /// Auto-answer the newest transcript segment if it is a question/problem (any

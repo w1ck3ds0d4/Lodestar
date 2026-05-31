@@ -37,14 +37,17 @@ fn supports_adaptive_thinking(model: &str) -> bool {
 }
 
 /// Shared Messages API call: send a system prompt + user message, return the text.
+/// When `on_token` is `Some`, the response is streamed and each text delta is passed
+/// to the callback as it arrives (the full text is still returned at the end).
 async fn complete(
     http: &reqwest::Client,
     api_key: &str,
     model: &str,
     system: &str,
     user_text: String,
+    on_token: Option<&(dyn Fn(&str) + Send + Sync)>,
 ) -> Result<String> {
-    complete_content(http, api_key, model, system, json!(user_text)).await
+    complete_content(http, api_key, model, system, json!(user_text), on_token).await
 }
 
 /// Like [`complete`] but takes the user message `content` directly, so callers can
@@ -55,10 +58,13 @@ async fn complete_content(
     model: &str,
     system: &str,
     content: Value,
+    on_token: Option<&(dyn Fn(&str) + Send + Sync)>,
 ) -> Result<String> {
+    let stream = on_token.is_some();
     let mut body = json!({
         "model": model,
         "max_tokens": 4096,
+        "stream": stream,
         "system": [{
             "type": "text",
             "text": system,
@@ -82,31 +88,84 @@ async fn complete_content(
         .map_err(|e| anyhow!("Could not reach the Claude API: {e}"))?;
 
     let status = resp.status();
-    let payload: Value = resp
-        .json()
-        .await
-        .map_err(|e| anyhow!("Unexpected response from the Claude API: {e}"))?;
-
     if !status.is_success() {
+        let payload: Value = resp
+            .json()
+            .await
+            .map_err(|e| anyhow!("Unexpected response from the Claude API: {e}"))?;
         return Err(anyhow!(api_error_message(status.as_u16(), &payload)));
     }
 
-    // The answer is the first text block in `content`; thinking blocks (when
-    // present) are returned separately and skipped here.
-    let answer = payload["content"]
-        .as_array()
-        .and_then(|blocks| blocks.iter().find(|b| b["type"] == "text"))
-        .and_then(|b| b["text"].as_str())
-        .map(str::trim)
-        .filter(|s| !s.is_empty());
+    let Some(on_token) = on_token else {
+        // Non-streaming: the answer is the first text block in `content`.
+        let payload: Value = resp
+            .json()
+            .await
+            .map_err(|e| anyhow!("Unexpected response from the Claude API: {e}"))?;
+        let answer = payload["content"]
+            .as_array()
+            .and_then(|blocks| blocks.iter().find(|b| b["type"] == "text"))
+            .and_then(|b| b["text"].as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+        return match answer {
+            Some(a) => Ok(a.to_string()),
+            None if payload["stop_reason"] == "refusal" => {
+                Err(anyhow!("The model declined to answer this request."))
+            }
+            None => Err(anyhow!("The assistant returned an empty response.")),
+        };
+    };
 
-    match answer {
-        Some(a) => Ok(a.to_string()),
-        None if payload["stop_reason"] == "refusal" => {
-            Err(anyhow!("The model declined to answer this request."))
+    // Streaming: parse the SSE event stream, forwarding text deltas to the callback.
+    let mut resp = resp;
+    let mut full = String::new();
+    let mut buf = String::new();
+    let mut refusal = false;
+    while let Some(chunk) = resp
+        .chunk()
+        .await
+        .map_err(|e| anyhow!("Lost connection to the Claude API: {e}"))?
+    {
+        buf.push_str(&String::from_utf8_lossy(&chunk));
+        while let Some(nl) = buf.find('\n') {
+            let line: String = buf.drain(..=nl).collect();
+            let Some(data) = line.trim_end().strip_prefix("data:") else {
+                continue;
+            };
+            let data = data.trim();
+            if data.is_empty() {
+                continue;
+            }
+            let Ok(ev) = serde_json::from_str::<Value>(data) else {
+                continue;
+            };
+            match ev["type"].as_str() {
+                Some("content_block_delta") => {
+                    if let Some(t) = ev["delta"]["text"].as_str() {
+                        full.push_str(t);
+                        on_token(t);
+                    }
+                }
+                Some("message_delta") if ev["delta"]["stop_reason"] == "refusal" => {
+                    refusal = true;
+                }
+                Some("error") => {
+                    let msg = ev["error"]["message"].as_str().unwrap_or("stream error");
+                    return Err(anyhow!("Claude API error: {msg}"));
+                }
+                _ => {}
+            }
         }
-        None => Err(anyhow!("The assistant returned an empty response.")),
     }
+    if full.trim().is_empty() {
+        return Err(if refusal {
+            anyhow!("The model declined to answer this request.")
+        } else {
+            anyhow!("The assistant returned an empty response.")
+        });
+    }
+    Ok(full.trim().to_string())
 }
 
 /// Answer a direct question, optionally with surrounding context (a pasted
@@ -117,6 +176,7 @@ pub async fn ask(
     model: &str,
     question: &str,
     context: Option<&str>,
+    on_token: Option<&(dyn Fn(&str) + Send + Sync)>,
 ) -> Result<String> {
     let user_text = match context {
         Some(ctx) if !ctx.trim().is_empty() => format!(
@@ -124,7 +184,7 @@ pub async fn ask(
         ),
         _ => question.to_string(),
     };
-    complete(http, api_key, model, SYSTEM_PROMPT, user_text).await
+    complete(http, api_key, model, SYSTEM_PROMPT, user_text, on_token).await
 }
 
 /// Auto-answer: given the recent transcript and the newest segment, answer it if it
@@ -138,7 +198,7 @@ pub async fn auto_answer(
 ) -> Result<String> {
     let user_text =
         format!("Earlier transcript (context):\n{transcript}\n\nNew text to consider:\n{latest}");
-    complete(http, api_key, model, AUTO_PROMPT, user_text).await
+    complete(http, api_key, model, AUTO_PROMPT, user_text, None).await
 }
 
 /// System prompt for the screen watcher: read a screenshot and answer any
@@ -165,7 +225,7 @@ pub async fn answer_screen(
         },
         { "type": "text", "text": "Find and answer any question or problem visible on this screen." }
     ]);
-    complete_content(http, api_key, model, SCREEN_PROMPT, content).await
+    complete_content(http, api_key, model, SCREEN_PROMPT, content, None).await
 }
 
 /// Map an API error status + body to a concise, user-facing message.

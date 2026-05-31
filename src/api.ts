@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { Channel, invoke } from "@tauri-apps/api/core";
 import type {
   Alert,
   AssistantSettings,
@@ -99,8 +99,13 @@ export const setScreenPrivacy = (enabled: boolean) => invoke<void>("set_screen_p
 export const getAssistantSettings = () => invoke<AssistantSettings>("get_assistant_settings");
 export const setApiKey = (key: string) => invoke<void>("set_api_key", { key });
 export const setAssistantModel = (model: string) => invoke<void>("set_assistant_model", { model });
-export const askAssistant = (question: string, context: string | null) =>
-  invoke<string>("ask_assistant", { question, context });
+// Streamed answer chunks from `ask_assistant` (over a Tauri channel).
+export type AnswerChunk =
+  | { kind: "delta"; text: string }
+  | { kind: "done"; text: string }
+  | { kind: "error"; message: string };
+export const askAssistant = (question: string, context: string | null, onEvent: Channel<AnswerChunk>) =>
+  invoke<void>("ask_assistant", { question, context, onEvent });
 export const autoAnswer = (transcript: string, latest: string) =>
   invoke<string>("auto_answer", { transcript, latest });
 
