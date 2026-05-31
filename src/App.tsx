@@ -18,6 +18,8 @@ export default function App() {
   const [workplaces, setWorkplaces] = useState<string[]>([]);
   const [levels, setLevels] = useState<string[]>([]);
   const [selectedKinds, setSelectedKinds] = useState<string[]>([]);
+  const [remoteEligible, setRemoteEligible] = useState(false);
+  const [relocationOnly, setRelocationOnly] = useState(false);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [stats, setStats] = useState<Stats>({ totalJobs: 0, companies: 0 });
   const [sources, setSources] = useState<Source[]>([]);
@@ -34,11 +36,11 @@ export default function App() {
   const runSearch = useCallback(async () => {
     setLoading(true);
     try {
-      setJobs(await api.searchJobs(query, workplaces, levels, selectedKinds));
+      setJobs(await api.searchJobs(query, workplaces, levels, selectedKinds, relocationOnly, remoteEligible));
     } finally {
       setLoading(false);
     }
-  }, [query, workplaces, levels, selectedKinds]);
+  }, [query, workplaces, levels, selectedKinds, relocationOnly, remoteEligible]);
 
   useEffect(() => {
     void refreshSources();
@@ -180,6 +182,23 @@ export default function App() {
                 </button>
               ))}
             </div>
+            <div className="filter-group">
+              <span className="filter-label">Remote fit</span>
+              <button
+                className={"chip" + (remoteEligible ? " active" : "")}
+                title="Remote roles workable from Malta (EU): hides ones restricted to the US/UK/another country"
+                onClick={() => setRemoteEligible((v) => !v)}
+              >
+                Workable from Malta
+              </button>
+              <button
+                className={"chip" + (relocationOnly ? " active" : "")}
+                title="Only jobs whose description mentions relocation help"
+                onClick={() => setRelocationOnly((v) => !v)}
+              >
+                Pays relocation
+              </button>
+            </div>
           </div>
 
           {availableKinds.length > 0 && (
@@ -194,13 +213,19 @@ export default function App() {
                   {KIND_LABELS[k] ?? k}
                 </button>
               ))}
-              {(selectedKinds.length > 0 || workplaces.length > 0 || levels.length > 0) && (
+              {(selectedKinds.length > 0 ||
+                workplaces.length > 0 ||
+                levels.length > 0 ||
+                remoteEligible ||
+                relocationOnly) && (
                 <button
                   className="chip clear"
                   onClick={() => {
                     setSelectedKinds([]);
                     setWorkplaces([]);
                     setLevels([]);
+                    setRemoteEligible(false);
+                    setRelocationOnly(false);
                   }}
                 >
                   Clear all
