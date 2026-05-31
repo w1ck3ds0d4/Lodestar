@@ -296,10 +296,12 @@ fn row_to_source(r: &rusqlite::Row) -> rusqlite::Result<Source> {
 /// Build an FTS5 prefix query from free text. Returns `None` for empty input so
 /// callers can fall back to a plain recency listing.
 fn build_fts_query(q: &str) -> Option<String> {
+    // Quote each token as a literal phrase before the prefix `*`, so a token can never
+    // be parsed as FTS5 query syntax (operators like AND/OR/NEAR, columns, parens).
     let toks: Vec<String> = q
         .split(|c: char| !c.is_alphanumeric())
         .filter(|s| !s.is_empty())
-        .map(|s| format!("{}*", s.to_lowercase()))
+        .map(|s| format!("\"{}\"*", s.to_lowercase().replace('"', "\"\"")))
         .collect();
     if toks.is_empty() {
         None

@@ -79,7 +79,16 @@ export default function App() {
     }, 5000);
   }, [refreshStats, refreshSources, runSearch]);
 
-  const onOpen = useCallback((url: string) => void openUrl(url), []);
+  // Only open http(s) links externally. Job/program URLs come from third-party APIs,
+  // so reject anything else (file:, javascript:, custom protocol handlers, etc.).
+  const onOpen = useCallback((url: string) => {
+    try {
+      const u = new URL(url);
+      if (u.protocol === "http:" || u.protocol === "https:") void openUrl(url);
+    } catch {
+      /* ignore malformed or unsafe URLs */
+    }
+  }, []);
 
   const toggleCapture = useCallback(async () => {
     const next = !capHidden;

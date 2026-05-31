@@ -191,15 +191,21 @@ fn fetch(http: &reqwest::Client, dir: &Path, name: &str, status: &dyn Fn(&str)) 
     }
     status(&format!("Downloading {name} (first run only)..."));
     let url = format!("https://huggingface.co/{MODEL_ID}/resolve/main/{name}");
+    // Ceiling well above whisper-base (~150 MB) to reject an absurdly large or wrong
+    // response from poisoning memory; the weights are HTTPS-fetched from a fixed,
+    // hardcoded path (no user input in the URL, so no traversal).
+    const MAX_DOWNLOAD: u64 = 1_024 * 1_024 * 1_024; // 1 GiB
     let bytes = tauri::async_runtime::block_on(async {
-        http.get(&url)
-            .send()
-            .await?
-            .error_for_status()?
-            .bytes()
-            .await
+        let resp = http.get(&url).send().await?.error_for_status()?;
+        if let Some(len) = resp.content_length() {
+            if len > MAX_DOWNLOAD {
+                return Ok(None);
+            }
+        }
+        resp.bytes().await.map(Some)
     })
-    .map_err(|e| anyhow!("Could not download {name}: {e}"))?;
+    .map_err(|e| anyhow!("Could not download {name}: {e}"))?
+    .ok_or_else(|| anyhow!("{name} is unexpectedly large; refusing to download."))?;
     std::fs::write(&dest, &bytes)?;
     Ok(dest)
 }

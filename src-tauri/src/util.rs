@@ -3,6 +3,7 @@
 
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
+use std::net::{IpAddr, ToSocketAddrs};
 use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -15,6 +16,91 @@ pub fn now_ms() -> i64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
         .unwrap_or(0)
+}
+
+/// Strip the query string from any URL inside a message. Network errors (reqwest's
+/// `Display`) include the full request URL, so a source that puts a secret in the
+/// query string (e.g. Adzuna's `app_key`) would otherwise leak it into the stored
+/// source status, the logs, and the Sources panel. Keeps the scheme/host/path.
+pub fn redact_secrets(msg: &str) -> String {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    let re = RE.get_or_init(|| Regex::new(r"(https?://[^\s?]+)\?[^\s]*").unwrap());
+    re.replace_all(msg, "$1?[redacted]").into_owned()
+}
+
+/// True if an IP is loopback / private / link-local / otherwise non-public. Used to
+/// keep user-supplied fetch targets from reaching localhost, cloud metadata
+/// (169.254.169.254), or RFC-1918 internal hosts (SSRF guard).
+fn ip_is_blocked(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(v4) => {
+            v4.is_loopback()
+                || v4.is_private()
+                || v4.is_link_local()
+                || v4.is_unspecified()
+                || v4.is_broadcast()
+                || v4.octets()[0] == 0
+                // carrier-grade NAT 100.64.0.0/10
+                || (v4.octets()[0] == 100 && (v4.octets()[1] & 0xc0) == 0x40)
+        }
+        IpAddr::V6(v6) => {
+            v6.is_loopback()
+                || v6.is_unspecified()
+                || v6
+                    .to_ipv4()
+                    .map(|m| ip_is_blocked(IpAddr::V4(m)))
+                    .unwrap_or(false)
+                // unique-local fc00::/7
+                || (v6.segments()[0] & 0xfe00) == 0xfc00
+                // link-local fe80::/10
+                || (v6.segments()[0] & 0xffc0) == 0xfe80
+        }
+    }
+}
+
+/// Host-string check (no DNS): blocks localhost-ish names and IP literals that are
+/// non-public. Cheap enough to call inside a redirect policy.
+pub fn host_str_blocked(url: &reqwest::Url) -> bool {
+    if !matches!(url.scheme(), "http" | "https") {
+        return true;
+    }
+    let Some(host) = url.host_str() else {
+        return true;
+    };
+    let h = host.trim_end_matches('.').to_ascii_lowercase();
+    if h == "localhost" || h.ends_with(".localhost") || h.ends_with(".local") {
+        return true;
+    }
+    if let Ok(ip) = h.parse::<IpAddr>() {
+        return ip_is_blocked(ip);
+    }
+    false
+}
+
+/// Validate a user-supplied fetch URL: require http(s) and reject anything that
+/// resolves to a local/internal address. Pair with a bounded, host-re-checking
+/// redirect policy on the request itself.
+pub fn validate_public_url(url: &str) -> Result<(), String> {
+    let parsed = reqwest::Url::parse(url).map_err(|_| "Invalid URL".to_string())?;
+    if host_str_blocked(&parsed) {
+        return Err("Refusing to fetch a local, internal, or non-http(s) address".into());
+    }
+    let host = parsed.host_str().ok_or("URL has no host")?;
+    let port = parsed.port_or_known_default().unwrap_or(80);
+    let mut resolved = false;
+    for addr in (host, port)
+        .to_socket_addrs()
+        .map_err(|e| format!("Could not resolve host: {e}"))?
+    {
+        resolved = true;
+        if ip_is_blocked(addr.ip()) {
+            return Err("Refusing to fetch a local or internal address".into());
+        }
+    }
+    if !resolved {
+        return Err("Host did not resolve".into());
+    }
+    Ok(())
 }
 
 /// Deterministic short hex hash, stable across runs of the same binary. Used for

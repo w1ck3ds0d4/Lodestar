@@ -19,7 +19,9 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["devtools"] }
+# No "devtools" feature: debug builds enable devtools automatically, while release
+# builds ship without them (the feature is only needed to force-enable in release).
+tauri = { version = "2" }
 tauri-plugin-opener = "2"
 tauri-plugin-notification = "2"
 
