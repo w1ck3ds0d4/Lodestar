@@ -123,6 +123,201 @@ select:focus {
   width: 100%;
   margin: 0 auto;
 }
+/* Three-column copilot workspace: bar spans the top; body is a scoped grid so the
+   shared .results <main> (reused by Jobs/Tracker/Study) is never turned into a grid. */
+.assistant.three-col {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+  max-width: none;
+  width: 100%;
+  min-height: 0;
+}
+.assistant.three-col .assistant-bar {
+  grid-column: 1 / -1;
+}
+.assistant-body {
+  display: grid;
+  grid-template-columns: 320px minmax(0, 1fr) 360px;
+  gap: 16px;
+  align-items: start;
+  min-height: 0;
+  max-width: 1700px;
+}
+.assistant-col {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  overflow-y: auto;
+  max-height: calc(100vh - 120px);
+}
+.col-dialog {
+  gap: 0;
+}
+.col-dialog .assistant-ask {
+  margin-top: 12px;
+}
+.col-settings .setup-row {
+  grid-template-columns: 1fr;
+  gap: 6px;
+}
+.results:has(.assistant.three-col) {
+  overflow: hidden;
+}
+
+/* Dialog column: speaker-attributed chat, newest on top via column-reverse. */
+.dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 2px 8px;
+  border-bottom: 1px solid var(--border);
+}
+.dialog-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 8px;
+  padding: 10px 2px;
+}
+.dialog-empty,
+.pane-empty {
+  color: var(--muted);
+  text-align: center;
+  margin: auto;
+  padding: 28px 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+.dialog-empty strong,
+.pane-empty strong {
+  color: var(--text);
+}
+.seg-msg {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 88%;
+}
+.seg-them {
+  align-self: flex-start;
+  align-items: flex-start;
+}
+.seg-you {
+  align-self: flex-end;
+  align-items: flex-end;
+}
+.seg-bubble {
+  padding: 9px 12px;
+  border-radius: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  background: var(--panel);
+  border: 1px solid var(--border);
+}
+.seg-you .seg-bubble {
+  background: rgba(16, 185, 129, 0.12);
+  border-color: var(--accent);
+  border-bottom-right-radius: 4px;
+}
+.seg-them .seg-bubble {
+  border-bottom-left-radius: 4px;
+}
+.seg-chip {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+.seg-chip--c0 {
+  color: var(--accent-2);
+}
+.seg-chip--c1 {
+  color: #93c5fd;
+}
+.seg-chip--c2 {
+  color: #fbbf24;
+}
+.seg-chip--c3 {
+  color: #a78bfa;
+}
+.seg-chip--c4 {
+  color: #38bdf8;
+}
+.answers-history summary {
+  cursor: pointer;
+  list-style: revert;
+  margin-top: 6px;
+}
+.answers-history > .qa {
+  margin-top: 10px;
+}
+
+/* Code & Math column header sticks while the column scrolls. */
+.col-code .pane-title {
+  position: sticky;
+  top: 0;
+  background: var(--bg);
+  padding-bottom: 6px;
+  z-index: 1;
+}
+
+/* Overlay card (opacity + always-on-top). */
+.overlay-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.overlay-row input[type="range"] {
+  flex: 1;
+  accent-color: var(--accent);
+}
+
+@media (max-width: 1399px) {
+  .assistant-body {
+    grid-template-columns: 320px minmax(0, 1fr);
+  }
+  .col-code {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    max-height: 340px;
+  }
+}
+@media (max-width: 999px) {
+  .assistant-body {
+    grid-template-columns: 1fr;
+  }
+  .assistant-col {
+    max-height: none;
+    overflow: visible;
+  }
+  .results:has(.assistant.three-col) {
+    overflow-y: auto;
+  }
+  .col-settings {
+    order: 1;
+  }
+  .col-dialog {
+    order: 2;
+  }
+  .col-code {
+    order: 3;
+    grid-row: auto;
+  }
+  .dialog-list {
+    max-height: 60vh;
+  }
+}
 .assistant-bar {
   display: flex;
   align-items: center;
