@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import { Channel } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { Bot, Ear, KeyRound, Monitor, ScanSearch, Send, Square } from "lucide-react";
 import ReactMarkdown from "react-markdown";
@@ -59,10 +60,10 @@ function QaCard({ e }: { e: QA }) {
   return (
     <div className="qa">
       <div className="qa-q">{e.q}</div>
-      {e.pending ? (
-        <div className="muted sm">Thinking...</div>
-      ) : e.error ? (
+      {e.error ? (
         <div className="assistant-error">{e.error}</div>
+      ) : e.pending && !e.a ? (
+        <div className="muted sm">Thinking...</div>
       ) : (
         <Answer text={e.a} />
       )}
@@ -177,17 +178,27 @@ export function AssistantView() {
     return () => clearInterval(t);
   }, [watchingScreen, runScreen]);
 
-  // Ask the assistant; result is appended to the Q&A feed (newest first).
+  // Ask the assistant; the answer streams into its Q&A card (newest first).
   const ask = useCallback(async (q: string, ctx: string | null) => {
     const question = q.trim();
     if (!question) return;
     const id = ++idRef.current;
     setQa((prev) => [{ id, q: question, a: "", pending: true }, ...prev]);
+    const channel = new Channel<api.AnswerChunk>();
+    channel.onmessage = (msg) => {
+      setQa((prev) =>
+        prev.map((e) => {
+          if (e.id !== id) return e;
+          if (msg.kind === "delta") return { ...e, a: e.a + msg.text, pending: true };
+          if (msg.kind === "done") return { ...e, a: msg.text || e.a, pending: false };
+          return { ...e, error: msg.message, pending: false };
+        }),
+      );
+    };
     try {
-      const a = await api.askAssistant(question, ctx && ctx.trim() ? ctx.trim() : null);
-      setQa((prev) => prev.map((e) => (e.id === id ? { ...e, a, pending: false } : e)));
+      await api.askAssistant(question, ctx && ctx.trim() ? ctx.trim() : null, channel);
     } catch (e) {
-      setQa((prev) => prev.map((e) => (e.id === id ? { ...e, error: String(e), pending: false } : e)));
+      setQa((prev) => prev.map((x) => (x.id === id ? { ...x, error: String(e), pending: false } : x)));
     }
   }, []);
 
