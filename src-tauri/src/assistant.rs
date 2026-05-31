@@ -215,6 +215,38 @@ pub async fn ask(
     }
 }
 
+/// System prompt for the Tracker's per-application interview prep.
+const PREP_PROMPT: &str = "You are an interview coach. Given a role and company the user is interviewing for \
+(plus their profile if provided), produce concise prep in GitHub-flavored Markdown: likely interview \
+questions grouped by type (behavioral, role/technical, and about the company), strong talking points or \
+angles the candidate can lean on, and a short 'research before the interview' checklist. Be specific to the \
+role and company. Note where you are unsure - you may not have current data about this company.";
+
+/// Generate interview prep for a tracked application (role + company), tailored to
+/// the user's profile.
+pub async fn interview_prep(
+    http: &reqwest::Client,
+    engine: &Engine,
+    title: &str,
+    org: &str,
+    profile: Option<&str>,
+) -> Result<String> {
+    let user_text = if org.trim().is_empty() {
+        format!("Role: {title}")
+    } else {
+        format!("Role: {title}\nCompany: {org}")
+    };
+    let system = with_profile(PREP_PROMPT, profile);
+    match engine {
+        Engine::Claude { api_key, model } => {
+            complete(http, api_key, model, &system, user_text, None).await
+        }
+        Engine::Ollama { url, model } => {
+            ollama_chat(http, url, model, &system, user_text, None, None).await
+        }
+    }
+}
+
 /// Auto-answer: given the recent transcript and the newest segment, answer it if it
 /// is a question/problem (in any language), otherwise return the literal "NONE".
 pub async fn auto_answer(
