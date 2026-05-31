@@ -359,9 +359,8 @@ select:focus {
   margin-top: 10px;
 }
 
-/* Column / section headers: full-bleed dividers that stick while scrolling. */
-.col-dialog .dialog-head,
-.col-section > .pane-title {
+/* Dialog header sticks to the top of the (single) dialog scroll area. */
+.col-dialog .dialog-head {
   position: sticky;
   top: 0;
   z-index: 1;
@@ -370,12 +369,9 @@ select:focus {
   background: var(--panel);
   border-bottom: 1px solid var(--border);
 }
-.col-section > .pane-title {
-  margin-bottom: 10px;
-}
 
-/* Code & Math column is split into a Live-answers section (top) + Code&Math (bottom),
-   each scrolling independently. */
+/* Code & Math column = Live-answers section (top) + Code&Math (bottom). Each section
+   has a fixed header and its own scroll body, so headers never overlap content. */
 .col-code {
   padding: 0;
   gap: 0;
@@ -386,14 +382,33 @@ select:focus {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  overflow-y: auto;
-  padding: 16px;
 }
 .col-section.live-answers {
-  flex: 1.6;
+  flex: 1.7;
 }
 .col-section + .col-section {
   border-top: 1px solid var(--border);
+}
+.col-section > .pane-title {
+  flex: none;
+  padding: 13px 16px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+.col-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.cm-card {
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px 12px;
 }
 
 /* Overlay card (opacity + always-on-top). Custom-styled range so the fill always
@@ -583,6 +598,8 @@ select:focus {
   }
   .col-section {
     flex: none;
+  }
+  .col-scroll {
     overflow: visible;
   }
   .dialog-list {

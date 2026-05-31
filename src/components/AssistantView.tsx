@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Channel } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { Bot, Crop, Ear, KeyRound, Monitor, ScanSearch, Send, Square } from "lucide-react";
@@ -54,6 +54,29 @@ function Answer({ text }: { text: string }) {
 // True if an answer contains a fenced code block or LaTeX math.
 function hasCodeOrMath(a: string): boolean {
   return a.includes("```") || a.includes("$$") || /\$[^$\n]+\$/.test(a);
+}
+
+// Pull just the fenced code blocks + display-math out of the answers, newest first,
+// so the Code & Math pane shows compact snippets (not a duplicate of the full answer).
+function extractSnippets(qa: QA[]): { key: string; md: string }[] {
+  const out: { key: string; md: string }[] = [];
+  for (const e of qa) {
+    if (e.pending || e.error || !e.a || !hasCodeOrMath(e.a)) continue;
+    let m: RegExpExecArray | null;
+    const codeRe = /```(\w*)\n?([\s\S]*?)```/g;
+    let i = 0;
+    while ((m = codeRe.exec(e.a))) {
+      const body = m[2].replace(/\n+$/, "");
+      if (body.trim()) out.push({ key: `${e.id}-c${i++}`, md: "```" + (m[1] || "") + "\n" + body + "\n```" });
+    }
+    const mathRe = /\$\$([\s\S]*?)\$\$/g;
+    let j = 0;
+    while ((m = mathRe.exec(e.a))) {
+      const body = m[1].trim();
+      if (body) out.push({ key: `${e.id}-m${j++}`, md: "$$" + body + "$$" });
+    }
+  }
+  return out;
 }
 
 // Fullscreen "snip & explain": shows a captured screenshot, drag to select a
@@ -494,7 +517,7 @@ export function AssistantView() {
   };
 
   const needsDeepgramKey = sttEngine === "deepgram" && !hasSttKey;
-  const codeMathQa = qa.filter((e) => !e.pending && !e.error && hasCodeOrMath(e.a));
+  const snippets = useMemo(() => extractSnippets(qa), [qa]);
   // Fill the opacity track exactly to the value (native accent-color leaves a gap at 100%).
   const opacityPct = Math.round(((opacity - 0.3) / 0.7) * 100);
 
@@ -971,24 +994,32 @@ export function AssistantView() {
           <aside className="assistant-col col-code">
             <section className="col-section live-answers">
               <div className="pane-title">Live answers</div>
-              {qa.length === 0 ? (
-                <div className="pane-empty">
-                  <strong>No answers yet.</strong>
-                  <span className="muted sm">Ask, auto-answer, or snip - answers stream in here.</span>
-                </div>
-              ) : (
-                qa.map((e) => <QaCard key={e.id} e={e} />)
-              )}
+              <div className="col-scroll">
+                {qa.length === 0 ? (
+                  <div className="pane-empty">
+                    <strong>No answers yet.</strong>
+                    <span className="muted sm">Ask, auto-answer, or snip - answers stream in here.</span>
+                  </div>
+                ) : (
+                  qa.map((e) => <QaCard key={e.id} e={e} />)
+                )}
+              </div>
             </section>
             <section className="col-section code-math">
               <div className="pane-title">Code &amp; Math</div>
-              {codeMathQa.length === 0 ? (
-                <div className="pane-empty">
-                  <span className="muted sm">Code blocks &amp; equations collect here.</span>
-                </div>
-              ) : (
-                codeMathQa.map((e) => <QaCard key={e.id} e={e} />)
-              )}
+              <div className="col-scroll">
+                {snippets.length === 0 ? (
+                  <div className="pane-empty">
+                    <span className="muted sm">Code blocks &amp; equations pulled from answers collect here.</span>
+                  </div>
+                ) : (
+                  snippets.map((s) => (
+                    <div className="cm-card" key={s.key}>
+                      <Answer text={s.md} />
+                    </div>
+                  ))
+                )}
+              </div>
             </section>
           </aside>
         </div>
