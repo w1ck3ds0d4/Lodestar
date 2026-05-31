@@ -2,13 +2,13 @@
   <img src="assets/banner.svg" alt="JobRadar - Local-first job-market search for your desktop" width="100%" />
 </p>
 
-**Local-first job-market search for your desktop**
+**Local-first job search and a real-time career copilot for your desktop**
 
-JobRadar polls a set of job sources on a schedule, normalizes and de-duplicates the postings into a local SQLite database, then lets you full-text search, filter by workplace and experience level, and get notified about new matches. No account, no server, no tracking: every posting lives in a database on your own machine.
+JobRadar started as a local-first job-market search tool and has grown into a full job-hunt and interview workstation. It polls a set of job sources on a schedule, normalizes and de-duplicates the postings into a local SQLite database, and lets you full-text search, filter, and get desktop notifications about new matches. On top of that it adds an application/program **Tracker**, a **Study** planner for the skills you are building, and an **Assistant** copilot that listens to a call, transcribes it with speaker attribution, and answers questions on the spot.
 
-It ships nine source adapters out of the box (public ATS boards, keyless remote-job feeds, a generic structured-data scraper, and two credential-gated APIs), a background ingestion scheduler that honors each source's polite polling interval, and saved-search alerts that fire native desktop notifications.
+No account and no backend server. Job-search data lives entirely on your machine. The Assistant's cloud features (Claude answers, Deepgram transcription) are opt-in and clearly flagged, and there is a fully-local mode (Ollama + on-device Whisper) that keeps everything on the machine.
 
-Built with Tauri v2 (Rust) + React + Vite. The Rust core owns ingestion, storage (SQLite + FTS5), and search; the React frontend is the UI.
+Built with Tauri v2 (Rust) + React + Vite. The Rust core owns ingestion, storage (SQLite + FTS5), search, audio capture, screen capture, and the model clients; the React frontend is the UI.
 
 ---
 
@@ -18,13 +18,16 @@ Built with Tauri v2 (Rust) + React + Vite. The Rust core owns ingestion, storage
 
 - Full-text search over title, company, location, and description (SQLite FTS5, BM25 ranking, prefix matching)
 - Debounced search-as-you-type, empty query falls back to most-recently-seen first
-- **Workplace filter**: Remote, Hybrid, On-site (classified per posting from the source signals plus location/title keywords)
-- **Experience-level filter**: Entry / Junior, Mid, Senior (inferred from the title, employment type, and description, biased toward recognizing entry-level and no-experience roles)
+- **Workplace filter**: Remote, Hybrid, On-site (classified per posting from source signals plus location/title keywords)
+- **Experience-level filter**: Entry / Junior, Mid, Senior. Uses the source's own seniority field when it provides one (e.g. Jobicy's `jobLevel`), otherwise infers it from the title and description
+- **Remote-fit filter**: "Workable from <your location>" keeps remote roles that are worldwide / your region / unstated and hides ones locked to another region. Your country is detected once via IP geolocation and is overridable
+- **Pays-relocation filter** for postings that mention relocation help
+- Region and relocation badges on each card, plus salary / employment type / posted date when the source provides them
 - Source filter chips, one-click "Clear all", live job + company counts
 
 ### Sources
 
-- Nine adapters behind a single `Source` trait: adding one is a module plus a match arm
+- Nine adapters behind a single source interface: adding one is a module plus a match arm
 - Keyless: Greenhouse, Lever, Ashby (public ATS boards), Arbeitnow, Remotive, Jobicy (remote-job feeds), and a generic `JobPosting` JSON-LD scraper for any careers page
 - Credential-gated (free key): Adzuna and USAJOBS
 - Per-source config, enable/disable toggle, and editable polling interval in the Sources drawer
@@ -42,27 +45,57 @@ Built with Tauri v2 (Rust) + React + Vite. The Rust core owns ingestion, storage
 - Saved searches that re-run after every ingest cycle
 - Native desktop notification when new matching jobs arrive (counts only jobs first seen after the alert was created)
 
-### Local-first
+### Tracker
 
-- SQLite (bundled) with an FTS5 external-content index and triggers; the database is created in the OS-standard app-data directory
-- No account, no backend server, no telemetry: the app makes no outbound calls except to the job sources you enable
-- "Open" launches the posting in your default browser via the system opener
+- Track applications and programs through a status pipeline (saved -> applied -> screen -> interview -> offer -> accepted/rejected)
+- One-click "Track" from a job card; notes, deadlines, and per-item milestones
+- A small catalog of remote marketplaces and apprenticeships you can add in one click
+
+### Study
+
+- Track the skills you are building: a goal, a self-rated level, and logged study hours per skill
+- AI-generated study plans: from a skill plus your role/context, the Assistant produces a roadmap, milestones, and resources
+
+### Assistant (interview / study copilot)
+
+- **Live transcription**: captures system audio (the other side of a call, via WASAPI loopback) and/or your microphone, with selectable input/output devices and a live input-level meter for diagnostics
+- **Speaker-attributed chat**: your mic and the call audio are transcribed separately and labeled (You vs Them); on Deepgram, the call side is diarized into Speaker 1/2/...
+- **Auto-answer**: detected questions/problems from the other party are answered automatically (math, code, definitions, factual lookups), in any language
+- **Streaming answers** rendered as Markdown with fenced code blocks and LaTeX (KaTeX); answers and their extracted code/equation snippets are grouped per question
+- **Answer engine**: Claude (cloud, default) or a local Ollama model (free and private); switchable per session
+- **Screen reading**: watch a chosen monitor and auto-answer questions shown on it, plus "Snip" to drag a box around anything and get a vision explanation
+- **Interview context**: attach your role, resume, notes, and the company, so answers are tailored; generate a company briefing plus questions to ask the interviewer
+- **Overlay**: window opacity slider and always-on-top for a discreet overlay over a call, plus a hide-from-screen-capture toggle (excluded from Zoom/Meet/Teams shares and recorders on Windows)
+
+### Local-first and privacy
+
+- SQLite (bundled) with an FTS5 external-content index; the database lives in the OS-standard app-data directory
+- The job-search side makes no outbound calls except to the sources you enable
+- API keys (Anthropic, Deepgram) are stored only in your local database
+- The Assistant's cloud paths send data to their services when used: Claude receives your question/context (and screenshots for the vision features); Deepgram receives captured audio. For a fully on-device setup, use the Ollama answer engine and the local Whisper transcription engine
+- "Open" launches a posting in your default browser via the system opener
 
 ---
 
 ## Tech Stack
 
-| Layer            | Technology                                      |
-| ---------------- | ----------------------------------------------- |
-| Desktop          | Tauri v2 (Rust)                                 |
-| Frontend         | React 19 + TypeScript + Vite                    |
-| Storage          | SQLite (rusqlite, bundled) with FTS5            |
-| Search           | FTS5 full-text, BM25 ranking                    |
-| HTTP             | reqwest (rustls, no OpenSSL)                     |
-| Async runtime    | tokio                                           |
-| Notifications    | tauri-plugin-notification                       |
-| Icons            | lucide-react                                    |
-| Package manager  | pnpm                                            |
+| Layer            | Technology                                                  |
+| ---------------- | ----------------------------------------------------------- |
+| Desktop          | Tauri v2 (Rust)                                             |
+| Frontend         | React 19 + TypeScript + Vite                                |
+| Storage          | SQLite (rusqlite, bundled) with FTS5                        |
+| Search           | FTS5 full-text, BM25 ranking                                |
+| HTTP             | reqwest (rustls, no OpenSSL)                                |
+| Async runtime    | tokio                                                       |
+| Audio capture    | cpal (WASAPI loopback + microphone)                         |
+| Local STT        | Candle (pure-Rust Whisper), tokenizers                      |
+| Cloud STT        | Deepgram (optional)                                         |
+| Answer models    | Claude Messages API (streaming) and/or local Ollama         |
+| Screen capture   | xcap                                                        |
+| Markdown / math  | react-markdown, remark-gfm, remark-math, KaTeX              |
+| Notifications    | tauri-plugin-notification                                   |
+| Icons            | lucide-react                                                |
+| Package manager  | pnpm                                                        |
 
 ---
 
@@ -71,7 +104,12 @@ Built with Tauri v2 (Rust) + React + Vite. The Rust core owns ingestion, storage
 - [Rust stable toolchain](https://rustup.rs/)
 - [Node.js](https://nodejs.org/) 20+
 - [pnpm](https://pnpm.io/installation)
-- Windows 10 / 11 with [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/) (preinstalled on most modern installs), plus Visual Studio 2022 Build Tools with the "Desktop development with C++" workload. macOS and Linux builds work with the standard Tauri toolchain.
+- Windows 10 / 11 with [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/) (preinstalled on most modern installs), plus Visual Studio 2022 Build Tools with the "Desktop development with C++" workload. macOS and Linux builds work with the standard Tauri toolchain (the window-opacity overlay and loopback capture are Windows-specific).
+
+Optional, for the Assistant:
+
+- An Anthropic API key for Claude answers, or [Ollama](https://ollama.com/) running locally (`ollama serve` + a pulled model, e.g. `ollama pull llama3.1`; a vision model such as `llama3.2-vision` for the screen features)
+- A Deepgram API key for cloud transcription, or use the local Whisper engine (downloads a model on first run, slower on CPU)
 
 ---
 
@@ -91,6 +129,8 @@ pnpm tauri build
 ```
 
 The database is created at the OS-standard app-data directory on first launch. Enabled keyless sources sync automatically; the scheduler then re-polls each source on its configured interval.
+
+> Note: a development build (`pnpm tauri dev`) runs an unoptimized Rust binary, so on-device Whisper transcription is much slower than the release installer. Cloud transcription (Deepgram) runs at the same speed either way.
 
 ---
 
@@ -121,15 +161,15 @@ Credential-gated (add your own free key in the Sources drawer):
 
 This build is intended for personal, local use: the data stays on your machine and is not redistributed. The ingestion scheduler honors each source's polite polling interval, and the adapters carry the source attribution (Remotive, Jobicy, Adzuna) and listing flags (Ashby) those sources ask for.
 
-If you ever turn this into a public, multi-user website, the redistribution terms of these sources change materially. Several feeds permit personal display with attribution but forbid re-aggregation, and the credentialed APIs gate commercial / public use behind a license. Check each source's Terms of Service before publishing.
+If you ever turn this into a public, multi-user website, the redistribution terms of these sources change materially. Several feeds permit personal display with attribution but forbid re-aggregation, and the credentialed APIs gate commercial / public use behind a license. Check each source's Terms of Service before publishing. The Assistant features are study/interview-prep aids; use them in line with the policies of whatever calls or platforms you are on.
 
 ---
 
 ## What's Not Yet Built
 
-- Explicit hybrid/on-site signals from more ATS sources (currently inferred from text where the source does not state it)
-- More credential-gated sources (Reed, The Muse, Jooble, Careerjet)
-- A configurable per-source schedule UI (intervals are editable; cron-style timing is not)
+- Real-time streaming transcription (the current pipeline transcribes in ~4s chunks; cross-chunk speaker numbering is therefore not stable)
+- Live web lookup for the company briefing (currently uses the model's own knowledge plus what you enter)
+- More credential-gated job sources (Reed, The Muse, Jooble, Careerjet)
 - Saved/exported searches and CSV/JSON export of results
 - Auto-updater and signed release artifacts
 
