@@ -276,6 +276,39 @@ export function AssistantView() {
   const idRef = useRef(0);
   const segIdRef = useRef(0);
   const answeredIdx = useRef(0);
+  // Synchronous mirror of `context` so the hotkey event listener and Read page can
+  // dedupe/append without a stale closure.
+  const contextRef = useRef("");
+  useEffect(() => {
+    contextRef.current = context;
+  }, [context]);
+
+  // Append a captured chunk (clipboard or focused-window text) to the assistant's
+  // context, de-duplicating repeats and capping the total so it stays affordable.
+  const addToContext = useCallback((raw: string, label: string) => {
+    const text = raw.trim();
+    if (!text) {
+      setPageMsg(`${label}: nothing captured.`);
+      window.setTimeout(() => setPageMsg(""), 3500);
+      return;
+    }
+    const prev = contextRef.current;
+    if (prev.includes(text)) {
+      setPageMsg(`${label}: already attached. Copy another part (e.g. the code editor) to add more.`);
+      window.setTimeout(() => setPageMsg(""), 3500);
+      return;
+    }
+    let next = prev ? prev + "\n\n----- next section -----\n\n" + text : text;
+    let note = `${label}: attached ${text.length.toLocaleString()} chars as context.`;
+    if (next.length > 40000) {
+      next = next.slice(0, 40000) + "\n\n[...truncated]";
+      note += " (context capped at 40k)";
+    }
+    contextRef.current = next;
+    setContext(next);
+    setPageMsg(note);
+    window.setTimeout(() => setPageMsg(""), 3500);
+  }, []);
 
   // Overlay window controls. Applied after mount (hwnd() errors before the window
   // exists); opacity is debounced so dragging the slider doesn't spam invoke.
@@ -358,39 +391,23 @@ export function AssistantView() {
   );
 
   // Read page: pull whatever the user copied (Ctrl+A, Ctrl+C) from the clipboard and
-  // attach it as context. Ctrl+A grabs the whole document, so off-screen content is
-  // captured too. Reads APPEND (with dedupe) so multiple copies can be stacked - e.g.
-  // on a coding page where the problem statement and the editor's code are separate
-  // widgets, copy each and click Read page for each. Clear (in the context note) resets.
+  // attach it. Copies append (with dedupe) so multiple parts can be stacked - e.g. on a
+  // coding page, the problem statement and the editor's code are separate widgets, so
+  // copy each and click Read page for each. Clear (in the context note) resets.
   const readPage = useCallback(async () => {
     setPageMsg("");
     try {
-      const text = (await api.readClipboard()).trim();
-      if (!text) {
+      const text = await api.readClipboard();
+      if (!text.trim()) {
         setPageMsg("Clipboard is empty - in your browser press Ctrl+A then Ctrl+C, then click Read page.");
-        return;
-      }
-      if (context.includes(text)) {
-        setPageMsg("That section is already attached. Copy another part (e.g. the code editor) to add more.");
         window.setTimeout(() => setPageMsg(""), 3500);
         return;
       }
-      const MAX = 40000;
-      let next = context ? context + "\n\n----- next section -----\n\n" + text : text;
-      let note = context
-        ? `Added ${text.length.toLocaleString()} chars to context.`
-        : `Attached ${text.length.toLocaleString()} chars as context.`;
-      if (next.length > MAX) {
-        next = next.slice(0, MAX) + "\n\n[...truncated]";
-        note += " (context capped at 40k chars)";
-      }
-      setContext(next);
-      setPageMsg(note);
-      window.setTimeout(() => setPageMsg(""), 3500);
+      addToContext(text, "Read page");
     } catch (e) {
       setPageMsg("Couldn't read the clipboard: " + String(e));
     }
-  }, [context]);
+  }, [addToContext]);
 
   // Snip & explain: capture the chosen monitor, then crop a region to explain.
   const startSnip = useCallback(async () => {
@@ -530,6 +547,25 @@ export function AssistantView() {
       unlisteners.forEach((u) => u());
     };
   }, []);
+
+  // Read-window hotkey (Alt+Shift+R): the Rust side reads the focused window via UI
+  // Automation and pushes the text here. Used when a page blocks copy/paste.
+  useEffect(() => {
+    let cancelled = false;
+    const unlisteners: UnlistenFn[] = [];
+    const add = (p: Promise<UnlistenFn>) => void p.then((u) => (cancelled ? u() : unlisteners.push(u)));
+    add(listen<string>("window-text", (e) => addToContext(String(e.payload), "Read window")));
+    add(
+      listen<string>("window-text-error", (e) => {
+        setPageMsg("Read window: " + String(e.payload));
+        window.setTimeout(() => setPageMsg(""), 4000);
+      }),
+    );
+    return () => {
+      cancelled = true;
+      unlisteners.forEach((u) => u());
+    };
+  }, [addToContext]);
 
   // Auto-answer: send each batch of new dialog segments to the model, which answers
   // it if it is a question or problem (in any language) and replies "NONE" otherwise.
@@ -901,6 +937,10 @@ export function AssistantView() {
             </button>
           </div>
           {pageMsg && <div className="muted sm">{pageMsg}</div>}
+          <div className="muted sm">
+            Can't copy (proctored / locked page)? Press <span className="kbd">Alt+Shift+R</span> while the page
+            is focused to read it via accessibility (Windows).
+          </div>
           {screenError && <div className="assistant-error">{screenError}</div>}
 
           <details className="acc" open>

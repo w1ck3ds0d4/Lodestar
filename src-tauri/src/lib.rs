@@ -10,6 +10,7 @@ mod screen;
 mod sources;
 mod usage;
 mod util;
+mod winauto;
 mod window_fx;
 
 use std::sync::atomic::AtomicBool;
@@ -41,6 +42,29 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
+        // Global hotkey -> read the focused (browser) window's text via UI Automation,
+        // for pages that block copy/paste. Runs on a fresh thread (COM + UIA can be
+        // slow) and pushes the result to the UI as a `window-text` event.
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(|app, _shortcut, event| {
+                    use tauri::Emitter;
+                    use tauri_plugin_global_shortcut::ShortcutState;
+                    if event.state() != ShortcutState::Pressed {
+                        return;
+                    }
+                    let app = app.clone();
+                    std::thread::spawn(move || match winauto::read_focused_window_text() {
+                        Ok(text) => {
+                            let _ = app.emit("window-text", text);
+                        }
+                        Err(e) => {
+                            let _ = app.emit("window-text-error", e.to_string());
+                        }
+                    });
+                })
+                .build(),
+        )
         .setup(|app| {
             let dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&dir)?;
@@ -61,6 +85,16 @@ pub fn run() {
                 listening: Arc::new(AtomicBool::new(false)),
                 screen_hash: Arc::new(Mutex::new(None)),
             });
+
+            // Register the global "read focused window" hotkey. Alt+Shift+R is unlikely
+            // to collide with a browser shortcut; failure (e.g. already taken) is
+            // non-fatal so the rest of the app still starts.
+            {
+                use tauri_plugin_global_shortcut::GlobalShortcutExt;
+                if let Err(e) = app.global_shortcut().register("Alt+Shift+R") {
+                    tracing::warn!("could not register read-window hotkey: {e}");
+                }
+            }
 
             // Background scheduler: sync due sources, then poll on an interval.
             let app_handle = app.handle().clone();
