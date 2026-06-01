@@ -15,6 +15,7 @@ import {
   SlidersHorizontal,
   Sparkles,
   Square,
+  X,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -214,7 +215,10 @@ export function AssistantView() {
   const [loaded, setLoaded] = useState(false);
   // Which panel is shown when the window is too narrow for all three columns; the
   // tab bar that switches this only appears below the responsive breakpoint (CSS).
-  const [pane, setPane] = useState<"settings" | "dialog" | "answers">("dialog");
+  // In the narrow layout the main view tabs between Dialog and Answers; Setup is a
+  // slide-in drawer (settingsOpen) rather than a pane, so the live view stays put.
+  const [pane, setPane] = useState<"dialog" | "answers">("dialog");
+  const [settingsOpen, setSettingsOpen] = useState(false);
   // Whether the narrow (tabbed) layout is active, and how many dialog/answer items
   // the user has already seen - so the Dialog/Answers tabs can show an unread count.
   const [narrow, setNarrow] = useState(
@@ -338,7 +342,11 @@ export function AssistantView() {
   // actually hidden behind tabs.
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 1500px)");
-    const on = () => setNarrow(mq.matches);
+    const on = () => {
+      setNarrow(mq.matches);
+      // In the wide layout Setup is always-visible, so close the drawer state.
+      if (!mq.matches) setSettingsOpen(false);
+    };
     mq.addEventListener("change", on);
     return () => mq.removeEventListener("change", on);
   }, []);
@@ -883,14 +891,13 @@ export function AssistantView() {
       ) : (
         <>
           {/* Shown only when the window is too narrow for all three columns (CSS).
-              Setup is a compact icon button; Dialog/Answers carry unread badges. */}
+              The gear opens Setup as a slide-in drawer; Dialog/Answers carry badges. */}
           <div className="assistant-tabs" role="tablist">
             <button
-              className={"tab-btn tab-icon" + (pane === "settings" ? " on" : "")}
-              role="tab"
-              aria-selected={pane === "settings"}
+              className={"tab-btn tab-icon" + (settingsOpen ? " on" : "")}
               title="Setup"
-              onClick={() => setPane("settings")}
+              aria-expanded={settingsOpen}
+              onClick={() => setSettingsOpen((o) => !o)}
             >
               <SlidersHorizontal size={16} />
             </button>
@@ -914,8 +921,15 @@ export function AssistantView() {
             </button>
           </div>
 
-          <div className={"assistant-body pane-" + pane}>
+          <div className={"assistant-body pane-" + pane + (settingsOpen ? " settings-open" : "")}>
           <section className="assistant-col col-settings">
+          {/* Drawer header - shown only in the narrow layout where Setup is a drawer. */}
+          <div className="drawer-head">
+            <span>Setup</span>
+            <button className="icon-btn sm" title="Close" onClick={() => setSettingsOpen(false)}>
+              <X size={16} />
+            </button>
+          </div>
           {needsDeepgramKey ? (
             <div className="add-source onboard">
               <h3>
@@ -1584,6 +1598,9 @@ export function AssistantView() {
               </div>
             </section>
           </aside>
+          {narrow && settingsOpen && (
+            <div className="settings-backdrop" onClick={() => setSettingsOpen(false)} />
+          )}
           </div>
         </>
       )}
