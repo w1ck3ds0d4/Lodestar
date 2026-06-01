@@ -417,3 +417,73 @@ pub fn remove_card(conn: &Connection, id: i64) -> Result<()> {
     conn.execute("DELETE FROM cards WHERE id=?1", params![id])?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{add_card, list_cards, remove_card, review_card};
+    use std::path::Path;
+
+    const DAY_MS: i64 = 86_400_000;
+
+    fn mem() -> rusqlite::Connection {
+        // ":memory:" gives a fresh, isolated database with the full schema applied.
+        crate::db::init(Path::new(":memory:")).unwrap()
+    }
+
+    #[test]
+    fn new_card_is_in_box_zero_due_now() {
+        let conn = mem();
+        add_card(&conn, 1_000, "front", "back").unwrap();
+        let cards = list_cards(&conn).unwrap();
+        assert_eq!(cards.len(), 1);
+        assert_eq!(cards[0].bx, 0);
+        assert_eq!(cards[0].due_at, 1_000); // due immediately
+    }
+
+    #[test]
+    fn good_reviews_promote_and_push_due_out() {
+        let conn = mem();
+        let id = add_card(&conn, 0, "f", "b").unwrap();
+
+        review_card(&conn, 10_000, id, true).unwrap(); // box 0 -> 1, +1 day
+        let c = &list_cards(&conn).unwrap()[0];
+        assert_eq!(c.bx, 1);
+        assert_eq!(c.due_at, 10_000 + DAY_MS);
+
+        review_card(&conn, 20_000, id, true).unwrap(); // box 1 -> 2, +3 days
+        let c = &list_cards(&conn).unwrap()[0];
+        assert_eq!(c.bx, 2);
+        assert_eq!(c.due_at, 20_000 + 3 * DAY_MS);
+    }
+
+    #[test]
+    fn bad_review_resets_to_box_zero_in_ten_minutes() {
+        let conn = mem();
+        let id = add_card(&conn, 0, "f", "b").unwrap();
+        review_card(&conn, 0, id, true).unwrap(); // box 1
+        review_card(&conn, 50_000, id, false).unwrap();
+        let c = &list_cards(&conn).unwrap()[0];
+        assert_eq!(c.bx, 0);
+        assert_eq!(c.due_at, 50_000 + 600_000); // ~10 minutes
+    }
+
+    #[test]
+    fn box_is_clamped_at_five() {
+        let conn = mem();
+        let id = add_card(&conn, 0, "f", "b").unwrap();
+        for _ in 0..10 {
+            review_card(&conn, 0, id, true).unwrap();
+        }
+        let c = &list_cards(&conn).unwrap()[0];
+        assert_eq!(c.bx, 5);
+        assert_eq!(c.due_at, 35 * DAY_MS); // BOX_DAYS[5] = 35 days
+    }
+
+    #[test]
+    fn remove_deletes_the_card() {
+        let conn = mem();
+        let id = add_card(&conn, 0, "f", "b").unwrap();
+        remove_card(&conn, id).unwrap();
+        assert!(list_cards(&conn).unwrap().is_empty());
+    }
+}

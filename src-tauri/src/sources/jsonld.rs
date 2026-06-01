@@ -182,3 +182,43 @@ fn map_posting(p: &Value, page: &str) -> Option<RawJob> {
         posted_at: vstr(p, "datePosted").map(|s| s.chars().take(10).collect()),
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::map_posting;
+    use serde_json::json;
+
+    #[test]
+    fn maps_a_jobposting() {
+        let p = json!({
+            "title": "Backend Engineer",
+            "hiringOrganization": { "name": "Globex" },
+            "url": "https://globex.example/jobs/42",
+            "identifier": "JOB-42",
+            "description": "<p>Work on &amp; APIs</p>",
+            "datePosted": "2024-03-15T08:00:00Z"
+        });
+        let job = map_posting(&p, "https://globex.example/careers").unwrap();
+        assert_eq!(job.title, "Backend Engineer");
+        assert_eq!(job.company, "Globex");
+        assert_eq!(job.url, "https://globex.example/jobs/42");
+        assert_eq!(job.external_id, "JOB-42");
+        assert_eq!(job.description, "Work on & APIs");
+        assert_eq!(job.posted_at.as_deref(), Some("2024-03-15"));
+    }
+
+    #[test]
+    fn requires_a_title() {
+        assert!(map_posting(&json!({ "hiringOrganization": { "name": "X" } }), "page").is_none());
+    }
+
+    #[test]
+    fn url_falls_back_to_the_page() {
+        let job = map_posting(
+            &json!({ "title": "T", "identifier": "i" }),
+            "https://page.example",
+        )
+        .unwrap();
+        assert_eq!(job.url, "https://page.example");
+    }
+}
