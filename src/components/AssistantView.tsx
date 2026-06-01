@@ -923,13 +923,16 @@ export function AssistantView() {
 
           <div className={"assistant-body pane-" + pane + (settingsOpen ? " settings-open" : "")}>
           <section className="assistant-col col-settings">
-          {/* Drawer header - shown only in the narrow layout where Setup is a drawer. */}
-          <div className="drawer-head">
-            <span>Setup</span>
-            <button className="icon-btn sm" title="Close" onClick={() => setSettingsOpen(false)}>
-              <X size={16} />
-            </button>
-          </div>
+          {/* Drawer header - only exists in the narrow layout where Setup is a drawer.
+              In the wide layout Setup is a permanent column, so there's nothing to close. */}
+          {narrow && (
+            <div className="drawer-head">
+              <span>Setup</span>
+              <button className="icon-btn sm" title="Close" onClick={() => setSettingsOpen(false)}>
+                <X size={16} />
+              </button>
+            </div>
+          )}
           {needsDeepgramKey ? (
             <div className="add-source onboard">
               <h3>
