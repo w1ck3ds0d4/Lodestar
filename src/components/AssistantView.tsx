@@ -302,12 +302,19 @@ export function AssistantView() {
   const idRef = useRef(0);
   const segIdRef = useRef(0);
   const answeredIdx = useRef(0);
+  // Synchronous mirror of the dialog so the screen watcher can read the current
+  // conversation as context without re-creating runScreen (which would reset the
+  // watch interval on every new line).
+  const segmentsRef = useRef<DialogSegment[]>([]);
   // Synchronous mirror of `context` so the hotkey event listener and Read page can
   // dedupe/append without a stale closure.
   const contextRef = useRef("");
   useEffect(() => {
     contextRef.current = context;
   }, [context]);
+  useEffect(() => {
+    segmentsRef.current = segments;
+  }, [segments]);
 
   // Append a captured chunk (clipboard or focused-window text) to the assistant's
   // context, de-duplicating repeats and capping the total so it stays affordable.
@@ -423,7 +430,10 @@ export function AssistantView() {
       if (screenBusy.current) return;
       screenBusy.current = true;
       try {
-        const res = await api.answerScreen(screenMonitor, force);
+        // Feed the recent conversation so the screen answer is context-aware.
+        const convo = transcriptText(segmentsRef.current).trim();
+        const ctx = convo ? convo.slice(-1500) : null;
+        const res = await api.answerScreen(screenMonitor, force, ctx);
         const a = res.answer.trim();
         if (res.changed && a && a.toUpperCase() !== "NONE") {
           setQa((prev) => [{ id: ++idRef.current, q: "From your screen", a, pending: false }, ...prev]);
@@ -435,7 +445,7 @@ export function AssistantView() {
         screenBusy.current = false;
       }
     },
-    [screenMonitor],
+    [screenMonitor, transcriptText],
   );
 
   // Read page: pull whatever the user copied (Ctrl+A, Ctrl+C) from the clipboard and

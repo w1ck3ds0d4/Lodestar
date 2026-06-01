@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Crop, Ear, MessageSquare, ScanSearch, Send, Sparkles, Square, X } from "lucide-react";
 import type { CaptureCommand, CaptureState } from "../types";
 
@@ -8,6 +9,8 @@ export type PanelKind = "answers" | "transcript" | "controls";
 const EMPTY: CaptureState = { listening: false, watching: false, segments: [], answers: [] };
 
 const send = (c: CaptureCommand) => void emit("capture-command", c);
+// Borderless windows have no native resize edges, so drive a resize from a corner grip.
+const startResize = () => void getCurrentWindow().startResizeDragging("SouthEast");
 
 // One floating overlay window. The whole panel is its own borderless window; the
 // header is a drag region so it can be moved anywhere over a call. It is a thin
@@ -121,6 +124,8 @@ export function CapturePanel({ kind }: { kind: PanelKind }) {
           </div>
         )}
       </div>
+
+      <div className="cap-grip" onMouseDown={startResize} title="Drag to resize" />
     </div>
   );
 }
