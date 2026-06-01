@@ -357,9 +357,11 @@ export function AssistantView() {
     [screenMonitor],
   );
 
-  // Read page: pull the text the user copied (Ctrl+A, Ctrl+C in their browser) from
-  // the clipboard and attach it as context. Ctrl+A grabs the whole document, so this
-  // captures content scrolled off-screen too - unlike a viewport screenshot.
+  // Read page: pull whatever the user copied (Ctrl+A, Ctrl+C) from the clipboard and
+  // attach it as context. Ctrl+A grabs the whole document, so off-screen content is
+  // captured too. Reads APPEND (with dedupe) so multiple copies can be stacked - e.g.
+  // on a coding page where the problem statement and the editor's code are separate
+  // widgets, copy each and click Read page for each. Clear (in the context note) resets.
   const readPage = useCallback(async () => {
     setPageMsg("");
     try {
@@ -368,15 +370,27 @@ export function AssistantView() {
         setPageMsg("Clipboard is empty - in your browser press Ctrl+A then Ctrl+C, then click Read page.");
         return;
       }
-      const MAX = 30000;
-      const capped = text.length > MAX ? text.slice(0, MAX) + "\n\n[...truncated]" : text;
-      setContext(capped);
-      setPageMsg(`Attached ${text.length.toLocaleString()} chars as context.`);
-      window.setTimeout(() => setPageMsg(""), 3000);
+      if (context.includes(text)) {
+        setPageMsg("That section is already attached. Copy another part (e.g. the code editor) to add more.");
+        window.setTimeout(() => setPageMsg(""), 3500);
+        return;
+      }
+      const MAX = 40000;
+      let next = context ? context + "\n\n----- next section -----\n\n" + text : text;
+      let note = context
+        ? `Added ${text.length.toLocaleString()} chars to context.`
+        : `Attached ${text.length.toLocaleString()} chars as context.`;
+      if (next.length > MAX) {
+        next = next.slice(0, MAX) + "\n\n[...truncated]";
+        note += " (context capped at 40k chars)";
+      }
+      setContext(next);
+      setPageMsg(note);
+      window.setTimeout(() => setPageMsg(""), 3500);
     } catch (e) {
       setPageMsg("Couldn't read the clipboard: " + String(e));
     }
-  }, []);
+  }, [context]);
 
   // Snip & explain: capture the chosen monitor, then crop a region to explain.
   const startSnip = useCallback(async () => {
@@ -881,7 +895,7 @@ export function AssistantView() {
             <button
               className="btn-ghost"
               onClick={() => void readPage()}
-              title="Select-all + copy the page in your browser (Ctrl+A, Ctrl+C), then click this to attach the full page text - including parts scrolled off-screen - as context"
+              title="Copy the page in your browser (Ctrl+A, Ctrl+C) then click to attach it as context - including off-screen content. On a coding page, also click into the editor, copy the code, and click again to add it. Each click appends; use Clear to reset."
             >
               <ClipboardPaste size={14} /> Read page
             </button>
