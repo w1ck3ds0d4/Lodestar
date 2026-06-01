@@ -2401,6 +2401,7 @@ textarea:focus {
 
 /* ===== Capture mode: floating overlay panels (their own borderless windows) ===== */
 .cap-panel {
+  position: relative;
   display: flex;
   flex-direction: column;
   height: 100vh;
@@ -2408,6 +2409,23 @@ textarea:focus {
   border: 1px solid var(--border);
   color: var(--text);
   overflow: hidden;
+}
+/* Bottom-right resize grip (borderless windows have no native resize edges). */
+.cap-grip {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 16px;
+  height: 16px;
+  cursor: nwse-resize;
+  background: linear-gradient(
+    135deg,
+    transparent 0 50%,
+    var(--border) 50% 60%,
+    transparent 60% 72%,
+    var(--border) 72% 82%,
+    transparent 82%
+  );
 }
 .cap-head {
   display: flex;

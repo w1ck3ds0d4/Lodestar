@@ -1039,6 +1039,7 @@ pub async fn answer_screen(
     state: State<'_, AppState>,
     monitor: usize,
     force: bool,
+    context: Option<String>,
 ) -> Result<ScreenAnswer, String> {
     let cap = crate::screen::capture(monitor).map_err(|e| e.to_string())?;
 
@@ -1063,9 +1064,15 @@ pub async fn answer_screen(
 
     let b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &cap.png);
     let http = state.http.clone();
-    let answer = crate::assistant::answer_screen(&http, &engine, &b64, profile.as_deref())
-        .await
-        .map_err(|e| e.to_string())?;
+    let answer = crate::assistant::answer_screen(
+        &http,
+        &engine,
+        &b64,
+        profile.as_deref(),
+        context.as_deref(),
+    )
+    .await
+    .map_err(|e| e.to_string())?;
     Ok(ScreenAnswer {
         changed: true,
         answer,
