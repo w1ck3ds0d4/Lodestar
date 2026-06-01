@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { Bell, Bot, ClipboardList, Eye, EyeOff, GraduationCap, Radar, RefreshCw, Search, Settings, X } from "lucide-react";
+import { Bell, Bot, ClipboardList, Eye, EyeOff, GraduationCap, HelpCircle, Radar, RefreshCw, Search, Settings, X } from "lucide-react";
 import * as api from "./api";
 import { KIND_LABELS, LEVELS, WORKPLACES, type Alert, type Job, type Source, type Stats } from "./types";
 import { JobCard } from "./components/JobCard";
@@ -9,6 +9,7 @@ import { AlertsPanel } from "./components/AlertsPanel";
 import { TrackerView } from "./components/TrackerView";
 import { StudyView } from "./components/StudyView";
 import { AssistantView } from "./components/AssistantView";
+import { GettingStarted } from "./components/GettingStarted";
 
 type View = "search" | "tracker" | "study" | "assistant";
 
@@ -28,6 +29,11 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [panel, setPanel] = useState<"sources" | "alerts" | null>(null);
   const [capHidden, setCapHidden] = useState(true);
+  const [showIntro, setShowIntro] = useState(() => localStorage.getItem("jr.introSeen") !== "1");
+  const dismissIntro = useCallback(() => {
+    localStorage.setItem("jr.introSeen", "1");
+    setShowIntro(false);
+  }, []);
   const [workCountry, setWorkCountry] = useState("");
   const [editingCountry, setEditingCountry] = useState(false);
 
@@ -165,6 +171,7 @@ export default function App() {
         >
           {capHidden ? <EyeOff size={18} /> : <Eye size={18} />}
         </button>
+        <button className="icon-btn" title="Getting started" onClick={() => setShowIntro(true)}><HelpCircle size={18} /></button>
         <button className="icon-btn" title="Alerts" onClick={() => setPanel("alerts")}><Bell size={18} /></button>
         <button className="icon-btn" title="Sources" onClick={() => setPanel("sources")}><Settings size={18} /></button>
         <button className="btn-sync" onClick={onSync} disabled={syncing}>
@@ -355,6 +362,16 @@ export default function App() {
           presetQuery={query}
           onChanged={() => void refreshAlerts()}
           onClose={() => setPanel(null)}
+        />
+      )}
+
+      {showIntro && (
+        <GettingStarted
+          onClose={dismissIntro}
+          onGo={(v) => {
+            setView(v);
+            dismissIntro();
+          }}
         />
       )}
     </div>

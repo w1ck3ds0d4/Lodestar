@@ -47,25 +47,32 @@ Built with Tauri v2 (Rust) + React + Vite. The Rust core owns ingestion, storage
 
 ### Tracker
 
-- Track applications and programs through a status pipeline (saved -> applied -> screen -> interview -> offer -> accepted/rejected)
-- One-click "Track" from a job card; notes, deadlines, and per-item milestones
+- A drag-and-drop pipeline board for applications (saved -> applied -> screen -> interview -> offer -> accepted/rejected), with pipeline stats and deadline highlighting (overdue / due soon)
+- One-click "Track" from a job card; notes, deadlines, per-item milestones, and a "next action" reminder
+- Per-application **AI interview prep**: likely questions, talking points, and a research checklist for the role + company
 - A small catalog of remote marketplaces and apprenticeships you can add in one click
 
 ### Study
 
 - Track the skills you are building: a goal, a self-rated level, and logged study hours per skill
 - AI-generated study plans: from a skill plus your role/context, the Assistant produces a roadmap, milestones, and resources
+- **Mock interview**: an AI interviewer asks role/company-tailored questions one at a time and scores your answer on content (score, what worked, what to improve, model answer) and delivery (word and filler-word counts); optional text-to-speech reads questions aloud
 
 ### Assistant (interview / study copilot)
 
 - **Live transcription**: captures system audio (the other side of a call, via WASAPI loopback) and/or your microphone, with selectable input/output devices and a live input-level meter for diagnostics
 - **Speaker-attributed chat**: your mic and the call audio are transcribed separately and labeled (You vs Them); on Deepgram, the call side is diarized into Speaker 1/2/...
-- **Auto-answer**: detected questions/problems from the other party are answered automatically (math, code, definitions, factual lookups), in any language
+- **Auto-answer**: detected questions/problems from the other party are answered automatically (math, code, definitions, factual lookups), in any language, and **streamed token-by-token** so help appears the moment the model starts
 - **Streaming answers** rendered as Markdown with fenced code blocks and LaTeX (KaTeX); answers and their extracted code/equation snippets are grouped per question
-- **Answer engine**: Claude (cloud, default) or a local Ollama model (free and private); switchable per session
-- **Screen reading**: watch a chosen monitor and auto-answer questions shown on it, plus "Snip" to drag a box around anything and get a vision explanation
+- **Transcription engine**: Deepgram realtime streaming (cloud) with a per-language setting and an optional "separate speakers" (diarization) toggle, or fully on-device Whisper (local); **Answer engine**: Claude (cloud, default) or a local Ollama model
+- **Answer style**: Auto, Concise (glanceable bullets), STAR, or Code (solution + complexity) - shapes every live and manual answer
+- **Context capture**: **Read page** pulls a copied page (including content scrolled off-screen) from the clipboard as context; **Read window** (Alt+Shift+R) reads a focused window's text via UI Automation for pages that block copy/paste; plus screen "Watch"/"Snip" vision
+- **Story bank**: save real STAR stories once (or draft them from notes) so behavioral answers ground in your actual experience; an **Application kit** tailors resume bullets, a cover letter, an ATS keyword match, and a thank-you note to a pasted job description
+- **Session history**: save a live session's transcript + answers, then run an AI "review & coach" pass that surfaces weak areas and a prioritized study list
+- **Usage & cost** panel: live Deepgram balance, a local Claude token/cost estimate, and entered top-up credits with remaining
 - **Interview context**: attach your role, resume, notes, and the company, so answers are tailored; generate a company briefing plus questions to ask the interviewer
 - **Overlay**: window opacity slider and always-on-top for a discreet overlay over a call, plus a hide-from-screen-capture toggle (excluded from Zoom/Meet/Teams shares and recorders on Windows)
+- **Adaptive layout**: a three-column copilot workspace on wide windows that collapses to a Setup / Dialog / Answers tab switcher when narrow
 
 ### Local-first and privacy
 
