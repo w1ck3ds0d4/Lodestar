@@ -334,9 +334,60 @@ struct SrcMeta {
     kind: SrcKind,
 }
 
-/// Open a Deepgram streaming WebSocket for one source, push audio frames as they are
-/// captured, and emit `transcript` events for interim + final results until `flag` clears.
+/// Stream one source to Deepgram until the user stops. The first connection fails
+/// fast so auth/config/network errors surface, but a mid-session drop (a network
+/// blip, or Deepgram's per-stream time limit) reconnects transparently: the
+/// committed transcript already lives in the UI, so the user keeps their context
+/// instead of having to restart. Gives up only after several failed reconnects.
 async fn stream_source(
+    app: &AppHandle,
+    key: &str,
+    language: &str,
+    diarize_enabled: bool,
+    meta: &SrcMeta,
+    flag: &Arc<AtomicBool>,
+) -> Result<()> {
+    connect_and_stream(app, key, language, diarize_enabled, meta, flag).await?;
+
+    let mut failures = 0u32;
+    while flag.load(Ordering::SeqCst) {
+        status(app, "Reconnecting transcription...");
+        // Discard audio captured during the gap so we don't ship a stale backlog.
+        if let Ok(mut g) = meta.buffer.lock() {
+            g.clear();
+        }
+        // Brief backoff, but bail within ~150ms of a stop request.
+        let mut waited = 0;
+        while flag.load(Ordering::SeqCst) && waited < 8 {
+            tokio::time::sleep(Duration::from_millis(150)).await;
+            waited += 1;
+        }
+        if !flag.load(Ordering::SeqCst) {
+            break;
+        }
+        match connect_and_stream(app, key, language, diarize_enabled, meta, flag).await {
+            Ok(()) => failures = 0,
+            Err(e) => {
+                if !flag.load(Ordering::SeqCst) {
+                    break; // user stopped during a reconnect attempt; not an error
+                }
+                failures += 1;
+                if failures >= 5 {
+                    return Err(anyhow!(
+                        "Lost the transcription connection and could not reconnect: {e}"
+                    ));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Open one Deepgram streaming WebSocket, push audio frames as they are captured, and
+/// emit `transcript` events for interim + final results until the socket closes or
+/// `flag` clears. Returns when the stream ends (cleanly or dropped); the caller
+/// decides whether to reconnect.
+async fn connect_and_stream(
     app: &AppHandle,
     key: &str,
     language: &str,
@@ -375,6 +426,8 @@ async fn stream_source(
         .await
         .map_err(|e| anyhow!("Could not connect to Deepgram streaming: {e}"))?;
     let (mut write, mut read) = ws.split();
+    // Clear any "Reconnecting..." status once the (re)connection is live.
+    status(app, "Listening");
 
     let role: &str = if diarize { "them" } else { "you" };
 
