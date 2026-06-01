@@ -2,7 +2,19 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties }
 import { Channel } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { Bot, Crop, Ear, KeyRound, Monitor, ScanSearch, Send, Square } from "lucide-react";
+import {
+  Bot,
+  Crop,
+  Ear,
+  KeyRound,
+  MessageSquare,
+  Monitor,
+  ScanSearch,
+  Send,
+  SlidersHorizontal,
+  Sparkles,
+  Square,
+} from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
@@ -195,6 +207,9 @@ function QaCard({ e }: { e: QA }) {
 
 export function AssistantView() {
   const [loaded, setLoaded] = useState(false);
+  // Which panel is shown when the window is too narrow for all three columns; the
+  // tab bar that switches this only appears below the responsive breakpoint (CSS).
+  const [pane, setPane] = useState<"settings" | "dialog" | "answers">("dialog");
   const [hasKey, setHasKey] = useState(false);
   const [hasSttKey, setHasSttKey] = useState(false);
   const [sttEngine, setSttEngine] = useState("deepgram");
@@ -701,7 +716,36 @@ export function AssistantView() {
           </p>
         </div>
       ) : (
-        <div className="assistant-body">
+        <>
+          {/* Shown only when the window is too narrow for all three columns (CSS). */}
+          <div className="assistant-tabs" role="tablist">
+            <button
+              className={"tab-btn" + (pane === "settings" ? " on" : "")}
+              role="tab"
+              aria-selected={pane === "settings"}
+              onClick={() => setPane("settings")}
+            >
+              <SlidersHorizontal size={15} /> Setup
+            </button>
+            <button
+              className={"tab-btn" + (pane === "dialog" ? " on" : "")}
+              role="tab"
+              aria-selected={pane === "dialog"}
+              onClick={() => setPane("dialog")}
+            >
+              <MessageSquare size={15} /> Dialog
+            </button>
+            <button
+              className={"tab-btn" + (pane === "answers" ? " on" : "")}
+              role="tab"
+              aria-selected={pane === "answers"}
+              onClick={() => setPane("answers")}
+            >
+              <Sparkles size={15} /> Answers
+            </button>
+          </div>
+
+          <div className={"assistant-body pane-" + pane}>
           <section className="assistant-col col-settings">
           {needsDeepgramKey ? (
             <div className="add-source onboard">
@@ -1318,7 +1362,8 @@ export function AssistantView() {
               </div>
             </section>
           </aside>
-        </div>
+          </div>
+        </>
       )}
 
       {snipSrc && (

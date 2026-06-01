@@ -262,6 +262,58 @@ select:focus {
   padding: 24px 4px;
 }
 
+/* Responsive tab switcher. On a wide window all three columns show and the tab bar
+   is hidden; below the breakpoint the columns don't fit, so the bar appears and the
+   body collapses to a single column showing the active pane. */
+.assistant-tabs {
+  display: none;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+.tab-btn {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--muted);
+  border-radius: 10px;
+  font-weight: 600;
+  font-size: 13px;
+}
+.tab-btn:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+.tab-btn.on {
+  border-color: var(--accent);
+  color: var(--accent-2);
+  background: rgba(16, 185, 129, 0.12);
+}
+
+@media (max-width: 1500px) {
+  .assistant-tabs {
+    display: flex;
+  }
+  .assistant-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  /* Hide every column, give them back the height the tab bar consumed... */
+  .assistant-body > .assistant-col {
+    display: none;
+    height: calc(100vh - 178px);
+  }
+  /* ...then reveal only the one the active tab selects. */
+  .assistant-body.pane-settings > .col-settings,
+  .assistant-body.pane-dialog > .col-dialog,
+  .assistant-body.pane-answers > .col-code {
+    display: flex;
+  }
+}
+
 /* Dialog column: speaker-attributed chat, newest on top via column-reverse. */
 .dialog-head {
   display: flex;
