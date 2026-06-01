@@ -115,9 +115,11 @@ pub fn start(app: AppHandle) -> Result<PhoneServer, String> {
     })
 }
 
-/// The connect URL's QR as a data URL (recomputed for the desktop UI).
-pub fn qr_for(url: &str) -> String {
-    qr_data_url(url)
+/// The connect URL's QR as a data URL (recomputed for the desktop UI). The PIN is
+/// carried in the URL fragment so scanning the code connects without typing it; the
+/// fragment is never sent to the server, so it stays out of request logs.
+pub fn qr_for(url: &str, pin: &str) -> String {
+    qr_data_url(&format!("{url}/#pin={pin}"))
 }
 
 async fn page() -> Html<&'static str> {

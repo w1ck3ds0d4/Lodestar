@@ -50,7 +50,7 @@
     <!-- PIN gate -->
     <div id="gate" class="center">
       <div class="brand">JobRadar Remote</div>
-      <div class="hint">Enter the PIN shown on your computer.</div>
+      <div class="hint">Scan the QR on your computer to connect, or enter the PIN shown there.</div>
       <input id="pin" inputmode="numeric" maxlength="6" placeholder="••••••" />
       <button class="primary" id="connect">Connect</button>
       <div class="err" id="gateErr"></div>
@@ -149,6 +149,10 @@
       }
       $("connect").onclick = connect;
       $("pin").addEventListener("keydown", function (e) { if (e.key === "Enter") connect(); });
+
+      // Scanned QR carries the PIN in the URL fragment (#pin=...) - connect straight away.
+      var auto = (location.hash + "&" + location.search).match(/[#&?]pin=(\d{4,8})/);
+      if (auto) { $("pin").value = auto[1]; connect(); }
     </script>
   </body>
 </html>

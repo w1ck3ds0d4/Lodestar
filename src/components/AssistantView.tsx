@@ -1402,7 +1402,8 @@ export function AssistantView() {
               )}
               {phoneErr && <div className="assistant-error">{phoneErr}</div>}
               <div className="muted sm">
-                Same Wi-Fi only. The PIN gates access; traffic is unencrypted, so use a network you trust.
+                Scan the code to connect instantly, or open the URL and type the PIN. Same Wi-Fi only;
+                the code carries the PIN and traffic is unencrypted, so use a network you trust.
               </div>
             </div>
           </details>

@@ -1147,14 +1147,14 @@ pub fn start_phone_server(state: State<'_, AppState>, app: AppHandle) -> Result<
         return Ok(PhoneInfo {
             url: server.url.clone(),
             pin: server.pin.clone(),
-            qr: crate::phone::qr_for(&server.url),
+            qr: crate::phone::qr_for(&server.url, &server.pin),
         });
     }
     let server = crate::phone::start(app)?;
     let info = PhoneInfo {
         url: server.url.clone(),
         pin: server.pin.clone(),
-        qr: crate::phone::qr_for(&server.url),
+        qr: crate::phone::qr_for(&server.url, &server.pin),
     };
     *guard = Some(server);
     Ok(info)
