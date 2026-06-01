@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { PhysicalPosition, PhysicalSize } from "@tauri-apps/api/dpi";
 import { Crop, Ear, MessageSquare, ScanSearch, Send, Sparkles, Square, X } from "lucide-react";
 import type { CaptureCommand, CaptureState } from "../types";
 
@@ -12,6 +13,45 @@ const send = (c: CaptureCommand) => void emit("capture-command", c);
 // Borderless windows have no native resize edges, so drive a resize from a corner grip.
 const startResize = () => void getCurrentWindow().startResizeDragging("SouthEast");
 
+// Remember each panel's window bounds (per label) so the interview layout persists
+// across sessions. Restores on open, then saves move/resize changes (debounced).
+function usePersistedBounds() {
+  useEffect(() => {
+    const win = getCurrentWindow();
+    const key = "cap.bounds." + win.label;
+    const acc: { x?: number; y?: number; w?: number; h?: number } = {};
+    try {
+      const saved = JSON.parse(localStorage.getItem(key) || "{}");
+      Object.assign(acc, saved);
+      if (typeof acc.w === "number" && typeof acc.h === "number") {
+        void win.setSize(new PhysicalSize(acc.w, acc.h));
+      }
+      if (typeof acc.x === "number" && typeof acc.y === "number") {
+        void win.setPosition(new PhysicalPosition(acc.x, acc.y));
+      }
+    } catch {
+      /* ignore malformed bounds */
+    }
+
+    let t: number | undefined;
+    const save = (patch: Partial<typeof acc>) => {
+      Object.assign(acc, patch);
+      window.clearTimeout(t);
+      t = window.setTimeout(() => localStorage.setItem(key, JSON.stringify(acc)), 300);
+    };
+    let cancelled = false;
+    const uns: UnlistenFn[] = [];
+    const add = (p: Promise<UnlistenFn>) => void p.then((u) => (cancelled ? u() : uns.push(u)));
+    add(win.onMoved(({ payload }) => save({ x: payload.x, y: payload.y })));
+    add(win.onResized(({ payload }) => save({ w: payload.width, h: payload.height })));
+    return () => {
+      cancelled = true;
+      window.clearTimeout(t);
+      uns.forEach((u) => u());
+    };
+  }, []);
+}
+
 // One floating overlay window. The whole panel is its own borderless window; the
 // header is a drag region so it can be moved anywhere over a call. It is a thin
 // view: state arrives over `capture-state`, actions go back over `capture-command`.
@@ -19,6 +59,7 @@ export function CapturePanel({ kind }: { kind: PanelKind }) {
   const [st, setSt] = useState<CaptureState>(EMPTY);
   const [draft, setDraft] = useState("");
   const bodyRef = useRef<HTMLDivElement>(null);
+  usePersistedBounds();
 
   useEffect(() => {
     let cancelled = false;
