@@ -114,6 +114,11 @@ export const draftStory = (notes: string) => invoke<string>("draft_story", { not
 export const applicationDoc = (kind: string, input: string) =>
   invoke<string>("application_doc", { kind, input });
 
+// --- Mock interview practice ---
+export const practiceQuestion = (asked: string[]) => invoke<string>("practice_question", { asked });
+export const practiceFeedback = (question: string, answer: string) =>
+  invoke<string>("practice_feedback", { question, answer });
+
 // --- Screen privacy (exclude window from screen capture / sharing) ---
 export const setScreenPrivacy = (enabled: boolean) => invoke<void>("set_screen_privacy", { enabled });
 

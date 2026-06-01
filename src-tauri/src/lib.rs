@@ -141,6 +141,8 @@ pub fn run() {
             commands::remove_story,
             commands::draft_story,
             commands::application_doc,
+            commands::practice_question,
+            commands::practice_feedback,
             commands::study_plan,
             commands::set_screen_privacy,
             commands::get_assistant_settings,

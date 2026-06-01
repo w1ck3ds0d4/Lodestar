@@ -732,6 +732,41 @@ select:focus {
   font-size: 12.5px;
 }
 
+/* Mock interview */
+.mock {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.mock-bar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.switch.sm {
+  font-size: 12.5px;
+  gap: 5px;
+}
+.mock-question {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+  padding: 10px 12px;
+  border-left: 3px solid var(--accent);
+  background: var(--bg-2);
+  border-radius: 8px;
+}
+.mock-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.mock-feedback {
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+
 /* Application kit */
 .appkit {
   display: flex;
