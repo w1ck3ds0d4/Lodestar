@@ -2,7 +2,20 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties }
 import { Channel } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { Bot, Crop, Ear, KeyRound, Monitor, ScanSearch, Send, Square } from "lucide-react";
+import {
+  Bot,
+  ClipboardPaste,
+  Crop,
+  Ear,
+  KeyRound,
+  MessageSquare,
+  Monitor,
+  ScanSearch,
+  Send,
+  SlidersHorizontal,
+  Sparkles,
+  Square,
+} from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
@@ -10,6 +23,7 @@ import rehypeKatex from "rehype-katex";
 import "katex/dist/katex.min.css";
 import * as api from "../api";
 import {
+  ANSWER_STYLES,
   ASSISTANT_MODELS,
   DEEPGRAM_PER_MIN,
   STT_LANGUAGES,
@@ -195,6 +209,9 @@ function QaCard({ e }: { e: QA }) {
 
 export function AssistantView() {
   const [loaded, setLoaded] = useState(false);
+  // Which panel is shown when the window is too narrow for all three columns; the
+  // tab bar that switches this only appears below the responsive breakpoint (CSS).
+  const [pane, setPane] = useState<"settings" | "dialog" | "answers">("dialog");
   const [hasKey, setHasKey] = useState(false);
   const [hasSttKey, setHasSttKey] = useState(false);
   const [sttEngine, setSttEngine] = useState("deepgram");
@@ -206,6 +223,7 @@ export function AssistantView() {
   const [outputDevice, setOutputDevice] = useState("");
   const [model, setModel] = useState("claude-opus-4-8");
   const [answerEngine, setAnswerEngine] = useState("claude");
+  const [answerStyle, setAnswerStyle] = useState("auto");
   const [ollamaModel, setOllamaModel] = useState("");
   const [ollamaModels, setOllamaModels] = useState<string[]>([]);
   const [keyInput, setKeyInput] = useState("");
@@ -234,6 +252,7 @@ export function AssistantView() {
   const [watchingScreen, setWatchingScreen] = useState(false);
   const [screenError, setScreenError] = useState("");
   const [snipSrc, setSnipSrc] = useState<string | null>(null);
+  const [pageMsg, setPageMsg] = useState("");
   const screenBusy = useRef(false);
 
   const [opacity, setOpacity] = useState(1);
@@ -259,6 +278,39 @@ export function AssistantView() {
   const idRef = useRef(0);
   const segIdRef = useRef(0);
   const answeredIdx = useRef(0);
+  // Synchronous mirror of `context` so the hotkey event listener and Read page can
+  // dedupe/append without a stale closure.
+  const contextRef = useRef("");
+  useEffect(() => {
+    contextRef.current = context;
+  }, [context]);
+
+  // Append a captured chunk (clipboard or focused-window text) to the assistant's
+  // context, de-duplicating repeats and capping the total so it stays affordable.
+  const addToContext = useCallback((raw: string, label: string) => {
+    const text = raw.trim();
+    if (!text) {
+      setPageMsg(`${label}: nothing captured.`);
+      window.setTimeout(() => setPageMsg(""), 3500);
+      return;
+    }
+    const prev = contextRef.current;
+    if (prev.includes(text)) {
+      setPageMsg(`${label}: already attached. Copy another part (e.g. the code editor) to add more.`);
+      window.setTimeout(() => setPageMsg(""), 3500);
+      return;
+    }
+    let next = prev ? prev + "\n\n----- next section -----\n\n" + text : text;
+    let note = `${label}: attached ${text.length.toLocaleString()} chars as context.`;
+    if (next.length > 40000) {
+      next = next.slice(0, 40000) + "\n\n[...truncated]";
+      note += " (context capped at 40k)";
+    }
+    contextRef.current = next;
+    setContext(next);
+    setPageMsg(note);
+    window.setTimeout(() => setPageMsg(""), 3500);
+  }, []);
 
   // Overlay window controls. Applied after mount (hwnd() errors before the window
   // exists); opacity is debounced so dragging the slider doesn't spam invoke.
@@ -289,6 +341,7 @@ export function AssistantView() {
       setOutputDevice(s.outputDevice);
       setModel(s.model);
       setAnswerEngine(s.answerEngine);
+      setAnswerStyle(s.answerStyle || "auto");
       setOllamaModel(s.ollamaModel);
       setContextRole(s.contextRole);
       setContextCompany(s.contextCompany);
@@ -339,6 +392,25 @@ export function AssistantView() {
     },
     [screenMonitor],
   );
+
+  // Read page: pull whatever the user copied (Ctrl+A, Ctrl+C) from the clipboard and
+  // attach it. Copies append (with dedupe) so multiple parts can be stacked - e.g. on a
+  // coding page, the problem statement and the editor's code are separate widgets, so
+  // copy each and click Read page for each. Clear (in the context note) resets.
+  const readPage = useCallback(async () => {
+    setPageMsg("");
+    try {
+      const text = await api.readClipboard();
+      if (!text.trim()) {
+        setPageMsg("Clipboard is empty - in your browser press Ctrl+A then Ctrl+C, then click Read page.");
+        window.setTimeout(() => setPageMsg(""), 3500);
+        return;
+      }
+      addToContext(text, "Read page");
+    } catch (e) {
+      setPageMsg("Couldn't read the clipboard: " + String(e));
+    }
+  }, [addToContext]);
 
   // Snip & explain: capture the chosen monitor, then crop a region to explain.
   const startSnip = useCallback(async () => {
@@ -479,6 +551,25 @@ export function AssistantView() {
     };
   }, []);
 
+  // Read-window hotkey (Alt+Shift+R): the Rust side reads the focused window via UI
+  // Automation and pushes the text here. Used when a page blocks copy/paste.
+  useEffect(() => {
+    let cancelled = false;
+    const unlisteners: UnlistenFn[] = [];
+    const add = (p: Promise<UnlistenFn>) => void p.then((u) => (cancelled ? u() : unlisteners.push(u)));
+    add(listen<string>("window-text", (e) => addToContext(String(e.payload), "Read window")));
+    add(
+      listen<string>("window-text-error", (e) => {
+        setPageMsg("Read window: " + String(e.payload));
+        window.setTimeout(() => setPageMsg(""), 4000);
+      }),
+    );
+    return () => {
+      cancelled = true;
+      unlisteners.forEach((u) => u());
+    };
+  }, [addToContext]);
+
   // Auto-answer: send each batch of new dialog segments to the model, which answers
   // it if it is a question or problem (in any language) and replies "NONE" otherwise.
   // Keyed on segment count so newly attributed lines (you/them/Speaker N) are handled.
@@ -535,6 +626,11 @@ export function AssistantView() {
     setAnswerEngine(e);
     await api.setAnswerEngine(e);
     if (e === "ollama") refreshOllamaModels();
+  };
+
+  const changeStyle = async (st: string) => {
+    setAnswerStyle(st);
+    await api.setAnswerStyle(st);
   };
 
   const changeOllamaModel = async (m: string) => {
@@ -701,7 +797,36 @@ export function AssistantView() {
           </p>
         </div>
       ) : (
-        <div className="assistant-body">
+        <>
+          {/* Shown only when the window is too narrow for all three columns (CSS). */}
+          <div className="assistant-tabs" role="tablist">
+            <button
+              className={"tab-btn" + (pane === "settings" ? " on" : "")}
+              role="tab"
+              aria-selected={pane === "settings"}
+              onClick={() => setPane("settings")}
+            >
+              <SlidersHorizontal size={15} /> Setup
+            </button>
+            <button
+              className={"tab-btn" + (pane === "dialog" ? " on" : "")}
+              role="tab"
+              aria-selected={pane === "dialog"}
+              onClick={() => setPane("dialog")}
+            >
+              <MessageSquare size={15} /> Dialog
+            </button>
+            <button
+              className={"tab-btn" + (pane === "answers" ? " on" : "")}
+              role="tab"
+              aria-selected={pane === "answers"}
+              onClick={() => setPane("answers")}
+            >
+              <Sparkles size={15} /> Answers
+            </button>
+          </div>
+
+          <div className={"assistant-body pane-" + pane}>
           <section className="assistant-col col-settings">
           {needsDeepgramKey ? (
             <div className="add-source onboard">
@@ -811,6 +936,18 @@ export function AssistantView() {
             <button className="btn-ghost" onClick={() => void startSnip()} disabled={watchingScreen} title="Snip a region of the screen and explain it">
               <Crop size={14} /> Snip
             </button>
+            <button
+              className="btn-ghost"
+              onClick={() => void readPage()}
+              title="Copy the page in your browser (Ctrl+A, Ctrl+C) then click to attach it as context - including off-screen content. On a coding page, also click into the editor, copy the code, and click again to add it. Each click appends; use Clear to reset."
+            >
+              <ClipboardPaste size={14} /> Read page
+            </button>
+          </div>
+          {pageMsg && <div className="muted sm">{pageMsg}</div>}
+          <div className="muted sm">
+            Can't copy (proctored / locked page)? Press <span className="kbd">Alt+Shift+R</span> while the page
+            is focused to read it via accessibility (Windows).
           </div>
           {screenError && <div className="assistant-error">{screenError}</div>}
 
@@ -838,6 +975,21 @@ export function AssistantView() {
                   Local
                 </button>
               </div>
+            </div>
+
+            <div className="setup-row">
+              <span className="setup-label">Answer style</span>
+              <select
+                value={answerStyle}
+                title="How answers are formatted. Auto lets the model pick per question."
+                onChange={(e) => void changeStyle(e.target.value)}
+              >
+                {ANSWER_STYLES.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.label} - {s.note}
+                  </option>
+                ))}
+              </select>
             </div>
 
             {answerEngine === "ollama" && (
@@ -1318,7 +1470,8 @@ export function AssistantView() {
               </div>
             </section>
           </aside>
-        </div>
+          </div>
+        </>
       )}
 
       {snipSrc && (

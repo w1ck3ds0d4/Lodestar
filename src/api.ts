@@ -108,6 +108,7 @@ export const setApiKey = (key: string) => invoke<void>("set_api_key", { key });
 export const setAssistantModel = (model: string) => invoke<void>("set_assistant_model", { model });
 // Answer engine: Claude (cloud, default) vs local Ollama.
 export const setAnswerEngine = (engine: string) => invoke<void>("set_answer_engine", { engine });
+export const setAnswerStyle = (style: string) => invoke<void>("set_answer_style", { style });
 export const setOllamaModel = (model: string) => invoke<void>("set_ollama_model", { model });
 export const setOllamaUrl = (url: string) => invoke<void>("set_ollama_url", { url });
 export const listOllamaModels = () => invoke<string[]>("list_ollama_models");
@@ -123,6 +124,9 @@ export const askAssistant = (question: string, context: string | null, onEvent: 
   invoke<void>("ask_assistant", { question, context, onEvent });
 export const autoAnswer = (transcript: string, latest: string) =>
   invoke<string>("auto_answer", { transcript, latest });
+
+// Read plain text from the system clipboard (the "Read page" context grab).
+export const readClipboard = () => invoke<string>("read_clipboard");
 
 // --- Usage / cost ---
 export const getUsage = () => invoke<UsageReport>("get_usage");

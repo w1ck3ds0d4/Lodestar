@@ -44,6 +44,22 @@ fn supports_adaptive_thinking(model: &str) -> bool {
     model.starts_with("claude-opus-4") || model == "claude-sonnet-4-6"
 }
 
+/// Output-format directive appended to the answer prompts per the user's chosen style.
+/// "auto" (default) adds nothing so the model picks the best format for the question.
+fn style_directive(style: &str) -> &'static str {
+    match style {
+        "concise" => "\n\nANSWER FORMAT: lead with the direct answer in one line, then at most 3-4 \
+short, glanceable bullet points. No preamble or long prose - it is read at a glance mid-conversation.",
+        "star" => "\n\nANSWER FORMAT: for behavioral or experience questions, answer in the first \
+person using the STAR structure (Situation, Task, Action, Result) - concise but complete. For technical \
+or factual questions, answer directly.",
+        "code" => "\n\nANSWER FORMAT: when the question involves code, lead with the solution in a \
+language-tagged fenced code block, then a 1-2 line explanation and the time/space complexity. Keep prose \
+minimal.",
+        _ => "",
+    }
+}
+
 /// Append the user's interview/study profile (role, resume, notes) to a base system
 /// prompt so answers are tailored to them and the role. No-op when empty.
 fn with_profile(base: &str, profile: Option<&str>) -> String {
@@ -214,6 +230,7 @@ pub async fn ask(
     question: &str,
     context: Option<&str>,
     profile: Option<&str>,
+    style: &str,
     on_token: Option<&(dyn Fn(&str) + Send + Sync)>,
 ) -> Result<String> {
     let user_text = match context {
@@ -222,7 +239,8 @@ pub async fn ask(
         ),
         _ => question.to_string(),
     };
-    let system = with_profile(SYSTEM_PROMPT, profile);
+    let mut system = with_profile(SYSTEM_PROMPT, profile);
+    system.push_str(style_directive(style));
     match engine {
         Engine::Claude { api_key, model } => {
             complete(http, api_key, model, &system, user_text, on_token).await
@@ -305,10 +323,12 @@ pub async fn auto_answer(
     transcript: &str,
     latest: &str,
     profile: Option<&str>,
+    style: &str,
 ) -> Result<String> {
     let user_text =
         format!("Earlier transcript (context):\n{transcript}\n\nNew text to consider:\n{latest}");
-    let system = with_profile(AUTO_PROMPT, profile);
+    let mut system = with_profile(AUTO_PROMPT, profile);
+    system.push_str(style_directive(style));
     match engine {
         Engine::Claude { api_key, model } => {
             complete(http, api_key, model, &system, user_text, None).await
