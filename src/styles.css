@@ -2452,6 +2452,51 @@ textarea:focus {
   border-radius: 8px;
 }
 
+/* ===== Capture mode: top control bar (its own borderless always-on-top window) ===== */
+.cap-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 100vh;
+  padding: 0 8px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  cursor: move;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.cap-bar-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 32px;
+  border: 1px solid var(--border);
+  background: var(--bg-2);
+  color: var(--text);
+  border-radius: 9px;
+}
+.cap-bar-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent-2);
+}
+.cap-bar-btn.on {
+  border-color: var(--accent);
+  color: var(--accent-2);
+  background: rgba(16, 185, 129, 0.16);
+}
+.cap-bar-btn.danger:hover {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+.cap-bar-sep {
+  width: 1px;
+  height: 20px;
+  background: var(--border);
+  margin: 0 2px;
+}
+
 /* ===== Capture mode: floating overlay panels (their own borderless windows) ===== */
 .cap-panel {
   position: relative;

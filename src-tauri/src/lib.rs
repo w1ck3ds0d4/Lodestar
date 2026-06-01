@@ -230,6 +230,7 @@ pub fn run() {
             commands::phone_broadcast,
             commands::open_capture_panels,
             commands::close_capture_panels,
+            commands::toggle_capture_panels,
             window_fx::set_window_opacity,
             window_fx::set_window_always_on_top,
         ])

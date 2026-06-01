@@ -194,6 +194,8 @@ export const phoneBroadcast = (payload: string) => invoke<void>("phone_broadcast
 // --- Capture mode (floating overlay panels) ---
 export const openCapturePanels = () => invoke<void>("open_capture_panels");
 export const closeCapturePanels = () => invoke<void>("close_capture_panels");
+// Show/hide the panels (control bar stays); resolves to the new visibility.
+export const toggleCapturePanels = () => invoke<boolean>("toggle_capture_panels");
 
 // --- Screen watcher (capture a monitor -> Claude vision) ---
 export const listMonitors = () => invoke<MonitorInfo[]>("list_monitors");

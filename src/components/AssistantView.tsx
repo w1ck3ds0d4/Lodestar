@@ -971,6 +971,9 @@ export function AssistantView() {
       case "snip":
         void startSnip();
         break;
+      case "answer_screen":
+        void runScreen(true);
+        break;
       case "ask":
         if (c.text) void ask(c.text, transcriptText(segments));
         break;
@@ -1201,8 +1204,9 @@ export function AssistantView() {
           {captureErr && <div className="assistant-error">{captureErr}</div>}
           {captureOn && (
             <div className="muted sm">
-              Panels are floating and always-on-top - drag them anywhere. Press{" "}
-              <span className="kbd">Alt+Shift+C</span> to hide or show them instantly.
+              A control bar sits at the top of your screen (listen, screenshot, show/hide). Panels are
+              floating and always-on-top - drag them anywhere. Press <span className="kbd">Alt+Shift+C</span>{" "}
+              to hide or show the panels instantly.
             </div>
           )}
           {listenError && <div className="assistant-error">{listenError}</div>}
