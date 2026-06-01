@@ -8,6 +8,7 @@ import type {
   UsageReport,
   Job,
   MonitorInfo,
+  PhoneInfo,
   ScreenAnswer,
   Session,
   Skill,
@@ -184,6 +185,11 @@ export const setInputDevice = (name: string) => invoke<void>("set_input_device",
 export const setOutputDevice = (name: string) => invoke<void>("set_output_device", { name });
 export const startListening = () => invoke<void>("start_listening");
 export const stopListening = () => invoke<void>("stop_listening");
+
+// --- Phone companion (LAN server: view + control from a phone) ---
+export const startPhoneServer = () => invoke<PhoneInfo>("start_phone_server");
+export const stopPhoneServer = () => invoke<void>("stop_phone_server");
+export const phoneBroadcast = (payload: string) => invoke<void>("phone_broadcast", { payload });
 
 // --- Capture mode (floating overlay panels) ---
 export const openCapturePanels = () => invoke<void>("open_capture_panels");

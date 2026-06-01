@@ -354,6 +354,13 @@ export interface DeepgramBalance {
   project: string;
 }
 
+// Connection details for the phone companion server.
+export interface PhoneInfo {
+  url: string;
+  pin: string;
+  qr: string; // SVG data: URL
+}
+
 // Deepgram Nova-2 streaming, approximate USD per minute (pay-as-you-go). Estimate only.
 export const DEEPGRAM_PER_MIN = 0.0059;
 

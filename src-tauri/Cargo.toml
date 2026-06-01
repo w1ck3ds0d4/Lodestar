@@ -32,8 +32,13 @@ anyhow = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync", "net"] }
 tokio-tungstenite = { version = "0.23", features = ["rustls-tls-webpki-roots"] }
+# Local LAN companion server (phone control): tiny axum HTTP+WebSocket server.
+axum = { version = "0.7", features = ["ws"] }
+local-ip-address = "0.6"
+qrcode = "0.14"
+rand = "0.8"
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
 # Pull in the ring CryptoProvider so we can install it as the process default before
 # tokio-tungstenite opens its wss:// socket (rustls 0.23 panics without one).
