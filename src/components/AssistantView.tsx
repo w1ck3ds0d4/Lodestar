@@ -215,6 +215,13 @@ export function AssistantView() {
   // Which panel is shown when the window is too narrow for all three columns; the
   // tab bar that switches this only appears below the responsive breakpoint (CSS).
   const [pane, setPane] = useState<"settings" | "dialog" | "answers">("dialog");
+  // Whether the narrow (tabbed) layout is active, and how many dialog/answer items
+  // the user has already seen - so the Dialog/Answers tabs can show an unread count.
+  const [narrow, setNarrow] = useState(
+    () => typeof window !== "undefined" && window.matchMedia("(max-width: 1500px)").matches,
+  );
+  const [seenDialog, setSeenDialog] = useState(0);
+  const [seenAnswers, setSeenAnswers] = useState(0);
   const [hasKey, setHasKey] = useState(false);
   const [hasSttKey, setHasSttKey] = useState(false);
   const [sttEngine, setSttEngine] = useState("deepgram");
@@ -326,6 +333,23 @@ export function AssistantView() {
   useEffect(() => {
     void api.setWindowAlwaysOnTop(onTop).catch(() => {});
   }, [onTop]);
+
+  // Track the responsive breakpoint so unread badges only accrue when panes are
+  // actually hidden behind tabs.
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 1500px)");
+    const on = () => setNarrow(mq.matches);
+    mq.addEventListener("change", on);
+    return () => mq.removeEventListener("change", on);
+  }, []);
+  // A pane's items count as "seen" while its tab is showing (or in the wide layout
+  // where everything is visible), which keeps that tab's badge cleared.
+  useEffect(() => {
+    if (!narrow || pane === "dialog") setSeenDialog(segments.length);
+  }, [narrow, pane, segments.length]);
+  useEffect(() => {
+    if (!narrow || pane === "answers") setSeenAnswers(qa.length);
+  }, [narrow, pane, qa.length]);
 
   // Build a speaker-prefixed transcript string from the dialog segments.
   const transcriptText = useCallback(
@@ -802,6 +826,9 @@ export function AssistantView() {
 
   const needsDeepgramKey = sttEngine === "deepgram" && !hasSttKey;
   const cmGroups = useMemo(() => snippetGroups(qa), [qa]);
+  const dialogUnread = Math.max(0, segments.length - seenDialog);
+  const answersUnread = Math.max(0, qa.length - seenAnswers);
+  const badge = (n: number) => (n > 9 ? "9+" : String(n));
   // Fill the opacity track exactly to the value (native accent-color leaves a gap at 100%).
   const opacityPct = Math.round(((opacity - 0.3) / 0.7) * 100);
 
@@ -855,15 +882,17 @@ export function AssistantView() {
         </div>
       ) : (
         <>
-          {/* Shown only when the window is too narrow for all three columns (CSS). */}
+          {/* Shown only when the window is too narrow for all three columns (CSS).
+              Setup is a compact icon button; Dialog/Answers carry unread badges. */}
           <div className="assistant-tabs" role="tablist">
             <button
-              className={"tab-btn" + (pane === "settings" ? " on" : "")}
+              className={"tab-btn tab-icon" + (pane === "settings" ? " on" : "")}
               role="tab"
               aria-selected={pane === "settings"}
+              title="Setup"
               onClick={() => setPane("settings")}
             >
-              <SlidersHorizontal size={15} /> Setup
+              <SlidersHorizontal size={16} />
             </button>
             <button
               className={"tab-btn" + (pane === "dialog" ? " on" : "")}
@@ -872,6 +901,7 @@ export function AssistantView() {
               onClick={() => setPane("dialog")}
             >
               <MessageSquare size={15} /> Dialog
+              {dialogUnread > 0 && <span className="tab-badge">{badge(dialogUnread)}</span>}
             </button>
             <button
               className={"tab-btn" + (pane === "answers" ? " on" : "")}
@@ -880,6 +910,7 @@ export function AssistantView() {
               onClick={() => setPane("answers")}
             >
               <Sparkles size={15} /> Answers
+              {answersUnread > 0 && <span className="tab-badge">{badge(answersUnread)}</span>}
             </button>
           </div>
 
