@@ -1421,3 +1421,17 @@ pub fn stop_listening(state: State<'_, AppState>) -> Result<(), String> {
         .store(false, std::sync::atomic::Ordering::SeqCst);
     Ok(())
 }
+
+// --- Capture mode (floating overlay panels) ---
+
+/// Open (or focus) the floating, always-on-top capture panels.
+#[tauri::command]
+pub fn open_capture_panels(app: AppHandle) -> Result<(), String> {
+    crate::capture::open_panels(&app)
+}
+
+/// Close all capture panels.
+#[tauri::command]
+pub fn close_capture_panels(app: AppHandle) {
+    crate::capture::close_panels(&app);
+}

@@ -1,4 +1,5 @@
 mod assistant;
+mod capture;
 mod career;
 mod commands;
 mod db;
@@ -96,6 +97,17 @@ pub fn run() {
                 }
             }
 
+            // Closing the main window must not leave the always-on-top capture
+            // panels floating; tear them down so the app can exit cleanly.
+            if let Some(main) = app.get_webview_window("main") {
+                let h = app.handle().clone();
+                main.on_window_event(move |e| {
+                    if matches!(e, tauri::WindowEvent::CloseRequested { .. }) {
+                        capture::close_panels(&h);
+                    }
+                });
+            }
+
             // Background scheduler: sync due sources, then poll on an interval.
             let app_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
@@ -183,6 +195,8 @@ pub fn run() {
             commands::set_output_device,
             commands::start_listening,
             commands::stop_listening,
+            commands::open_capture_panels,
+            commands::close_capture_panels,
             window_fx::set_window_opacity,
             window_fx::set_window_always_on_top,
         ])
