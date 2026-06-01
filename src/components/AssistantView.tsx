@@ -325,6 +325,13 @@ export function AssistantView() {
   // conversation as context without re-creating runScreen (which would reset the
   // watch interval on every new line).
   const segmentsRef = useRef<DialogSegment[]>([]);
+  // Mirror of the Q&A feed, so auto-save can read the final state after listening
+  // stops (the stop flush commits asynchronously, so the closures would be stale).
+  const qaRef = useRef<QA[]>([]);
+  // Auto-save bookkeeping: whether the current listening session was already saved
+  // (manually or automatically), and whether we were listening on the last render.
+  const sessionSavedRef = useRef(false);
+  const wasListeningRef = useRef(false);
   // Synchronous mirror of `context` so the hotkey event listener and Read page can
   // dedupe/append without a stale closure.
   const contextRef = useRef("");
@@ -334,6 +341,9 @@ export function AssistantView() {
   useEffect(() => {
     segmentsRef.current = segments;
   }, [segments]);
+  useEffect(() => {
+    qaRef.current = qa;
+  }, [qa]);
 
   // Append a captured chunk (clipboard or focused-window text) to the assistant's
   // context, de-duplicating repeats and capping the total so it stays affordable.
@@ -863,18 +873,25 @@ export function AssistantView() {
     answeredIdx.current = 0;
   };
 
-  // Persist the current transcript + answers as a reviewable session.
-  const saveSession = async () => {
-    const transcript = transcriptText(segments);
-    const answers = qa
+  // Build the saved-session text (transcript + answered Q&A, oldest first).
+  const buildSession = (segs: DialogSegment[], qaList: QA[]) => {
+    const transcript = transcriptText(segs);
+    const answers = qaList
       .filter((e) => e.a && !e.pending)
       .slice()
       .reverse()
       .map((e) => `Q: ${e.q}\nA: ${e.a}`)
       .join("\n\n---\n\n");
+    return { transcript, answers };
+  };
+
+  // Persist the current transcript + answers as a reviewable session (manual button).
+  const saveSession = async () => {
+    const { transcript, answers } = buildSession(segments, qa);
     if (!transcript.trim() && !answers.trim()) return;
     try {
       await api.saveSession(`Session ${new Date().toLocaleString()}`, transcript, answers);
+      sessionSavedRef.current = true;
       setSessionsReload((n) => n + 1);
       setSessionSaved(true);
       setTimeout(() => setSessionSaved(false), 1800);
@@ -882,6 +899,38 @@ export function AssistantView() {
       /* ignore save errors */
     }
   };
+
+  // Auto-save the session when listening stops, so an interview is never lost if the
+  // user forgets to save (or the capture drops). Reads the refs because the stop
+  // flush commits asynchronously; saves at most once per listening session.
+  const autoSaveSession = async () => {
+    if (sessionSavedRef.current) return;
+    const { transcript, answers } = buildSession(segmentsRef.current, qaRef.current);
+    if (!transcript.trim() && !answers.trim()) return;
+    sessionSavedRef.current = true;
+    try {
+      await api.saveSession(`Auto-saved ${new Date().toLocaleString()}`, transcript, answers);
+      setSessionsReload((n) => n + 1);
+      setSessionSaved(true);
+      setTimeout(() => setSessionSaved(false), 2500);
+    } catch {
+      /* ignore auto-save errors */
+    }
+  };
+
+  // Watch the listening flag: a new session clears the saved marker; when listening
+  // stops, auto-save after a short delay so the final stop flush lands first.
+  useEffect(() => {
+    if (listening) {
+      sessionSavedRef.current = false;
+      wasListeningRef.current = true;
+      return;
+    }
+    if (!wasListeningRef.current) return;
+    wasListeningRef.current = false;
+    const t = setTimeout(() => void autoSaveSession(), 600);
+    return () => clearTimeout(t);
+  }, [listening]);
 
   const askManual = () => {
     if (!question.trim()) return;
@@ -1783,7 +1832,11 @@ export function AssistantView() {
               <span className="muted sm">{listening ? listenStatus || "Listening..." : "Live dialog"}</span>
               <span className="transcript-actions">
                 {(segments.length > 0 || qa.length > 0) && (
-                  <button className="link-btn" onClick={() => void saveSession()}>
+                  <button
+                    className="link-btn"
+                    onClick={() => void saveSession()}
+                    title="Sessions also auto-save when you stop listening"
+                  >
                     {sessionSaved ? "Saved ✓" : "Save session"}
                   </button>
                 )}
