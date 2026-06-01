@@ -151,8 +151,10 @@ export type AnswerChunk =
   | { kind: "error"; message: string };
 export const askAssistant = (question: string, context: string | null, onEvent: Channel<AnswerChunk>) =>
   invoke<void>("ask_assistant", { question, context, onEvent });
-export const autoAnswer = (transcript: string, latest: string) =>
-  invoke<string>("auto_answer", { transcript, latest });
+// Streams the auto-answer over a channel (delta/done/error), same shape as askAssistant.
+// The full text is "NONE" when nothing is being asked - the caller suppresses it.
+export const autoAnswer = (transcript: string, latest: string, onEvent: Channel<AnswerChunk>) =>
+  invoke<void>("auto_answer", { transcript, latest, onEvent });
 
 // Read plain text from the system clipboard (the "Read page" context grab).
 export const readClipboard = () => invoke<string>("read_clipboard");
