@@ -455,6 +455,34 @@ pub async fn practice_feedback(
     }
 }
 
+/// System prompt for reviewing a whole interview session and surfacing what to study.
+const REVIEW_PROMPT: &str = "You are an interview coach reviewing a full interview session - the \
+conversation transcript and the answers the candidate gave. In GitHub-flavored Markdown, produce: a \
+one-line summary, 'What went well', 'Recurring weak spots' (grouped by theme or question type), 'To \
+improve next time', and a short prioritized 'Study & prep list' (topics to study or stories to prepare). \
+Reference what actually happened in the session. If the material is thin, say so briefly rather than \
+inventing detail.";
+
+/// Review a saved session: strengths, weak areas, and a prioritized study list.
+pub async fn session_review(
+    http: &reqwest::Client,
+    engine: &Engine,
+    transcript: &str,
+    answers: &str,
+    profile: Option<&str>,
+) -> Result<String> {
+    let user_text = format!("Transcript:\n{transcript}\n\nAnswers given:\n{answers}");
+    let system = with_profile(REVIEW_PROMPT, profile);
+    match engine {
+        Engine::Claude { api_key, model } => {
+            complete(http, api_key, model, &system, user_text, None).await
+        }
+        Engine::Ollama { url, model } => {
+            ollama_chat(http, url, model, &system, user_text, None, None).await
+        }
+    }
+}
+
 /// Auto-answer: given the recent transcript and the newest segment, answer it if it
 /// is a question/problem (in any language), otherwise return the literal "NONE".
 pub async fn auto_answer(

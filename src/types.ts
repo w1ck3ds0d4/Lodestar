@@ -92,6 +92,15 @@ export interface Story {
   updatedAt: number;
 }
 
+// A saved interview session (transcript + answers) for later review.
+export interface Session {
+  id: number;
+  title: string;
+  transcript: string;
+  answers: string;
+  createdAt: number;
+}
+
 export const APP_STATUSES = ["saved", "applied", "screen", "interview", "offer", "accepted", "rejected"] as const;
 export const APP_STATUS_LABELS: Record<string, string> = {
   saved: "Saved",
