@@ -1493,3 +1493,9 @@ pub fn open_capture_panels(app: AppHandle) -> Result<(), String> {
 pub fn close_capture_panels(app: AppHandle) {
     crate::capture::close_panels(&app);
 }
+
+/// Show/hide the capture panels (the control bar stays). Returns the new visibility.
+#[tauri::command]
+pub fn toggle_capture_panels(app: AppHandle) -> bool {
+    crate::capture::toggle_visibility(&app)
+}

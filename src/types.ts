@@ -128,9 +128,9 @@ export interface CaptureState {
   segments: CaptureSegment[];
   answers: CaptureAnswer[];
 }
-// A command sent from an overlay panel back to the main window.
+// A command sent from an overlay window (panel or control bar) to the main window.
 export interface CaptureCommand {
-  cmd: "listen" | "watch" | "snip" | "ask" | "stop" | "sync";
+  cmd: "listen" | "watch" | "snip" | "ask" | "stop" | "sync" | "answer_screen";
   text?: string;
 }
 
