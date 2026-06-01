@@ -908,15 +908,20 @@ pub async fn ask_assistant(
 }
 
 /// Auto-answer the newest transcript segment if it is a question/problem (any
-/// language); returns the answer or the literal "NONE".
+/// language). Streams the answer over `on_event` (delta/done/error); the answer is the
+/// literal "NONE" when nothing is being asked, which the UI suppresses.
 #[tauri::command]
 pub async fn auto_answer(
     state: State<'_, AppState>,
     transcript: String,
     latest: String,
-) -> Result<String, String> {
+    on_event: tauri::ipc::Channel<AnswerChunk>,
+) -> Result<(), String> {
     if latest.trim().is_empty() {
-        return Ok("NONE".into());
+        let _ = on_event.send(AnswerChunk::Done {
+            text: "NONE".into(),
+        });
+        return Ok(());
     }
     let (engine, profile, style) = {
         let conn = state.db.lock().map_err(|_| "db poisoned")?;
@@ -927,16 +932,32 @@ pub async fn auto_answer(
         )
     };
     let http = state.http.clone();
-    crate::assistant::auto_answer(
+    let emit = |t: &str| {
+        let _ = on_event.send(AnswerChunk::Delta {
+            text: t.to_string(),
+        });
+    };
+    match crate::assistant::auto_answer(
         &http,
         &engine,
         &transcript,
         &latest,
         profile.as_deref(),
         &style,
+        Some(&emit),
     )
     .await
-    .map_err(|e| e.to_string())
+    {
+        Ok(full) => {
+            let _ = on_event.send(AnswerChunk::Done { text: full });
+        }
+        Err(e) => {
+            let _ = on_event.send(AnswerChunk::Error {
+                message: e.to_string(),
+            });
+        }
+    }
+    Ok(())
 }
 
 // --- Screen watcher: read questions off a monitor and auto-answer them ---

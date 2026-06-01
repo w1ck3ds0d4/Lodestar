@@ -492,6 +492,7 @@ pub async fn auto_answer(
     latest: &str,
     profile: Option<&str>,
     style: &str,
+    on_token: Option<&(dyn Fn(&str) + Send + Sync)>,
 ) -> Result<String> {
     let user_text =
         format!("Earlier transcript (context):\n{transcript}\n\nNew text to consider:\n{latest}");
@@ -499,10 +500,10 @@ pub async fn auto_answer(
     system.push_str(style_directive(style));
     match engine {
         Engine::Claude { api_key, model } => {
-            complete(http, api_key, model, &system, user_text, None).await
+            complete(http, api_key, model, &system, user_text, on_token).await
         }
         Engine::Ollama { url, model } => {
-            ollama_chat(http, url, model, &system, user_text, None, None).await
+            ollama_chat(http, url, model, &system, user_text, None, on_token).await
         }
     }
 }

@@ -587,11 +587,43 @@ export function AssistantView() {
     const ctx = transcriptText(segments.slice(0, answeredIdx.current));
     answeredIdx.current = segments.length;
     void (async () => {
-      try {
-        const a = (await api.autoAnswer(ctx, latest)).trim();
-        if (a && a.toUpperCase() !== "NONE") {
-          setQa((prev) => [{ id: ++idRef.current, q: latest, a, pending: false }, ...prev]);
+      const id = ++idRef.current;
+      let acc = "";
+      let created = false;
+      // Letters-only upper, so we can tell the "NONE" sentinel from a real answer even
+      // through punctuation/whitespace, and hold the bubble until the stream diverges.
+      const stripped = (s: string) => s.replace(/[^a-z]/gi, "").toUpperCase();
+      const looksNone = (s: string) => "NONE".startsWith(stripped(s));
+      const channel = new Channel<api.AnswerChunk>();
+      channel.onmessage = (msg) => {
+        if (msg.kind === "delta") {
+          acc += msg.text;
+          if (!created) {
+            if (looksNone(acc)) return; // still ambiguous (N / NO / NON / NONE)
+            created = true;
+            setQa((prev) => [{ id, q: latest, a: acc, pending: true }, ...prev]);
+          } else {
+            setQa((prev) => prev.map((e) => (e.id === id ? { ...e, a: acc, pending: true } : e)));
+          }
+        } else if (msg.kind === "done") {
+          const full = (msg.text || acc).trim();
+          if (!full || stripped(full) === "NONE") {
+            if (created) setQa((prev) => prev.filter((e) => e.id !== id)); // retract a NONE
+            return;
+          }
+          if (!created) {
+            created = true;
+            setQa((prev) => [{ id, q: latest, a: full, pending: false }, ...prev]);
+          } else {
+            setQa((prev) => prev.map((e) => (e.id === id ? { ...e, a: full, pending: false } : e)));
+          }
+        } else if (created) {
+          setQa((prev) => prev.map((e) => (e.id === id ? { ...e, error: msg.message, pending: false } : e)));
         }
+        // delta/done errors before a bubble exists are dropped so the loop keeps going.
+      };
+      try {
+        await api.autoAnswer(ctx, latest, channel);
       } catch {
         /* ignore transient auto-answer errors so the loop keeps going */
       }
