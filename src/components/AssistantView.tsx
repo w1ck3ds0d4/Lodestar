@@ -1092,6 +1092,12 @@ export function AssistantView() {
           )}
 
           {captureErr && <div className="assistant-error">{captureErr}</div>}
+          {captureOn && (
+            <div className="muted sm">
+              Panels are floating and always-on-top - drag them anywhere. Press{" "}
+              <span className="kbd">Alt+Shift+C</span> to hide or show them instantly.
+            </div>
+          )}
           {listenError && <div className="assistant-error">{listenError}</div>}
 
           {listening && (

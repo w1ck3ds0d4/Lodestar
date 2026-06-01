@@ -43,15 +43,20 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
-        // Global hotkey -> read the focused (browser) window's text via UI Automation,
-        // for pages that block copy/paste. Runs on a fresh thread (COM + UIA can be
-        // slow) and pushes the result to the UI as a `window-text` event.
+        // Global hotkeys:
+        //  - Alt+Shift+C: show/hide the capture overlay panels (instant, focus-free).
+        //  - Alt+Shift+R: read the focused window's text via UI Automation, for pages
+        //    that block copy/paste (runs on a fresh thread; COM + UIA can be slow).
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
-                .with_handler(|app, _shortcut, event| {
+                .with_handler(|app, shortcut, event| {
                     use tauri::Emitter;
-                    use tauri_plugin_global_shortcut::ShortcutState;
+                    use tauri_plugin_global_shortcut::{Code, Modifiers, ShortcutState};
                     if event.state() != ShortcutState::Pressed {
+                        return;
+                    }
+                    if shortcut.matches(Modifiers::ALT | Modifiers::SHIFT, Code::KeyC) {
+                        capture::toggle_visibility(app);
                         return;
                     }
                     let app = app.clone();
@@ -94,6 +99,10 @@ pub fn run() {
                 use tauri_plugin_global_shortcut::GlobalShortcutExt;
                 if let Err(e) = app.global_shortcut().register("Alt+Shift+R") {
                     tracing::warn!("could not register read-window hotkey: {e}");
+                }
+                // Alt+Shift+C toggles the capture overlay panels' visibility.
+                if let Err(e) = app.global_shortcut().register("Alt+Shift+C") {
+                    tracing::warn!("could not register capture-toggle hotkey: {e}");
                 }
             }
 
