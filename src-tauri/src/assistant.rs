@@ -506,7 +506,13 @@ pub async fn generate_cards(
             ollama_chat(http, url, model, &system, user_text, None, None).await?
         }
     };
-    // Be lenient: models sometimes wrap JSON in code fences or prose.
+    parse_cards_json(&raw)
+}
+
+/// Parse flashcards from a model response, tolerating code fences and surrounding
+/// prose: strip a leading ```/```json fence, then take the outermost `[ ... ]` and
+/// keep objects with non-empty `front`/`back`. Errors when nothing usable is found.
+fn parse_cards_json(raw: &str) -> Result<Vec<(String, String)>> {
     let cleaned = raw.trim();
     let cleaned = cleaned
         .strip_prefix("```json")
@@ -788,5 +794,50 @@ fn api_error_message(status: u16, payload: &Value) -> String {
         500 | 529 => "The Claude API is busy right now. Try again in a few seconds.".to_string(),
         _ if !detail.is_empty() => format!("Claude API error ({status}): {detail}"),
         _ => format!("Claude API error ({status})."),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_cards_json;
+
+    #[test]
+    fn parses_a_plain_json_array() {
+        let cards =
+            parse_cards_json(r#"[{"front":"Q1","back":"A1"},{"front":"Q2","back":"A2"}]"#).unwrap();
+        assert_eq!(
+            cards,
+            vec![("Q1".into(), "A1".into()), ("Q2".into(), "A2".into())]
+        );
+    }
+
+    #[test]
+    fn tolerates_code_fences_and_prose() {
+        let raw =
+            "Sure! Here are your cards:\n```json\n[{\"front\":\"a\",\"back\":\"b\"}]\n```\nEnjoy.";
+        assert_eq!(
+            parse_cards_json(raw).unwrap(),
+            vec![("a".into(), "b".into())]
+        );
+    }
+
+    #[test]
+    fn skips_cards_missing_a_side() {
+        let raw = r#"[{"front":"keep","back":"yes"},{"front":"  ","back":"x"},{"front":"only"}]"#;
+        assert_eq!(
+            parse_cards_json(raw).unwrap(),
+            vec![("keep".into(), "yes".into())]
+        );
+    }
+
+    #[test]
+    fn errors_when_no_array_present() {
+        assert!(parse_cards_json("I could not make any flashcards.").is_err());
+    }
+
+    #[test]
+    fn errors_on_empty_or_all_invalid_array() {
+        assert!(parse_cards_json("[]").is_err());
+        assert!(parse_cards_json(r#"[{"front":"","back":""}]"#).is_err());
     }
 }
