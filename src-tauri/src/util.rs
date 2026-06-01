@@ -403,3 +403,154 @@ pub fn excluded_remote_regions(country: &str) -> Vec<&'static str> {
         .filter(|r| !keep.contains(r))
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn redact_secrets_strips_query_strings() {
+        assert_eq!(
+            redact_secrets("failed to GET https://api.example.com/jobs?app_key=SECRET&x=1"),
+            "failed to GET https://api.example.com/jobs?[redacted]"
+        );
+        // No query string is left untouched.
+        assert_eq!(
+            redact_secrets("error at https://example.com/path"),
+            "error at https://example.com/path"
+        );
+    }
+
+    #[test]
+    fn host_str_blocked_rejects_local_and_internal() {
+        let blocked = [
+            "http://localhost/",
+            "http://service.local/",
+            "http://127.0.0.1/",
+            "http://10.0.0.5/",
+            "http://192.168.1.1/",
+            "http://169.254.169.254/", // cloud metadata
+            "ftp://example.com/",      // non-http scheme
+        ];
+        for u in blocked {
+            assert!(
+                host_str_blocked(&reqwest::Url::parse(u).unwrap()),
+                "should block {u}"
+            );
+        }
+        assert!(!host_str_blocked(
+            &reqwest::Url::parse("https://example.com/jobs").unwrap()
+        ));
+    }
+
+    #[test]
+    fn validate_public_url_rejects_without_dns() {
+        assert!(validate_public_url("not a url").is_err());
+        assert!(validate_public_url("http://localhost").is_err());
+        assert!(validate_public_url("http://127.0.0.1:8080").is_err());
+        assert!(validate_public_url("ftp://example.com").is_err());
+    }
+
+    #[test]
+    fn stable_hash_is_deterministic_hex() {
+        let a = stable_hash("hello");
+        assert_eq!(a, stable_hash("hello"));
+        assert_ne!(a, stable_hash("world"));
+        assert_eq!(a.len(), 16);
+        assert!(a.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn vstr_trims_and_drops_empty() {
+        let v = json!({ "a": "  hi  ", "blank": "   ", "n": 5 });
+        assert_eq!(vstr(&v, "a"), Some("hi".to_string()));
+        assert_eq!(vstr(&v, "blank"), None);
+        assert_eq!(vstr(&v, "n"), None);
+        assert_eq!(vstr(&v, "missing"), None);
+    }
+
+    #[test]
+    fn clean_html_strips_tags_decodes_entities_collapses_ws() {
+        assert_eq!(
+            clean_html("<p>Hello&nbsp;&amp;   <b>welcome</b></p>"),
+            "Hello & welcome"
+        );
+    }
+
+    #[test]
+    fn epoch_to_date_known_dates() {
+        assert_eq!(epoch_to_date(0), "1970-01-01");
+        assert_eq!(epoch_to_date(1_700_000_000), "2023-11-14");
+    }
+
+    #[test]
+    fn infer_workplace_classifies() {
+        assert_eq!(infer_workplace(false, "Remote", "Engineer"), "remote");
+        assert_eq!(infer_workplace(true, "New York", ""), "remote");
+        assert_eq!(infer_workplace(true, "Hybrid - Berlin", ""), "hybrid"); // hybrid wins
+        assert_eq!(infer_workplace(false, "Berlin", "Engineer"), "onsite");
+    }
+
+    #[test]
+    fn classify_experience_by_title_then_description() {
+        assert_eq!(classify_experience("Senior Engineer", "", None), "senior");
+        assert_eq!(classify_experience("Junior Developer", "", None), "entry");
+        assert_eq!(
+            classify_experience("Software Engineer", "", Some("Internship")),
+            "entry"
+        );
+        assert_eq!(
+            classify_experience("Software Engineer", "No experience required.", None),
+            "entry"
+        );
+        assert_eq!(
+            classify_experience("Software Engineer", "We build things.", None),
+            "mid"
+        );
+    }
+
+    #[test]
+    fn normalize_level_buckets() {
+        assert_eq!(normalize_level("Senior"), Some("senior".to_string()));
+        assert_eq!(normalize_level("Junior"), Some("entry".to_string()));
+        assert_eq!(normalize_level("Mid Level"), Some("mid".to_string()));
+        assert_eq!(normalize_level("Associate"), Some("mid".to_string()));
+        assert_eq!(normalize_level("Any"), None);
+        assert_eq!(normalize_level(""), None);
+    }
+
+    #[test]
+    fn detect_relocation_honors_negatives() {
+        assert!(detect_relocation("We offer relocation assistance."));
+        assert!(!detect_relocation("No relocation provided."));
+        assert!(!detect_relocation("Relocation is not available."));
+        assert!(!detect_relocation("Great team, great benefits."));
+    }
+
+    #[test]
+    fn remote_region_detects_explicit_signals() {
+        assert_eq!(remote_region(false, "Remote worldwide", "", ""), ""); // not flagged remote
+        assert_eq!(remote_region(true, "Remote worldwide", "", ""), "worldwide");
+        assert_eq!(
+            remote_region(true, "", "", "US only, must be authorized"),
+            "us"
+        );
+        assert_eq!(remote_region(true, "Remote - EU", "", ""), "eu");
+        assert_eq!(remote_region(true, "UK only", "", ""), "uk");
+        assert_eq!(remote_region(true, "Canada only", "", ""), "other");
+        assert_eq!(remote_region(true, "Remote", "Engineer", "Join us"), "");
+    }
+
+    #[test]
+    fn excluded_remote_regions_by_country() {
+        assert_eq!(excluded_remote_regions("DE"), vec!["us", "uk", "other"]);
+        assert_eq!(excluded_remote_regions("US"), vec!["eu", "uk", "other"]);
+        assert_eq!(excluded_remote_regions("GB"), vec!["eu", "us", "other"]);
+        assert_eq!(
+            excluded_remote_regions("BR"),
+            vec!["eu", "us", "uk", "other"]
+        );
+        assert_eq!(excluded_remote_regions(""), vec!["eu", "us", "uk", "other"]);
+    }
+}
