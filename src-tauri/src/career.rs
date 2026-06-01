@@ -4,7 +4,7 @@
 use anyhow::Result;
 use rusqlite::{params, Connection};
 
-use crate::model::{Milestone, Skill, Story, Tracked};
+use crate::model::{Milestone, Session, Skill, Story, Tracked};
 use crate::util::epoch_to_date;
 
 const TRACKED_COLS: &str = "id, kind, title, org, url, status, notes, applied_at, deadline, \
@@ -316,5 +316,44 @@ pub fn update_story(
 
 pub fn remove_story(conn: &Connection, id: i64) -> Result<()> {
     conn.execute("DELETE FROM stories WHERE id=?1", params![id])?;
+    Ok(())
+}
+
+// --- Interview session history ---
+
+fn row_to_session(r: &rusqlite::Row) -> rusqlite::Result<Session> {
+    Ok(Session {
+        id: r.get(0)?,
+        title: r.get(1)?,
+        transcript: r.get(2)?,
+        answers: r.get(3)?,
+        created_at: r.get(4)?,
+    })
+}
+
+pub fn list_sessions(conn: &Connection) -> Result<Vec<Session>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, title, transcript, answers, created_at FROM sessions ORDER BY created_at DESC",
+    )?;
+    let rows = stmt.query_map([], row_to_session)?;
+    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
+pub fn add_session(
+    conn: &Connection,
+    now: i64,
+    title: &str,
+    transcript: &str,
+    answers: &str,
+) -> Result<i64> {
+    conn.execute(
+        "INSERT INTO sessions (title, transcript, answers, created_at) VALUES (?1,?2,?3,?4)",
+        params![title, transcript, answers, now],
+    )?;
+    Ok(conn.last_insert_rowid())
+}
+
+pub fn remove_session(conn: &Connection, id: i64) -> Result<()> {
+    conn.execute("DELETE FROM sessions WHERE id=?1", params![id])?;
     Ok(())
 }

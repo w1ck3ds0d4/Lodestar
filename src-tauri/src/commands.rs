@@ -5,7 +5,7 @@ use serde_json::Value;
 use tauri::{AppHandle, State};
 
 use crate::db;
-use crate::model::{Alert, Job, Skill, Source, Story, Tracked};
+use crate::model::{Alert, Job, Session, Skill, Source, Story, Tracked};
 use crate::util::now_ms;
 use crate::AppState;
 
@@ -445,6 +445,55 @@ pub async fn practice_feedback(
     };
     let http = state.http.clone();
     crate::assistant::practice_feedback(&http, &engine, &question, &answer, profile.as_deref())
+        .await
+        .map_err(|e| e.to_string())
+}
+
+// --- Interview session history ---
+
+#[tauri::command]
+pub fn list_sessions(state: State<'_, AppState>) -> Result<Vec<Session>, String> {
+    let conn = state.db.lock().map_err(|_| "db poisoned")?;
+    crate::career::list_sessions(&conn).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn save_session(
+    state: State<'_, AppState>,
+    title: String,
+    transcript: String,
+    answers: String,
+) -> Result<i64, String> {
+    if transcript.trim().is_empty() && answers.trim().is_empty() {
+        return Err("Nothing to save yet.".into());
+    }
+    let conn = state.db.lock().map_err(|_| "db poisoned")?;
+    crate::career::add_session(&conn, now_ms(), &title, &transcript, &answers)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn remove_session(state: State<'_, AppState>, id: i64) -> Result<(), String> {
+    let conn = state.db.lock().map_err(|_| "db poisoned")?;
+    crate::career::remove_session(&conn, id).map_err(|e| e.to_string())
+}
+
+/// Review a saved session: strengths, weak areas, and a prioritized study list.
+#[tauri::command]
+pub async fn session_review(
+    state: State<'_, AppState>,
+    transcript: String,
+    answers: String,
+) -> Result<String, String> {
+    if transcript.trim().is_empty() && answers.trim().is_empty() {
+        return Err("This session has no content to review.".into());
+    }
+    let (engine, profile) = {
+        let conn = state.db.lock().map_err(|_| "db poisoned")?;
+        (build_engine(&conn)?, interview_profile(&conn))
+    };
+    let http = state.http.clone();
+    crate::assistant::session_review(&http, &engine, &transcript, &answers, profile.as_deref())
         .await
         .map_err(|e| e.to_string())
 }

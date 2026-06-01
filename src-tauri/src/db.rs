@@ -142,6 +142,14 @@ pub fn init(path: &Path) -> Result<Connection> {
             updated_at INTEGER NOT NULL
         );
 
+        CREATE TABLE IF NOT EXISTS sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            transcript TEXT NOT NULL DEFAULT '',
+            answers TEXT NOT NULL DEFAULT '',
+            created_at INTEGER NOT NULL
+        );
+
         CREATE TABLE IF NOT EXISTS settings (
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL

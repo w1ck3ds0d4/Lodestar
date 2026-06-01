@@ -8,6 +8,7 @@ import type {
   Job,
   MonitorInfo,
   ScreenAnswer,
+  Session,
   Skill,
   Source,
   Stats,
@@ -118,6 +119,14 @@ export const applicationDoc = (kind: string, input: string) =>
 export const practiceQuestion = (asked: string[]) => invoke<string>("practice_question", { asked });
 export const practiceFeedback = (question: string, answer: string) =>
   invoke<string>("practice_feedback", { question, answer });
+
+// --- Interview session history ---
+export const listSessions = () => invoke<Session[]>("list_sessions");
+export const saveSession = (title: string, transcript: string, answers: string) =>
+  invoke<number>("save_session", { title, transcript, answers });
+export const removeSession = (id: number) => invoke<void>("remove_session", { id });
+export const sessionReview = (transcript: string, answers: string) =>
+  invoke<string>("session_review", { transcript, answers });
 
 // --- Screen privacy (exclude window from screen capture / sharing) ---
 export const setScreenPrivacy = (enabled: boolean) => invoke<void>("set_screen_privacy", { enabled });

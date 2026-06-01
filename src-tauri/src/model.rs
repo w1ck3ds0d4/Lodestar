@@ -129,3 +129,15 @@ pub struct Story {
     pub created_at: i64,
     pub updated_at: i64,
 }
+
+/// A saved interview session: the conversation transcript and the answers given, kept
+/// for later review and to surface weak areas to study.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Session {
+    pub id: i64,
+    pub title: String,
+    pub transcript: String,
+    pub answers: String,
+    pub created_at: i64,
+}

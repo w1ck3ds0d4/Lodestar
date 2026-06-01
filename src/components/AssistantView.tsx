@@ -34,6 +34,7 @@ import {
   type UsageReport,
 } from "../types";
 import { ApplicationKit } from "./ApplicationKit";
+import { SessionsPanel } from "./SessionsPanel";
 import { StoriesPanel } from "./StoriesPanel";
 
 interface QA {
@@ -255,6 +256,8 @@ export function AssistantView() {
   const [screenError, setScreenError] = useState("");
   const [snipSrc, setSnipSrc] = useState<string | null>(null);
   const [pageMsg, setPageMsg] = useState("");
+  const [sessionsReload, setSessionsReload] = useState(0);
+  const [sessionSaved, setSessionSaved] = useState(false);
   const screenBusy = useRef(false);
 
   const [opacity, setOpacity] = useState(1);
@@ -737,6 +740,26 @@ export function AssistantView() {
     liveRef.current = emptyLive();
     setLive(emptyLive());
     answeredIdx.current = 0;
+  };
+
+  // Persist the current transcript + answers as a reviewable session.
+  const saveSession = async () => {
+    const transcript = transcriptText(segments);
+    const answers = qa
+      .filter((e) => e.a && !e.pending)
+      .slice()
+      .reverse()
+      .map((e) => `Q: ${e.q}\nA: ${e.a}`)
+      .join("\n\n---\n\n");
+    if (!transcript.trim() && !answers.trim()) return;
+    try {
+      await api.saveSession(`Session ${new Date().toLocaleString()}`, transcript, answers);
+      setSessionsReload((n) => n + 1);
+      setSessionSaved(true);
+      setTimeout(() => setSessionSaved(false), 1800);
+    } catch {
+      /* ignore save errors */
+    }
   };
 
   const askManual = () => {
@@ -1226,6 +1249,13 @@ export function AssistantView() {
           </details>
 
           <details className="acc">
+            <summary>Past sessions</summary>
+            <div className="acc-body">
+              <SessionsPanel reload={sessionsReload} />
+            </div>
+          </details>
+
+          <details className="acc">
             <summary>Company information</summary>
             <div className="acc-body">
             <p className="muted sm">
@@ -1380,6 +1410,11 @@ export function AssistantView() {
             <div className="dialog-head">
               <span className="muted sm">{listening ? listenStatus || "Listening..." : "Live dialog"}</span>
               <span className="transcript-actions">
+                {(segments.length > 0 || qa.length > 0) && (
+                  <button className="link-btn" onClick={() => void saveSession()}>
+                    {sessionSaved ? "Saved ✓" : "Save session"}
+                  </button>
+                )}
                 {segments.length > 0 && (
                   <button className="link-btn" onClick={() => setContext(transcriptText(segments))}>
                     Use as context
