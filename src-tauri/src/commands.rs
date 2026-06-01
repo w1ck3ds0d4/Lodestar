@@ -413,6 +413,42 @@ pub async fn application_doc(
         .map_err(|e| e.to_string())
 }
 
+/// Mock interview: ask the next question (given the ones already asked this session).
+#[tauri::command]
+pub async fn practice_question(
+    state: State<'_, AppState>,
+    asked: Vec<String>,
+) -> Result<String, String> {
+    let (engine, profile) = {
+        let conn = state.db.lock().map_err(|_| "db poisoned")?;
+        (build_engine(&conn)?, interview_profile(&conn))
+    };
+    let http = state.http.clone();
+    crate::assistant::practice_question(&http, &engine, &asked, profile.as_deref())
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Mock interview: score the candidate's answer and return coaching feedback.
+#[tauri::command]
+pub async fn practice_feedback(
+    state: State<'_, AppState>,
+    question: String,
+    answer: String,
+) -> Result<String, String> {
+    if answer.trim().is_empty() {
+        return Err("Type or paste your answer first.".into());
+    }
+    let (engine, profile) = {
+        let conn = state.db.lock().map_err(|_| "db poisoned")?;
+        (build_engine(&conn)?, interview_profile(&conn))
+    };
+    let http = state.http.clone();
+    crate::assistant::practice_feedback(&http, &engine, &question, &answer, profile.as_deref())
+        .await
+        .map_err(|e| e.to_string())
+}
+
 /// Generate an AI study plan for a skill (uses the configured answer engine + profile).
 #[tauri::command]
 pub async fn study_plan(

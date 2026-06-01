@@ -7,6 +7,7 @@ import rehypeKatex from "rehype-katex";
 import "katex/dist/katex.min.css";
 import * as api from "../api";
 import type { Skill } from "../types";
+import { MockInterview } from "./MockInterview";
 
 function PlanMarkdown({ text }: { text: string }) {
   return (
@@ -37,6 +38,7 @@ export function StudyView() {
 
   return (
     <div className="study">
+      <MockInterview />
       <div className="add-source">
         <h3>Add a skill to study</h3>
         <div className="add-row">

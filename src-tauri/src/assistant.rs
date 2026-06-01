@@ -393,6 +393,68 @@ pub async fn application_doc(
     }
 }
 
+/// System prompt for the mock-interviewer: ask one realistic question at a time.
+const PRACTICE_Q_PROMPT: &str = "You are running a realistic mock interview for the candidate's target role \
+and company (see their profile). Ask exactly ONE interview question. Across a session, vary the type - \
+behavioral, role/technical, and company/role fit. Do NOT repeat or closely paraphrase anything in the \
+'Already asked' list. Output ONLY the question itself - no numbering, preamble, or commentary.";
+
+/// System prompt for scoring a mock-interview answer.
+const PRACTICE_FB_PROMPT: &str = "You are an interview coach reviewing one answer in a mock interview. \
+Given the question and the candidate's answer (with any delivery stats), give concise feedback in \
+GitHub-flavored Markdown: a '**Score: N/5**' line, a 'What worked' list, a 'To improve' list \
+(structure, specificity, relevance), brief 'Delivery' notes when the stats suggest filler words or \
+rambling, and a tighter '**Model answer**' grounded in the candidate's profile/stories where relevant. \
+Be direct and specific - no fluff or flattery.";
+
+/// Ask the next mock-interview question, avoiding the ones already asked.
+pub async fn practice_question(
+    http: &reqwest::Client,
+    engine: &Engine,
+    asked: &[String],
+    profile: Option<&str>,
+) -> Result<String> {
+    let asked_list = if asked.is_empty() {
+        "(none yet)".to_string()
+    } else {
+        asked
+            .iter()
+            .map(|q| format!("- {q}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    let user_text = format!("Already asked:\n{asked_list}\n\nAsk the next question.");
+    let system = with_profile(PRACTICE_Q_PROMPT, profile);
+    match engine {
+        Engine::Claude { api_key, model } => {
+            complete(http, api_key, model, &system, user_text, None).await
+        }
+        Engine::Ollama { url, model } => {
+            ollama_chat(http, url, model, &system, user_text, None, None).await
+        }
+    }
+}
+
+/// Score a mock-interview answer and return coaching feedback + a model answer.
+pub async fn practice_feedback(
+    http: &reqwest::Client,
+    engine: &Engine,
+    question: &str,
+    answer: &str,
+    profile: Option<&str>,
+) -> Result<String> {
+    let user_text = format!("Question:\n{question}\n\nCandidate's answer:\n{answer}");
+    let system = with_profile(PRACTICE_FB_PROMPT, profile);
+    match engine {
+        Engine::Claude { api_key, model } => {
+            complete(http, api_key, model, &system, user_text, None).await
+        }
+        Engine::Ollama { url, model } => {
+            ollama_chat(http, url, model, &system, user_text, None, None).await
+        }
+    }
+}
+
 /// Auto-answer: given the recent transcript and the newest segment, answer it if it
 /// is a question/problem (in any language), otherwise return the literal "NONE".
 pub async fn auto_answer(
