@@ -1,6 +1,14 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type CSSProperties,
+} from "react";
 import { Channel } from "@tauri-apps/api/core";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   Bot,
@@ -8,6 +16,7 @@ import {
   Crop,
   Ear,
   KeyRound,
+  LayoutDashboard,
   MessageSquare,
   Monitor,
   ScanSearch,
@@ -16,6 +25,7 @@ import {
   Smartphone,
   Sparkles,
   Square,
+  Upload,
   X,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
@@ -31,11 +41,15 @@ import {
   STT_LANGUAGES,
   estimateCost,
   type AudioDevices,
+  type CaptureCommand,
+  type CaptureSegment,
+  type CaptureState,
   type DeepgramBalance,
   type MonitorInfo,
   type PhoneInfo,
   type UsageReport,
 } from "../types";
+import { extractResumeText } from "../lib/extractText";
 import { ApplicationKit } from "./ApplicationKit";
 import { SessionsPanel } from "./SessionsPanel";
 import { StoriesPanel } from "./StoriesPanel";
@@ -281,6 +295,8 @@ export function AssistantView() {
   const [contextResume, setContextResume] = useState("");
   const [contextNotes, setContextNotes] = useState("");
   const [contextSaved, setContextSaved] = useState(false);
+  const [resumeMsg, setResumeMsg] = useState("");
+  const resumeFileRef = useRef<HTMLInputElement>(null);
 
   const [usage, setUsage] = useState<UsageReport | null>(null);
   const [claudeCreditInput, setClaudeCreditInput] = useState("");
@@ -298,15 +314,26 @@ export function AssistantView() {
   const [phoneErr, setPhoneErr] = useState("");
   const [phoneBusy, setPhoneBusy] = useState(false);
 
+  // Capture mode: floating overlay panels driven by this window.
+  const [captureOn, setCaptureOn] = useState(false);
+  const [captureErr, setCaptureErr] = useState("");
+
   const idRef = useRef(0);
   const segIdRef = useRef(0);
   const answeredIdx = useRef(0);
+  // Synchronous mirror of the dialog so the screen watcher can read the current
+  // conversation as context without re-creating runScreen (which would reset the
+  // watch interval on every new line).
+  const segmentsRef = useRef<DialogSegment[]>([]);
   // Synchronous mirror of `context` so the hotkey event listener and Read page can
   // dedupe/append without a stale closure.
   const contextRef = useRef("");
   useEffect(() => {
     contextRef.current = context;
   }, [context]);
+  useEffect(() => {
+    segmentsRef.current = segments;
+  }, [segments]);
 
   // Append a captured chunk (clipboard or focused-window text) to the assistant's
   // context, de-duplicating repeats and capping the total so it stays affordable.
@@ -401,6 +428,26 @@ export function AssistantView() {
     setContextSaved(true);
     setTimeout(() => setContextSaved(false), 1500);
   };
+
+  // Import a resume file (PDF/DOCX/TXT/MD) into the resume field; the user reviews
+  // and then hits Save context.
+  const onResumeFile = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // let the same file be re-picked later
+    if (!file) return;
+    setResumeMsg("Reading...");
+    try {
+      const text = await extractResumeText(file);
+      if (!text.trim()) {
+        setResumeMsg("No selectable text found in that file (a scanned PDF has none).");
+        return;
+      }
+      setContextResume(text);
+      setResumeMsg(`Imported ${text.length.toLocaleString()} chars from ${file.name} - review and Save context.`);
+    } catch (err) {
+      setResumeMsg(String(err));
+    }
+  };
   const refreshOllamaModels = useCallback(() => {
     void api
       .listOllamaModels()
@@ -422,7 +469,10 @@ export function AssistantView() {
       if (screenBusy.current) return;
       screenBusy.current = true;
       try {
-        const res = await api.answerScreen(screenMonitor, force);
+        // Feed the recent conversation so the screen answer is context-aware.
+        const convo = transcriptText(segmentsRef.current).trim();
+        const ctx = convo ? convo.slice(-1500) : null;
+        const res = await api.answerScreen(screenMonitor, force, ctx);
         const a = res.answer.trim();
         if (res.changed && a && a.toUpperCase() !== "NONE") {
           setQa((prev) => [{ id: ++idRef.current, q: "From your screen", a, pending: false }, ...prev]);
@@ -434,7 +484,7 @@ export function AssistantView() {
         screenBusy.current = false;
       }
     },
-    [screenMonitor],
+    [screenMonitor, transcriptText],
   );
 
   // Read page: pull whatever the user copied (Ctrl+A, Ctrl+C) from the clipboard and
@@ -868,19 +918,87 @@ export function AssistantView() {
     else if (c.cmd === "answer_screen") void runScreen(true);
     else if (c.cmd === "ask" && c.text) void ask(c.text, transcriptText(segments));
   };
+
+  // --- Capture mode -----------------------------------------------------------
+  // The snapshot mirrored to the overlay panels: committed dialog plus any
+  // in-progress live line, the answer feed, and the two live toggles.
+  const captureState = useCallback((): CaptureState => {
+    const segs: CaptureSegment[] = segments.map((s) => ({ role: s.role, speaker: s.speaker, text: s.text }));
+    (["them", "you"] as const).forEach((role) => {
+      const slot = live[role];
+      const txt = (slot.fin + " " + slot.int).trim();
+      if (txt) segs.push({ role, speaker: role === "them" ? "Them" : "You", text: txt });
+    });
+    return {
+      listening,
+      watching: watchingScreen,
+      segments: segs,
+      answers: qa.map((e) => ({ q: e.q, a: e.a, pending: e.pending })),
+    };
+  }, [listening, watchingScreen, segments, live, qa]);
+  const pushCaptureState = useCallback(() => void emit("capture-state", captureState()), [captureState]);
+
+  const startCapture = async () => {
+    setCaptureErr("");
+    try {
+      await api.openCapturePanels();
+      setCaptureOn(true);
+      if (!listening) void toggleListen(); // capture mode starts listening
+    } catch (e) {
+      setCaptureErr(String(e));
+    }
+  };
+  const stopCapture = async () => {
+    setCaptureOn(false);
+    try {
+      await api.closeCapturePanels();
+    } catch {
+      /* ignore */
+    }
+  };
+
+  // Dispatch commands arriving from the overlay panels. Reassigned every render so
+  // the once-registered listener always calls the latest handlers.
+  const captureCmdRef = useRef<(c: CaptureCommand) => void>(() => {});
+  captureCmdRef.current = (c) => {
+    switch (c.cmd) {
+      case "listen":
+        void toggleListen();
+        break;
+      case "watch":
+        setWatchingScreen((v) => !v);
+        break;
+      case "snip":
+        void startSnip();
+        break;
+      case "ask":
+        if (c.text) void ask(c.text, transcriptText(segments));
+        break;
+      case "stop":
+        void stopCapture();
+        break;
+      case "sync":
+        pushCaptureState();
+        break;
+    }
+  };
   useEffect(() => {
     let cancelled = false;
-    let un: UnlistenFn | null = null;
-    void listen<string>("phone-command", (e) => {
-      try {
-        phoneCmdRef.current(JSON.parse(String(e.payload)));
-      } catch {
-        /* ignore malformed command */
-      }
-    }).then((u) => (cancelled ? u() : (un = u)));
+    const uns: UnlistenFn[] = [];
+    const add = (p: Promise<UnlistenFn>) => void p.then((u) => (cancelled ? u() : uns.push(u)));
+    add(
+      listen<string>("phone-command", (e) => {
+        try {
+          phoneCmdRef.current(JSON.parse(String(e.payload)));
+        } catch {
+          /* ignore malformed command */
+        }
+      }),
+    );
+    add(listen<CaptureCommand>("capture-command", (e) => captureCmdRef.current(e.payload)));
     return () => {
       cancelled = true;
-      un?.();
+      uns.forEach((u) => u());
     };
   }, []);
 
@@ -913,6 +1031,21 @@ export function AssistantView() {
       clearInterval(hb);
     };
   }, [phone, phoneState]);
+
+  // Push state to the panels on change (debounced) plus a heartbeat so a panel
+  // that just opened catches up even with no further changes.
+  useEffect(() => {
+    if (!captureOn) return;
+    const t = setTimeout(pushCaptureState, 120);
+    const hb = setInterval(pushCaptureState, 1500);
+    return () => {
+      clearTimeout(t);
+      clearInterval(hb);
+    };
+  }, [captureOn, pushCaptureState]);
+
+  // Never leave overlay panels floating when this view unmounts (tab switch / close).
+  useEffect(() => () => void api.closeCapturePanels().catch(() => {}), []);
 
   const needsDeepgramKey = sttEngine === "deepgram" && !hasSttKey;
   const cmGroups = useMemo(() => snippetGroups(qa), [qa]);
@@ -1046,6 +1179,14 @@ export function AssistantView() {
                 {listening ? <Square size={15} /> : <Ear size={15} />}
                 {listening ? "Stop listening" : "Listen to call"}
               </button>
+              <button
+                className={"btn-listen" + (captureOn ? " on" : "")}
+                onClick={() => (captureOn ? void stopCapture() : void startCapture())}
+                title="Pop out floating, always-on-top panels you can drag over your call (starts listening)"
+              >
+                {captureOn ? <Square size={15} /> : <LayoutDashboard size={15} />}
+                {captureOn ? "Exit capture" : "Capture mode"}
+              </button>
               <label className="auto-toggle muted sm">
                 <input
                   type="checkbox"
@@ -1057,6 +1198,13 @@ export function AssistantView() {
             </div>
           )}
 
+          {captureErr && <div className="assistant-error">{captureErr}</div>}
+          {captureOn && (
+            <div className="muted sm">
+              Panels are floating and always-on-top - drag them anywhere. Press{" "}
+              <span className="kbd">Alt+Shift+C</span> to hide or show them instantly.
+            </div>
+          )}
           {listenError && <div className="assistant-error">{listenError}</div>}
 
           {listening && (
@@ -1364,6 +1512,10 @@ export function AssistantView() {
               Always on top
             </label>
             <div className="muted sm">Dims the whole window (this UI too); min 30%.</div>
+            <div className="muted sm">
+              Panic hide: press <span className="kbd">Alt+Shift+H</span> anytime to hide/show the window
+              instantly (Windows).
+            </div>
             </div>
           </details>
 
@@ -1426,8 +1578,21 @@ export function AssistantView() {
                 rows={4}
                 value={contextResume}
                 onChange={(e) => setContextResume(e.target.value)}
-                placeholder="Paste your resume or a short summary…"
+                placeholder="Paste your resume, or import a file below…"
               />
+              <div className="resume-import">
+                <input
+                  ref={resumeFileRef}
+                  type="file"
+                  accept=".pdf,.docx,.txt,.md"
+                  className="hidden-file"
+                  onChange={(e) => void onResumeFile(e)}
+                />
+                <button className="link-btn" onClick={() => resumeFileRef.current?.click()}>
+                  <Upload size={13} /> Import PDF / DOCX / text
+                </button>
+                {resumeMsg && <span className="muted sm">{resumeMsg}</span>}
+              </div>
             </div>
             <div className="setup-field">
               <span className="setup-label">Notes / materials</span>

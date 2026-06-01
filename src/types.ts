@@ -111,6 +111,29 @@ export interface Card {
   createdAt: number;
 }
 
+// --- Capture mode: state mirrored from the main window to the overlay panels ---
+export interface CaptureSegment {
+  role: "you" | "them";
+  speaker: string;
+  text: string;
+}
+export interface CaptureAnswer {
+  q: string;
+  a: string;
+  pending: boolean;
+}
+export interface CaptureState {
+  listening: boolean;
+  watching: boolean;
+  segments: CaptureSegment[];
+  answers: CaptureAnswer[];
+}
+// A command sent from an overlay panel back to the main window.
+export interface CaptureCommand {
+  cmd: "listen" | "watch" | "snip" | "ask" | "stop" | "sync";
+  text?: string;
+}
+
 export const APP_STATUSES = ["saved", "applied", "screen", "interview", "offer", "accepted", "rejected"] as const;
 export const APP_STATUS_LABELS: Record<string, string> = {
   saved: "Saved",

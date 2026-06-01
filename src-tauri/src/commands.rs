@@ -1039,6 +1039,7 @@ pub async fn answer_screen(
     state: State<'_, AppState>,
     monitor: usize,
     force: bool,
+    context: Option<String>,
 ) -> Result<ScreenAnswer, String> {
     let cap = crate::screen::capture(monitor).map_err(|e| e.to_string())?;
 
@@ -1063,9 +1064,15 @@ pub async fn answer_screen(
 
     let b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &cap.png);
     let http = state.http.clone();
-    let answer = crate::assistant::answer_screen(&http, &engine, &b64, profile.as_deref())
-        .await
-        .map_err(|e| e.to_string())?;
+    let answer = crate::assistant::answer_screen(
+        &http,
+        &engine,
+        &b64,
+        profile.as_deref(),
+        context.as_deref(),
+    )
+    .await
+    .map_err(|e| e.to_string())?;
     Ok(ScreenAnswer {
         changed: true,
         answer,
@@ -1471,4 +1478,18 @@ pub fn stop_listening(state: State<'_, AppState>) -> Result<(), String> {
         .listening
         .store(false, std::sync::atomic::Ordering::SeqCst);
     Ok(())
+}
+
+// --- Capture mode (floating overlay panels) ---
+
+/// Open (or focus) the floating, always-on-top capture panels.
+#[tauri::command]
+pub fn open_capture_panels(app: AppHandle) -> Result<(), String> {
+    crate::capture::open_panels(&app)
+}
+
+/// Close all capture panels.
+#[tauri::command]
+pub fn close_capture_panels(app: AppHandle) {
+    crate::capture::close_panels(&app);
 }
