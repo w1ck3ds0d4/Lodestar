@@ -101,6 +101,16 @@ export interface Session {
   createdAt: number;
 }
 
+// A spaced-repetition flashcard (Leitner). dueAt is Unix ms.
+export interface Card {
+  id: number;
+  front: string;
+  back: string;
+  box: number;
+  dueAt: number;
+  createdAt: number;
+}
+
 export const APP_STATUSES = ["saved", "applied", "screen", "interview", "offer", "accepted", "rejected"] as const;
 export const APP_STATUS_LABELS: Record<string, string> = {
   saved: "Saved",
