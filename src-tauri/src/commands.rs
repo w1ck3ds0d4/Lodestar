@@ -1128,6 +1128,57 @@ pub fn read_clipboard() -> Result<String, String> {
     }
 }
 
+// --- Phone companion server ---
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PhoneInfo {
+    pub url: String,
+    pub pin: String,
+    /// QR code of the URL as an SVG data: URL.
+    pub qr: String,
+}
+
+/// Start (or return the already-running) phone companion server.
+#[tauri::command]
+pub fn start_phone_server(state: State<'_, AppState>, app: AppHandle) -> Result<PhoneInfo, String> {
+    let mut guard = state.phone.lock().map_err(|_| "phone lock poisoned")?;
+    if let Some(server) = guard.as_ref() {
+        return Ok(PhoneInfo {
+            url: server.url.clone(),
+            pin: server.pin.clone(),
+            qr: crate::phone::qr_for(&server.url),
+        });
+    }
+    let server = crate::phone::start(app)?;
+    let info = PhoneInfo {
+        url: server.url.clone(),
+        pin: server.pin.clone(),
+        qr: crate::phone::qr_for(&server.url),
+    };
+    *guard = Some(server);
+    Ok(info)
+}
+
+#[tauri::command]
+pub fn stop_phone_server(state: State<'_, AppState>) -> Result<(), String> {
+    let mut guard = state.phone.lock().map_err(|_| "phone lock poisoned")?;
+    if let Some(server) = guard.take() {
+        server.stop();
+    }
+    Ok(())
+}
+
+/// Push the current UI state (JSON) to all connected phones.
+#[tauri::command]
+pub fn phone_broadcast(state: State<'_, AppState>, payload: String) -> Result<(), String> {
+    let guard = state.phone.lock().map_err(|_| "phone lock poisoned")?;
+    if let Some(server) = guard.as_ref() {
+        server.broadcast(&payload);
+    }
+    Ok(())
+}
+
 // --- Usage / cost ---
 
 #[derive(Serialize)]

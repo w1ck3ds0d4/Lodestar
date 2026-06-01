@@ -13,6 +13,7 @@ import {
   ScanSearch,
   Send,
   SlidersHorizontal,
+  Smartphone,
   Sparkles,
   Square,
   X,
@@ -32,6 +33,7 @@ import {
   type AudioDevices,
   type DeepgramBalance,
   type MonitorInfo,
+  type PhoneInfo,
   type UsageReport,
 } from "../types";
 import { ApplicationKit } from "./ApplicationKit";
@@ -290,6 +292,11 @@ export function AssistantView() {
   const [question, setQuestion] = useState("");
   const [context, setContext] = useState("");
   const [qa, setQa] = useState<QA[]>([]);
+
+  // Phone companion: LAN server connection details (null while stopped).
+  const [phone, setPhone] = useState<PhoneInfo | null>(null);
+  const [phoneErr, setPhoneErr] = useState("");
+  const [phoneBusy, setPhoneBusy] = useState(false);
 
   const idRef = useRef(0);
   const segIdRef = useRef(0);
@@ -832,6 +839,81 @@ export function AssistantView() {
     setQuestion("");
   };
 
+  // --- Phone companion -------------------------------------------------------
+  const startPhone = async () => {
+    setPhoneBusy(true);
+    setPhoneErr("");
+    try {
+      setPhone(await api.startPhoneServer());
+    } catch (e) {
+      setPhoneErr(String(e));
+    } finally {
+      setPhoneBusy(false);
+    }
+  };
+  const stopPhone = async () => {
+    try {
+      await api.stopPhoneServer();
+    } catch {
+      /* ignore */
+    }
+    setPhone(null);
+  };
+
+  // Commands arriving from a phone are dispatched through this ref, reassigned every
+  // render so the once-registered listener always invokes the latest handlers.
+  const phoneCmdRef = useRef<(c: { cmd?: string; text?: string }) => void>(() => {});
+  phoneCmdRef.current = (c) => {
+    if (c.cmd === "listen") void toggleListen();
+    else if (c.cmd === "answer_screen") void runScreen(true);
+    else if (c.cmd === "ask" && c.text) void ask(c.text, transcriptText(segments));
+  };
+  useEffect(() => {
+    let cancelled = false;
+    let un: UnlistenFn | null = null;
+    void listen<string>("phone-command", (e) => {
+      try {
+        phoneCmdRef.current(JSON.parse(String(e.payload)));
+      } catch {
+        /* ignore malformed command */
+      }
+    }).then((u) => (cancelled ? u() : (un = u)));
+    return () => {
+      cancelled = true;
+      un?.();
+    };
+  }, []);
+
+  // The JSON state snapshot mirrored to connected phones: committed dialog plus any
+  // in-progress live line, and the answer feed.
+  const phoneState = useCallback(() => {
+    const segs = segments.map((s) => ({ role: s.role, speaker: s.speaker, text: s.text }));
+    (["them", "you"] as const).forEach((role) => {
+      const slot = live[role];
+      const txt = (slot.fin + " " + slot.int).trim();
+      if (txt) segs.push({ role, speaker: role === "them" ? "Them" : "You", text: txt });
+    });
+    return JSON.stringify({
+      type: "state",
+      listening,
+      segments: segs,
+      answers: qa.map((e) => ({ q: e.q, a: e.a, pending: e.pending })),
+    });
+  }, [listening, segments, live, qa]);
+
+  // Push state to phones on change (debounced) plus a heartbeat so a phone that
+  // connects mid-session catches up within a couple of seconds.
+  useEffect(() => {
+    if (!phone) return;
+    const push = () => void api.phoneBroadcast(phoneState()).catch(() => {});
+    const t = setTimeout(push, 150);
+    const hb = setInterval(push, 2500);
+    return () => {
+      clearTimeout(t);
+      clearInterval(hb);
+    };
+  }, [phone, phoneState]);
+
   const needsDeepgramKey = sttEngine === "deepgram" && !hasSttKey;
   const cmGroups = useMemo(() => snippetGroups(qa), [qa]);
   const dialogUnread = Math.max(0, segments.length - seenDialog);
@@ -1282,6 +1364,46 @@ export function AssistantView() {
               Always on top
             </label>
             <div className="muted sm">Dims the whole window (this UI too); min 30%.</div>
+            </div>
+          </details>
+
+          <details className="acc">
+            <summary>Phone control</summary>
+            <div className="acc-body">
+              {!phone ? (
+                <>
+                  <div className="muted sm">
+                    Run a server on your Wi-Fi so your phone can watch the transcript and answers and
+                    drive listening - a discreet second screen during a call.
+                  </div>
+                  <button className="btn-ghost" onClick={() => void startPhone()} disabled={phoneBusy}>
+                    <Smartphone size={14} /> {phoneBusy ? "Starting…" : "Start phone server"}
+                  </button>
+                </>
+              ) : (
+                <div className="phone-conn">
+                  {phone.qr && (
+                    <img className="phone-qr" src={phone.qr} alt="Scan to connect" width={150} height={150} />
+                  )}
+                  <div className="phone-conn-info">
+                    <div className="phone-row">
+                      <span className="setup-label">Open</span>
+                      <code className="phone-url">{phone.url}</code>
+                    </div>
+                    <div className="phone-row">
+                      <span className="setup-label">PIN</span>
+                      <span className="phone-pin">{phone.pin}</span>
+                    </div>
+                    <button className="btn-ghost" onClick={() => void stopPhone()}>
+                      <Square size={14} /> Stop server
+                    </button>
+                  </div>
+                </div>
+              )}
+              {phoneErr && <div className="assistant-error">{phoneErr}</div>}
+              <div className="muted sm">
+                Same Wi-Fi only. The PIN gates access; traffic is unencrypted, so use a network you trust.
+              </div>
             </div>
           </details>
 

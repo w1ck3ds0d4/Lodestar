@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark" />
+    <title>JobRadar Remote</title>
+    <style>
+      :root {
+        --bg: #0e1626; --panel: #16223b; --panel2: #1b2942; --border: #25344f;
+        --text: #e8eef9; --muted: #94a4c0; --accent: #10b981; --accent2: #34d399; --danger: #f87171;
+      }
+      * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+      html, body { margin: 0; height: 100%; }
+      body { background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+      button, input { font: inherit; }
+      .wrap { display: flex; flex-direction: column; height: 100dvh; }
+      .bar { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--border); background: var(--panel); }
+      .brand { font-weight: 700; }
+      .dot { width: 9px; height: 9px; border-radius: 999px; background: var(--muted); }
+      .dot.on { background: var(--accent2); }
+      .spacer { flex: 1; }
+      button { cursor: pointer; border: 1px solid var(--border); background: var(--panel2); color: var(--text); border-radius: 10px; padding: 9px 12px; }
+      button.primary { border-color: var(--accent); color: var(--accent2); background: rgba(16,185,129,.14); }
+      button.primary.on { background: var(--accent); color: #04231a; }
+      button:disabled { opacity: .5; }
+      .tabs { display: flex; gap: 8px; padding: 10px 14px 0; }
+      .tabs button { flex: 1; }
+      .tabs button.sel { border-color: var(--accent); color: var(--accent2); }
+      .scroll { flex: 1; overflow-y: auto; padding: 12px 14px; -webkit-overflow-scrolling: touch; }
+      .empty { color: var(--muted); text-align: center; margin-top: 24vh; padding: 0 24px; }
+      .qa { border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; margin-bottom: 10px; background: var(--panel); }
+      .qa .q { color: var(--muted); font-size: 13px; margin-bottom: 6px; }
+      .qa .a { white-space: pre-wrap; word-break: break-word; }
+      .seg { margin-bottom: 8px; max-width: 92%; }
+      .seg .who { font-size: 11px; color: var(--muted); }
+      .seg .txt { padding: 8px 11px; border: 1px solid var(--border); border-radius: 12px; background: var(--panel); white-space: pre-wrap; }
+      .seg.you { margin-left: auto; text-align: right; }
+      .seg.you .txt { background: rgba(16,185,129,.12); border-color: var(--accent); }
+      .controls { display: flex; gap: 8px; padding: 10px 14px; border-top: 1px solid var(--border); background: var(--panel); }
+      .controls input { flex: 1; min-width: 0; background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 10px; padding: 9px 11px; }
+      .center { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100dvh; gap: 14px; padding: 24px; }
+      .center input { width: 200px; text-align: center; font-size: 22px; letter-spacing: 4px; background: var(--panel); border: 1px solid var(--border); color: var(--text); border-radius: 12px; padding: 12px; }
+      .err { color: var(--danger); font-size: 14px; min-height: 18px; }
+      .hint { color: var(--muted); font-size: 13px; text-align: center; }
+      .hidden { display: none !important; }
+    </style>
+  </head>
+  <body>
+    <!-- PIN gate -->
+    <div id="gate" class="center">
+      <div class="brand">JobRadar Remote</div>
+      <div class="hint">Enter the PIN shown on your computer.</div>
+      <input id="pin" inputmode="numeric" maxlength="6" placeholder="••••••" />
+      <button class="primary" id="connect">Connect</button>
+      <div class="err" id="gateErr"></div>
+    </div>
+
+    <!-- Main -->
+    <div id="app" class="wrap hidden">
+      <div class="bar">
+        <span class="dot" id="dot"></span>
+        <span class="brand">JobRadar</span>
+        <span class="spacer"></span>
+        <button class="primary" id="listen">Listen</button>
+      </div>
+      <div class="tabs">
+        <button id="tabAnswers" class="sel">Answers</button>
+        <button id="tabDialog">Dialog</button>
+      </div>
+      <div class="scroll" id="answers"><div class="empty">No answers yet.</div></div>
+      <div class="scroll hidden" id="dialog"><div class="empty">No conversation yet.</div></div>
+      <div class="controls">
+        <button id="screen" title="Answer the screen">Screen</button>
+        <input id="ask" placeholder="Ask a question…" />
+        <button class="primary" id="send">Ask</button>
+      </div>
+    </div>
+
+    <script>
+      var ws = null, pin = "", tab = "answers", connected = false;
+      var $ = function (id) { return document.getElementById(id); };
+
+      function show(el, on) { el.classList.toggle("hidden", !on); }
+      function esc(s) { return (s || "").replace(/[&<>]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]; }); }
+
+      function renderAnswers(list) {
+        var box = $("answers");
+        if (!list || !list.length) { box.innerHTML = '<div class="empty">No answers yet.</div>'; return; }
+        box.innerHTML = list.map(function (e) {
+          var a = e.pending && !e.a ? "…" : e.a;
+          return '<div class="qa"><div class="q">' + esc(e.q) + '</div><div class="a">' + esc(a) + "</div></div>";
+        }).join("");
+      }
+      function renderDialog(list) {
+        var box = $("dialog");
+        if (!list || !list.length) { box.innerHTML = '<div class="empty">No conversation yet.</div>'; return; }
+        box.innerHTML = list.map(function (s) {
+          var cls = s.role === "you" ? "seg you" : "seg";
+          return '<div class="' + cls + '"><div class="who">' + esc(s.speaker) + '</div><div class="txt">' + esc(s.text) + "</div></div>";
+        }).join("");
+        box.scrollTop = box.scrollHeight;
+      }
+
+      function setTab(t) {
+        tab = t;
+        $("tabAnswers").classList.toggle("sel", t === "answers");
+        $("tabDialog").classList.toggle("sel", t === "dialog");
+        show($("answers"), t === "answers");
+        show($("dialog"), t === "dialog");
+      }
+      $("tabAnswers").onclick = function () { setTab("answers"); };
+      $("tabDialog").onclick = function () { setTab("dialog"); };
+
+      function cmd(obj) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj)); }
+      $("listen").onclick = function () { cmd({ cmd: "listen" }); };
+      $("screen").onclick = function () { cmd({ cmd: "answer_screen" }); };
+      $("send").onclick = function () {
+        var v = $("ask").value.trim();
+        if (v) { cmd({ cmd: "ask", text: v }); $("ask").value = ""; }
+      };
+      $("ask").addEventListener("keydown", function (e) { if (e.key === "Enter") $("send").click(); });
+
+      function connect() {
+        pin = $("pin").value.trim();
+        if (pin.length < 4) { $("gateErr").textContent = "Enter the PIN."; return; }
+        $("gateErr").textContent = "Connecting…";
+        ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws");
+        ws.onopen = function () { ws.send(JSON.stringify({ pin: pin })); };
+        ws.onmessage = function (ev) {
+          var msg;
+          try { msg = JSON.parse(ev.data); } catch (e) { return; }
+          if (msg.type === "auth") {
+            if (msg.ok) { connected = true; show($("gate"), false); show($("app"), true); }
+            else { $("gateErr").textContent = "Wrong PIN."; ws.close(); }
+          } else if (msg.type === "state") {
+            $("dot").classList.toggle("on", !!msg.listening);
+            $("listen").classList.toggle("on", !!msg.listening);
+            $("listen").textContent = msg.listening ? "Stop" : "Listen";
+            renderAnswers(msg.answers);
+            renderDialog(msg.segments);
+          }
+        };
+        ws.onclose = function () {
+          if (connected) { $("gateErr").textContent = ""; show($("app"), false); show($("gate"), true); $("gateErr").textContent = "Disconnected - reconnect."; }
+          connected = false;
+        };
+        ws.onerror = function () { $("gateErr").textContent = "Could not connect."; };
+      }
+      $("connect").onclick = connect;
+      $("pin").addEventListener("keydown", function (e) { if (e.key === "Enter") connect(); });
+    </script>
+  </body>
+</html>

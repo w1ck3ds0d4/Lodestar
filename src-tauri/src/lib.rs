@@ -6,6 +6,7 @@ mod ingest;
 mod listen;
 mod local_stt;
 mod model;
+mod phone;
 mod screen;
 mod sources;
 mod usage;
@@ -28,6 +29,8 @@ pub struct AppState {
     pub listening: Arc<AtomicBool>,
     /// Hash of the last screenshot answered, so the watcher skips unchanged screens.
     pub screen_hash: Arc<Mutex<Option<u64>>>,
+    /// The running phone-companion server, if started.
+    pub phone: Arc<Mutex<Option<phone::PhoneServer>>>,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -84,6 +87,7 @@ pub fn run() {
                 http: http.clone(),
                 listening: Arc::new(AtomicBool::new(false)),
                 screen_hash: Arc::new(Mutex::new(None)),
+                phone: Arc::new(Mutex::new(None)),
             });
 
             // Register the global "read focused window" hotkey. Alt+Shift+R is unlikely
@@ -183,6 +187,9 @@ pub fn run() {
             commands::set_output_device,
             commands::start_listening,
             commands::stop_listening,
+            commands::start_phone_server,
+            commands::stop_phone_server,
+            commands::phone_broadcast,
             window_fx::set_window_opacity,
             window_fx::set_window_always_on_top,
         ])

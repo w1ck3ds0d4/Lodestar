@@ -714,6 +714,41 @@ select:focus {
   pointer-events: none;
 }
 
+/* Phone companion */
+.phone-conn {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+}
+.phone-qr {
+  border-radius: 8px;
+  background: #fff;
+  padding: 6px;
+  flex: 0 0 auto;
+}
+.phone-conn-info {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.phone-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.phone-url {
+  font-size: 13px;
+  word-break: break-all;
+}
+.phone-pin {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  color: var(--accent-2);
+  font-variant-numeric: tabular-nums;
+}
+
 /* Usage & cost rows */
 .usage-row {
   display: flex;
