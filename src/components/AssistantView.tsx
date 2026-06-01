@@ -8,7 +8,7 @@ import {
   type CSSProperties,
 } from "react";
 import { Channel } from "@tauri-apps/api/core";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   Bot,
@@ -16,6 +16,7 @@ import {
   Crop,
   Ear,
   KeyRound,
+  LayoutDashboard,
   MessageSquare,
   Monitor,
   ScanSearch,
@@ -39,6 +40,9 @@ import {
   STT_LANGUAGES,
   estimateCost,
   type AudioDevices,
+  type CaptureCommand,
+  type CaptureSegment,
+  type CaptureState,
   type DeepgramBalance,
   type MonitorInfo,
   type UsageReport,
@@ -303,15 +307,26 @@ export function AssistantView() {
   const [context, setContext] = useState("");
   const [qa, setQa] = useState<QA[]>([]);
 
+  // Capture mode: floating overlay panels driven by this window.
+  const [captureOn, setCaptureOn] = useState(false);
+  const [captureErr, setCaptureErr] = useState("");
+
   const idRef = useRef(0);
   const segIdRef = useRef(0);
   const answeredIdx = useRef(0);
+  // Synchronous mirror of the dialog so the screen watcher can read the current
+  // conversation as context without re-creating runScreen (which would reset the
+  // watch interval on every new line).
+  const segmentsRef = useRef<DialogSegment[]>([]);
   // Synchronous mirror of `context` so the hotkey event listener and Read page can
   // dedupe/append without a stale closure.
   const contextRef = useRef("");
   useEffect(() => {
     contextRef.current = context;
   }, [context]);
+  useEffect(() => {
+    segmentsRef.current = segments;
+  }, [segments]);
 
   // Append a captured chunk (clipboard or focused-window text) to the assistant's
   // context, de-duplicating repeats and capping the total so it stays affordable.
@@ -447,7 +462,10 @@ export function AssistantView() {
       if (screenBusy.current) return;
       screenBusy.current = true;
       try {
-        const res = await api.answerScreen(screenMonitor, force);
+        // Feed the recent conversation so the screen answer is context-aware.
+        const convo = transcriptText(segmentsRef.current).trim();
+        const ctx = convo ? convo.slice(-1500) : null;
+        const res = await api.answerScreen(screenMonitor, force, ctx);
         const a = res.answer.trim();
         if (res.changed && a && a.toUpperCase() !== "NONE") {
           setQa((prev) => [{ id: ++idRef.current, q: "From your screen", a, pending: false }, ...prev]);
@@ -459,7 +477,7 @@ export function AssistantView() {
         screenBusy.current = false;
       }
     },
-    [screenMonitor],
+    [screenMonitor, transcriptText],
   );
 
   // Read page: pull whatever the user copied (Ctrl+A, Ctrl+C) from the clipboard and
@@ -864,6 +882,96 @@ export function AssistantView() {
     setQuestion("");
   };
 
+  // --- Capture mode -----------------------------------------------------------
+  // The snapshot mirrored to the overlay panels: committed dialog plus any
+  // in-progress live line, the answer feed, and the two live toggles.
+  const captureState = useCallback((): CaptureState => {
+    const segs: CaptureSegment[] = segments.map((s) => ({ role: s.role, speaker: s.speaker, text: s.text }));
+    (["them", "you"] as const).forEach((role) => {
+      const slot = live[role];
+      const txt = (slot.fin + " " + slot.int).trim();
+      if (txt) segs.push({ role, speaker: role === "them" ? "Them" : "You", text: txt });
+    });
+    return {
+      listening,
+      watching: watchingScreen,
+      segments: segs,
+      answers: qa.map((e) => ({ q: e.q, a: e.a, pending: e.pending })),
+    };
+  }, [listening, watchingScreen, segments, live, qa]);
+  const pushCaptureState = useCallback(() => void emit("capture-state", captureState()), [captureState]);
+
+  const startCapture = async () => {
+    setCaptureErr("");
+    try {
+      await api.openCapturePanels();
+      setCaptureOn(true);
+      if (!listening) void toggleListen(); // capture mode starts listening
+    } catch (e) {
+      setCaptureErr(String(e));
+    }
+  };
+  const stopCapture = async () => {
+    setCaptureOn(false);
+    try {
+      await api.closeCapturePanels();
+    } catch {
+      /* ignore */
+    }
+  };
+
+  // Dispatch commands arriving from the overlay panels. Reassigned every render so
+  // the once-registered listener always calls the latest handlers.
+  const captureCmdRef = useRef<(c: CaptureCommand) => void>(() => {});
+  captureCmdRef.current = (c) => {
+    switch (c.cmd) {
+      case "listen":
+        void toggleListen();
+        break;
+      case "watch":
+        setWatchingScreen((v) => !v);
+        break;
+      case "snip":
+        void startSnip();
+        break;
+      case "ask":
+        if (c.text) void ask(c.text, transcriptText(segments));
+        break;
+      case "stop":
+        void stopCapture();
+        break;
+      case "sync":
+        pushCaptureState();
+        break;
+    }
+  };
+  useEffect(() => {
+    let cancelled = false;
+    let un: UnlistenFn | null = null;
+    void listen<CaptureCommand>("capture-command", (e) => captureCmdRef.current(e.payload)).then((u) =>
+      cancelled ? u() : (un = u),
+    );
+    return () => {
+      cancelled = true;
+      un?.();
+    };
+  }, []);
+
+  // Push state to the panels on change (debounced) plus a heartbeat so a panel
+  // that just opened catches up even with no further changes.
+  useEffect(() => {
+    if (!captureOn) return;
+    const t = setTimeout(pushCaptureState, 120);
+    const hb = setInterval(pushCaptureState, 1500);
+    return () => {
+      clearTimeout(t);
+      clearInterval(hb);
+    };
+  }, [captureOn, pushCaptureState]);
+
+  // Never leave overlay panels floating when this view unmounts (tab switch / close).
+  useEffect(() => () => void api.closeCapturePanels().catch(() => {}), []);
+
   const needsDeepgramKey = sttEngine === "deepgram" && !hasSttKey;
   const cmGroups = useMemo(() => snippetGroups(qa), [qa]);
   const dialogUnread = Math.max(0, segments.length - seenDialog);
@@ -996,6 +1104,14 @@ export function AssistantView() {
                 {listening ? <Square size={15} /> : <Ear size={15} />}
                 {listening ? "Stop listening" : "Listen to call"}
               </button>
+              <button
+                className={"btn-listen" + (captureOn ? " on" : "")}
+                onClick={() => (captureOn ? void stopCapture() : void startCapture())}
+                title="Pop out floating, always-on-top panels you can drag over your call (starts listening)"
+              >
+                {captureOn ? <Square size={15} /> : <LayoutDashboard size={15} />}
+                {captureOn ? "Exit capture" : "Capture mode"}
+              </button>
               <label className="auto-toggle muted sm">
                 <input
                   type="checkbox"
@@ -1007,6 +1123,13 @@ export function AssistantView() {
             </div>
           )}
 
+          {captureErr && <div className="assistant-error">{captureErr}</div>}
+          {captureOn && (
+            <div className="muted sm">
+              Panels are floating and always-on-top - drag them anywhere. Press{" "}
+              <span className="kbd">Alt+Shift+C</span> to hide or show them instantly.
+            </div>
+          )}
           {listenError && <div className="assistant-error">{listenError}</div>}
 
           {listening && (

@@ -2416,3 +2416,175 @@ textarea:focus {
   background: var(--border);
   border-radius: 8px;
 }
+
+/* ===== Capture mode: floating overlay panels (their own borderless windows) ===== */
+.cap-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  color: var(--text);
+  overflow: hidden;
+}
+/* Bottom-right resize grip (borderless windows have no native resize edges). */
+.cap-grip {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 16px;
+  height: 16px;
+  cursor: nwse-resize;
+  background: linear-gradient(
+    135deg,
+    transparent 0 50%,
+    var(--border) 50% 60%,
+    transparent 60% 72%,
+    var(--border) 72% 82%,
+    transparent 82%
+  );
+}
+.cap-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--border);
+  cursor: move;
+  user-select: none;
+  flex: 0 0 auto;
+}
+.cap-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 700;
+  font-size: 12.5px;
+  color: var(--accent-2);
+}
+.cap-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--muted);
+  margin-left: auto;
+}
+.cap-dot.on {
+  background: var(--accent-2);
+  box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.18);
+}
+.cap-x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--muted);
+  border-radius: 7px;
+}
+.cap-x:hover {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+.cap-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 10px;
+}
+.cap-empty {
+  color: var(--muted);
+  text-align: center;
+  margin-top: 36%;
+  font-size: 13px;
+}
+/* Answers */
+.cap-qa {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  background: var(--bg-2);
+}
+.cap-qa .cap-q {
+  color: var(--muted);
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+.cap-qa .cap-a {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 13.5px;
+}
+/* Transcript */
+.cap-seg {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 8px;
+  max-width: 92%;
+}
+.cap-seg.you {
+  margin-left: auto;
+  align-items: flex-end;
+}
+.cap-seg .cap-who {
+  font-size: 11px;
+  color: var(--muted);
+}
+.cap-seg .cap-txt {
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-2);
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 13.5px;
+}
+.cap-seg.you .cap-txt {
+  background: rgba(16, 185, 129, 0.12);
+  border-color: var(--accent);
+}
+/* Controls */
+.cap-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.cap-btns {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.cap-ask {
+  display: flex;
+  gap: 8px;
+}
+.cap-ask input {
+  flex: 1;
+  min-width: 0;
+}
+.cap-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 11px;
+  border: 1px solid var(--border);
+  background: var(--bg-2);
+  color: var(--text);
+  border-radius: 9px;
+  font-weight: 600;
+  font-size: 13px;
+}
+.cap-btn:hover {
+  border-color: var(--accent);
+}
+.cap-btn.on {
+  border-color: var(--accent);
+  color: var(--accent-2);
+  background: rgba(16, 185, 129, 0.14);
+}

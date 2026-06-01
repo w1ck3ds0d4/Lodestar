@@ -624,16 +624,18 @@ pub async fn answer_screen(
     engine: &Engine,
     png_base64: &str,
     profile: Option<&str>,
+    context: Option<&str>,
 ) -> Result<String> {
-    vision(
-        http,
-        engine,
-        SCREEN_PROMPT,
-        "Find and answer any question or problem visible on this screen.",
-        png_base64,
-        profile,
-    )
-    .await
+    // When the live conversation is supplied (capture mode's screen watch), give it
+    // to the model so the screen answer is informed by what is being discussed.
+    let prompt = match context.map(str::trim).filter(|c| !c.is_empty()) {
+        Some(convo) => format!(
+            "Recent interview conversation, for context:\n{convo}\n\nNow look at the screen: find and \
+answer any question or problem visible on it, taking the conversation into account."
+        ),
+        None => "Find and answer any question or problem visible on this screen.".to_string(),
+    };
+    vision(http, engine, SCREEN_PROMPT, &prompt, png_base64, profile).await
 }
 
 /// Explain a user-selected screen region (the "snip & explain" tool).

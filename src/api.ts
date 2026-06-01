@@ -185,10 +185,14 @@ export const setOutputDevice = (name: string) => invoke<void>("set_output_device
 export const startListening = () => invoke<void>("start_listening");
 export const stopListening = () => invoke<void>("stop_listening");
 
+// --- Capture mode (floating overlay panels) ---
+export const openCapturePanels = () => invoke<void>("open_capture_panels");
+export const closeCapturePanels = () => invoke<void>("close_capture_panels");
+
 // --- Screen watcher (capture a monitor -> Claude vision) ---
 export const listMonitors = () => invoke<MonitorInfo[]>("list_monitors");
-export const answerScreen = (monitor: number, force: boolean) =>
-  invoke<ScreenAnswer>("answer_screen", { monitor, force });
+export const answerScreen = (monitor: number, force: boolean, context: string | null = null) =>
+  invoke<ScreenAnswer>("answer_screen", { monitor, force, context });
 // Snip-to-explain: grab the monitor as a base64 PNG, crop client-side, explain the crop.
 export const captureScreenPng = (monitor: number) => invoke<string>("capture_screen_png", { monitor });
 export const explainRegion = (pngBase64: string) => invoke<string>("explain_region", { pngBase64 });

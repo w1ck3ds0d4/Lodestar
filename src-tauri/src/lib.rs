@@ -1,4 +1,5 @@
 mod assistant;
+mod capture;
 mod career;
 mod commands;
 mod db;
@@ -43,10 +44,10 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
         // Global hotkeys:
-        //  - Alt+Shift+R: read the focused (browser) window's text via UI Automation
-        //    (for pages that block copy/paste). Runs on a fresh thread (COM + UIA can be
-        //    slow) and pushes the result to the UI as a `window-text` event.
-        //  - Alt+Shift+H: panic-hide - instantly toggle the app window's visibility.
+        //  - Alt+Shift+C: show/hide the capture overlay panels (instant, focus-free).
+        //  - Alt+Shift+H: panic-hide - instantly toggle the main window's visibility.
+        //  - Alt+Shift+R: read the focused window's text via UI Automation, for pages
+        //    that block copy/paste (runs on a fresh thread; COM + UIA can be slow).
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, shortcut, event| {
@@ -56,6 +57,10 @@ pub fn run() {
                         return;
                     }
                     let alt_shift = Modifiers::ALT | Modifiers::SHIFT;
+                    if shortcut.matches(alt_shift, Code::KeyC) {
+                        capture::toggle_visibility(app);
+                        return;
+                    }
                     if shortcut.matches(alt_shift, Code::KeyH) {
                         if let Some(win) = app.get_webview_window("main") {
                             if win.is_visible().unwrap_or(true) {
@@ -65,7 +70,9 @@ pub fn run() {
                                 let _ = win.set_focus();
                             }
                         }
-                    } else if shortcut.matches(alt_shift, Code::KeyR) {
+                        return;
+                    }
+                    if shortcut.matches(alt_shift, Code::KeyR) {
                         let app = app.clone();
                         std::thread::spawn(move || match winauto::read_focused_window_text() {
                             Ok(text) => {
@@ -110,6 +117,21 @@ pub fn run() {
                         tracing::warn!("could not register hotkey {sc}: {e}");
                     }
                 }
+                // Alt+Shift+C toggles the capture overlay panels' visibility.
+                if let Err(e) = app.global_shortcut().register("Alt+Shift+C") {
+                    tracing::warn!("could not register capture-toggle hotkey: {e}");
+                }
+            }
+
+            // Closing the main window must not leave the always-on-top capture
+            // panels floating; tear them down so the app can exit cleanly.
+            if let Some(main) = app.get_webview_window("main") {
+                let h = app.handle().clone();
+                main.on_window_event(move |e| {
+                    if matches!(e, tauri::WindowEvent::CloseRequested { .. }) {
+                        capture::close_panels(&h);
+                    }
+                });
             }
 
             // Background scheduler: sync due sources, then poll on an interval.
@@ -199,6 +221,8 @@ pub fn run() {
             commands::set_output_device,
             commands::start_listening,
             commands::stop_listening,
+            commands::open_capture_panels,
+            commands::close_capture_panels,
             window_fx::set_window_opacity,
             window_fx::set_window_always_on_top,
         ])
