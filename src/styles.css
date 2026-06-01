@@ -1005,49 +1005,10 @@ select:focus {
   outline: none;
 }
 
-@media (max-width: 1399px) {
-  .assistant-body {
-    grid-template-columns: minmax(0, 2fr) minmax(0, 5fr);
-  }
-  .col-code {
-    grid-column: 1 / -1;
-    grid-row: 2;
-    height: 340px;
-  }
-}
-@media (max-width: 999px) {
-  .assistant-body {
-    grid-template-columns: 1fr;
-  }
-  .assistant-col {
-    height: auto;
-    max-height: none;
-    overflow: visible;
-  }
-  .results:has(.assistant.three-col) {
-    overflow-y: auto;
-  }
-  .col-settings {
-    order: 1;
-  }
-  .col-dialog {
-    order: 2;
-  }
-  .col-code {
-    order: 3;
-    grid-row: auto;
-    overflow: visible;
-  }
-  .col-section {
-    flex: none;
-  }
-  .col-scroll {
-    overflow: visible;
-  }
-  .dialog-list {
-    max-height: 60vh;
-  }
-}
+/* Narrow widths are handled by the Setup/Dialog/Answers tab switcher (see the
+   `max-width: 1500px` block above), which shows one full-width column at a time.
+   The old 2-column / stacked breakpoints were removed - they overrode the tab
+   layout below 1399px and left Setup/Dialog stuck in a narrow grid track. */
 .assistant-bar {
   display: flex;
   align-items: center;
