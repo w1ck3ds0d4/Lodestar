@@ -697,6 +697,41 @@ select:focus {
   margin: 2px 0;
 }
 
+/* Story bank */
+.stories {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.story-draft {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.story-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-2);
+}
+.story-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.story-title {
+  flex: 1;
+  font-weight: 600;
+}
+.btn-open.sm {
+  align-self: flex-start;
+  padding: 5px 12px;
+  font-size: 12.5px;
+}
+
 /* Inline keyboard-shortcut chip. */
 .kbd {
   display: inline-block;

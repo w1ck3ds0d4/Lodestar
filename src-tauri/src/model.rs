@@ -116,3 +116,16 @@ pub struct Skill {
     pub created_at: i64,
     pub updated_at: i64,
 }
+
+/// A reusable interview story (usually STAR) drawn from the user's real experience,
+/// woven into behavioral answers so they are grounded and specific.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Story {
+    pub id: i64,
+    pub title: String,
+    pub content: String,
+    pub tags: String,
+    pub created_at: i64,
+    pub updated_at: i64,
+}

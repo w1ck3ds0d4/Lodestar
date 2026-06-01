@@ -33,6 +33,7 @@ import {
   type MonitorInfo,
   type UsageReport,
 } from "../types";
+import { StoriesPanel } from "./StoriesPanel";
 
 interface QA {
   id: number;
@@ -1213,6 +1214,13 @@ export function AssistantView() {
             <button className="btn-open" onClick={() => void saveContext()}>
               {contextSaved ? "Saved ✓" : "Save context"}
             </button>
+            </div>
+          </details>
+
+          <details className="acc">
+            <summary>Your stories</summary>
+            <div className="acc-body">
+              <StoriesPanel />
             </div>
           </details>
 

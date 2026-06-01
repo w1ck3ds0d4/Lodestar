@@ -4,7 +4,7 @@
 use anyhow::Result;
 use rusqlite::{params, Connection};
 
-use crate::model::{Milestone, Skill, Tracked};
+use crate::model::{Milestone, Skill, Story, Tracked};
 use crate::util::epoch_to_date;
 
 const TRACKED_COLS: &str = "id, kind, title, org, url, status, notes, applied_at, deadline, \
@@ -261,5 +261,60 @@ pub fn log_study(conn: &Connection, now: i64, id: i64, hours: f64) -> Result<()>
 
 pub fn remove_skill(conn: &Connection, id: i64) -> Result<()> {
     conn.execute("DELETE FROM skills WHERE id=?1", params![id])?;
+    Ok(())
+}
+
+// --- Interview story bank (reusable STAR stories) ---
+
+fn row_to_story(r: &rusqlite::Row) -> rusqlite::Result<Story> {
+    Ok(Story {
+        id: r.get(0)?,
+        title: r.get(1)?,
+        content: r.get(2)?,
+        tags: r.get(3)?,
+        created_at: r.get(4)?,
+        updated_at: r.get(5)?,
+    })
+}
+
+pub fn list_stories(conn: &Connection) -> Result<Vec<Story>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, title, content, tags, created_at, updated_at FROM stories ORDER BY updated_at DESC",
+    )?;
+    let rows = stmt.query_map([], row_to_story)?;
+    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
+pub fn add_story(
+    conn: &Connection,
+    now: i64,
+    title: &str,
+    content: &str,
+    tags: &str,
+) -> Result<i64> {
+    conn.execute(
+        "INSERT INTO stories (title, content, tags, created_at, updated_at) VALUES (?1,?2,?3,?4,?4)",
+        params![title, content, tags, now],
+    )?;
+    Ok(conn.last_insert_rowid())
+}
+
+pub fn update_story(
+    conn: &Connection,
+    now: i64,
+    id: i64,
+    title: &str,
+    content: &str,
+    tags: &str,
+) -> Result<()> {
+    conn.execute(
+        "UPDATE stories SET title=?2, content=?3, tags=?4, updated_at=?5 WHERE id=?1",
+        params![id, title, content, tags, now],
+    )?;
+    Ok(())
+}
+
+pub fn remove_story(conn: &Connection, id: i64) -> Result<()> {
+    conn.execute("DELETE FROM stories WHERE id=?1", params![id])?;
     Ok(())
 }
