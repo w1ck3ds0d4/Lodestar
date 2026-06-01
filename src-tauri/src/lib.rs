@@ -113,6 +113,7 @@ pub fn run() {
             commands::list_ollama_models,
             commands::ask_assistant,
             commands::auto_answer,
+            commands::read_clipboard,
             commands::set_deepgram_key,
             commands::get_usage,
             commands::reset_usage,

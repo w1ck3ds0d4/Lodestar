@@ -827,6 +827,21 @@ pub fn set_deepgram_key(state: State<'_, AppState>, key: String) -> Result<(), S
     }
 }
 
+/// Read plain text from the system clipboard. Powers the assistant's "Read page"
+/// button: the user selects-all + copies a web page (or any document) in their
+/// browser, and this pulls the full text in as context - including anything scrolled
+/// off-screen, which a viewport screenshot can't capture.
+#[tauri::command]
+pub fn read_clipboard() -> Result<String, String> {
+    let mut clipboard = arboard::Clipboard::new().map_err(|e| e.to_string())?;
+    match clipboard.get_text() {
+        Ok(t) => Ok(t),
+        // No text on the clipboard (empty, or an image/file) is not an error here.
+        Err(arboard::Error::ContentNotAvailable) => Ok(String::new()),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
 // --- Usage / cost ---
 
 #[derive(Serialize)]

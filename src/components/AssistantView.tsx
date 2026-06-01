@@ -4,6 +4,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   Bot,
+  ClipboardPaste,
   Crop,
   Ear,
   KeyRound,
@@ -249,6 +250,7 @@ export function AssistantView() {
   const [watchingScreen, setWatchingScreen] = useState(false);
   const [screenError, setScreenError] = useState("");
   const [snipSrc, setSnipSrc] = useState<string | null>(null);
+  const [pageMsg, setPageMsg] = useState("");
   const screenBusy = useRef(false);
 
   const [opacity, setOpacity] = useState(1);
@@ -354,6 +356,27 @@ export function AssistantView() {
     },
     [screenMonitor],
   );
+
+  // Read page: pull the text the user copied (Ctrl+A, Ctrl+C in their browser) from
+  // the clipboard and attach it as context. Ctrl+A grabs the whole document, so this
+  // captures content scrolled off-screen too - unlike a viewport screenshot.
+  const readPage = useCallback(async () => {
+    setPageMsg("");
+    try {
+      const text = (await api.readClipboard()).trim();
+      if (!text) {
+        setPageMsg("Clipboard is empty - in your browser press Ctrl+A then Ctrl+C, then click Read page.");
+        return;
+      }
+      const MAX = 30000;
+      const capped = text.length > MAX ? text.slice(0, MAX) + "\n\n[...truncated]" : text;
+      setContext(capped);
+      setPageMsg(`Attached ${text.length.toLocaleString()} chars as context.`);
+      window.setTimeout(() => setPageMsg(""), 3000);
+    } catch (e) {
+      setPageMsg("Couldn't read the clipboard: " + String(e));
+    }
+  }, []);
 
   // Snip & explain: capture the chosen monitor, then crop a region to explain.
   const startSnip = useCallback(async () => {
@@ -855,7 +878,15 @@ export function AssistantView() {
             <button className="btn-ghost" onClick={() => void startSnip()} disabled={watchingScreen} title="Snip a region of the screen and explain it">
               <Crop size={14} /> Snip
             </button>
+            <button
+              className="btn-ghost"
+              onClick={() => void readPage()}
+              title="Select-all + copy the page in your browser (Ctrl+A, Ctrl+C), then click this to attach the full page text - including parts scrolled off-screen - as context"
+            >
+              <ClipboardPaste size={14} /> Read page
+            </button>
           </div>
+          {pageMsg && <div className="muted sm">{pageMsg}</div>}
           {screenError && <div className="assistant-error">{screenError}</div>}
 
           <details className="acc" open>

@@ -124,6 +124,9 @@ export const askAssistant = (question: string, context: string | null, onEvent: 
 export const autoAnswer = (transcript: string, latest: string) =>
   invoke<string>("auto_answer", { transcript, latest });
 
+// Read plain text from the system clipboard (the "Read page" context grab).
+export const readClipboard = () => invoke<string>("read_clipboard");
+
 // --- Usage / cost ---
 export const getUsage = () => invoke<UsageReport>("get_usage");
 export const resetUsage = () => invoke<void>("reset_usage");
