@@ -140,6 +140,7 @@ pub fn run() {
             commands::update_story,
             commands::remove_story,
             commands::draft_story,
+            commands::application_doc,
             commands::study_plan,
             commands::set_screen_privacy,
             commands::get_assistant_settings,

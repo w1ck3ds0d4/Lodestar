@@ -341,6 +341,58 @@ pub async fn story_draft(
     }
 }
 
+// Application kit: tailor the candidate's materials to a specific job. The candidate's
+// resume + profile arrive via the system prompt (profile), so the user input is just
+// the job description (or, for a thank-you note, the interview transcript).
+const KIT_BULLETS: &str = "You tailor a candidate's resume to a specific job description. Using ONLY \
+facts from their resume and profile (never invent experience), rewrite their most relevant experience as \
+5-8 strong, quantified, JD-aligned bullet points that mirror the job's key terms and priorities. Output \
+just the bullets in GitHub-flavored Markdown.";
+const KIT_COVER: &str = "Write a concise, specific cover letter (3-4 short paragraphs) for this job, \
+grounded in the candidate's resume and profile - concrete and tailored, no clichés or filler. Address the \
+role's key needs and why they fit. GitHub-flavored Markdown.";
+const KIT_ATS: &str = "Act as an ATS keyword/fit checker. Compare the candidate's resume + profile to the \
+job description and output, in GitHub-flavored Markdown: (1) an estimated match percentage with a one-line \
+rationale, (2) a 'Present' list of important JD keywords/skills the resume already covers, (3) a 'Missing' \
+list of important JD keywords/skills not found, and (4) concrete, truthful tweaks the candidate could make. \
+Never suggest claiming skills they do not have.";
+const KIT_THANKS: &str = "Write a short, warm post-interview thank-you / follow-up email (under ~150 \
+words) that references one or two specific things from the interview transcript, reaffirms interest and \
+fit, and stays sincere and natural. GitHub-flavored Markdown.";
+
+/// Generate an application document. `kind` selects the prompt:
+/// "bullets" | "cover" | "ats" use `input` as the job description; "thanks" uses
+/// `input` as the interview transcript. The resume/profile come via `profile`.
+pub async fn application_doc(
+    http: &reqwest::Client,
+    engine: &Engine,
+    kind: &str,
+    input: &str,
+    profile: Option<&str>,
+) -> Result<String> {
+    let base = match kind {
+        "bullets" => KIT_BULLETS,
+        "cover" => KIT_COVER,
+        "ats" => KIT_ATS,
+        "thanks" => KIT_THANKS,
+        _ => return Err(anyhow!("Unknown application document kind: {kind}")),
+    };
+    let system = with_profile(base, profile);
+    let user_text = if kind == "thanks" {
+        format!("Interview transcript / notes:\n{input}")
+    } else {
+        format!("Job description:\n{input}")
+    };
+    match engine {
+        Engine::Claude { api_key, model } => {
+            complete(http, api_key, model, &system, user_text, None).await
+        }
+        Engine::Ollama { url, model } => {
+            ollama_chat(http, url, model, &system, user_text, None, None).await
+        }
+    }
+}
+
 /// Auto-answer: given the recent transcript and the newest segment, answer it if it
 /// is a question/problem (in any language), otherwise return the literal "NONE".
 pub async fn auto_answer(
