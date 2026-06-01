@@ -405,6 +405,15 @@ fn build_engine(conn: &rusqlite::Connection) -> Result<crate::assistant::Engine,
     }
 }
 
+/// The user's chosen answer format ("auto" | "concise" | "star" | "code").
+fn answer_style(conn: &rusqlite::Connection) -> String {
+    db::get_setting(conn, "answer_style")
+        .ok()
+        .flatten()
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| "auto".to_string())
+}
+
 /// Build the user's interview/study profile (role, resume, notes) from settings, so
 /// answers can be tailored. `None` when nothing is set.
 fn interview_profile(conn: &rusqlite::Connection) -> Option<String> {
@@ -443,6 +452,7 @@ pub struct AssistantSettings {
     pub input_device: String,
     pub output_device: String,
     pub answer_engine: String,
+    pub answer_style: String,
     pub ollama_url: String,
     pub ollama_model: String,
     pub context_role: String,
@@ -487,6 +497,7 @@ pub fn get_assistant_settings(state: State<'_, AppState>) -> Result<AssistantSet
     let answer_engine = db::get_setting(&conn, "answer_engine")
         .map_err(|e| e.to_string())?
         .unwrap_or_else(|| "claude".to_string());
+    let answer_style = answer_style(&conn);
     let ollama_url = db::get_setting(&conn, "ollama_url")
         .map_err(|e| e.to_string())?
         .filter(|s| !s.trim().is_empty())
@@ -505,6 +516,7 @@ pub fn get_assistant_settings(state: State<'_, AppState>) -> Result<AssistantSet
         input_device: get("input_device")?,
         output_device: get("output_device")?,
         answer_engine,
+        answer_style,
         ollama_url,
         ollama_model,
         context_role: get("context_role")?,
@@ -543,6 +555,13 @@ pub fn set_interview_context(
 pub fn set_answer_engine(state: State<'_, AppState>, engine: String) -> Result<(), String> {
     let conn = state.db.lock().map_err(|_| "db poisoned")?;
     db::set_setting(&conn, "answer_engine", &engine).map_err(|e| e.to_string())
+}
+
+/// Set the answer format: "auto" (default), "concise", "star", or "code".
+#[tauri::command]
+pub fn set_answer_style(state: State<'_, AppState>, style: String) -> Result<(), String> {
+    let conn = state.db.lock().map_err(|_| "db poisoned")?;
+    db::set_setting(&conn, "answer_style", &style).map_err(|e| e.to_string())
 }
 
 /// Set the Ollama model used when the answer engine is "ollama".
@@ -657,9 +676,9 @@ pub async fn ask_assistant(
         return Ok(());
     }
     // Build the engine + profile under a brief lock, then drop it before the await.
-    let (engine, profile) = {
+    let (engine, profile, style) = {
         let conn = state.db.lock().map_err(|_| "db poisoned")?;
-        (build_engine(&conn), interview_profile(&conn))
+        (build_engine(&conn), interview_profile(&conn), answer_style(&conn))
     };
     let engine = match engine {
         Ok(e) => e,
@@ -680,6 +699,7 @@ pub async fn ask_assistant(
         &question,
         context.as_deref(),
         profile.as_deref(),
+        &style,
         Some(&emit),
     )
     .await
@@ -707,12 +727,12 @@ pub async fn auto_answer(
     if latest.trim().is_empty() {
         return Ok("NONE".into());
     }
-    let (engine, profile) = {
+    let (engine, profile, style) = {
         let conn = state.db.lock().map_err(|_| "db poisoned")?;
-        (build_engine(&conn)?, interview_profile(&conn))
+        (build_engine(&conn)?, interview_profile(&conn), answer_style(&conn))
     };
     let http = state.http.clone();
-    crate::assistant::auto_answer(&http, &engine, &transcript, &latest, profile.as_deref())
+    crate::assistant::auto_answer(&http, &engine, &transcript, &latest, profile.as_deref(), &style)
         .await
         .map_err(|e| e.to_string())
 }

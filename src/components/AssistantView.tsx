@@ -23,6 +23,7 @@ import rehypeKatex from "rehype-katex";
 import "katex/dist/katex.min.css";
 import * as api from "../api";
 import {
+  ANSWER_STYLES,
   ASSISTANT_MODELS,
   DEEPGRAM_PER_MIN,
   STT_LANGUAGES,
@@ -222,6 +223,7 @@ export function AssistantView() {
   const [outputDevice, setOutputDevice] = useState("");
   const [model, setModel] = useState("claude-opus-4-8");
   const [answerEngine, setAnswerEngine] = useState("claude");
+  const [answerStyle, setAnswerStyle] = useState("auto");
   const [ollamaModel, setOllamaModel] = useState("");
   const [ollamaModels, setOllamaModels] = useState<string[]>([]);
   const [keyInput, setKeyInput] = useState("");
@@ -339,6 +341,7 @@ export function AssistantView() {
       setOutputDevice(s.outputDevice);
       setModel(s.model);
       setAnswerEngine(s.answerEngine);
+      setAnswerStyle(s.answerStyle || "auto");
       setOllamaModel(s.ollamaModel);
       setContextRole(s.contextRole);
       setContextCompany(s.contextCompany);
@@ -623,6 +626,11 @@ export function AssistantView() {
     setAnswerEngine(e);
     await api.setAnswerEngine(e);
     if (e === "ollama") refreshOllamaModels();
+  };
+
+  const changeStyle = async (st: string) => {
+    setAnswerStyle(st);
+    await api.setAnswerStyle(st);
   };
 
   const changeOllamaModel = async (m: string) => {
@@ -967,6 +975,21 @@ export function AssistantView() {
                   Local
                 </button>
               </div>
+            </div>
+
+            <div className="setup-row">
+              <span className="setup-label">Answer style</span>
+              <select
+                value={answerStyle}
+                title="How answers are formatted. Auto lets the model pick per question."
+                onChange={(e) => void changeStyle(e.target.value)}
+              >
+                {ANSWER_STYLES.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.label} - {s.note}
+                  </option>
+                ))}
+              </select>
             </div>
 
             {answerEngine === "ollama" && (

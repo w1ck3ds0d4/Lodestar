@@ -141,6 +141,7 @@ pub fn run() {
             commands::set_api_key,
             commands::set_assistant_model,
             commands::set_answer_engine,
+            commands::set_answer_style,
             commands::set_interview_context,
             commands::set_ollama_model,
             commands::set_ollama_url,

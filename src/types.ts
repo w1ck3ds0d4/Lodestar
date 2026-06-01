@@ -224,6 +224,7 @@ export interface AssistantSettings {
   inputDevice: string;
   outputDevice: string;
   answerEngine: string;
+  answerStyle: string;
   ollamaUrl: string;
   ollamaModel: string;
   contextRole: string;
@@ -267,6 +268,14 @@ export const STT_LANGUAGES: { code: string; label: string }[] = [
 
 // `inPrice`/`outPrice` are USD per million tokens, for the in-app cost estimate.
 // Approximate published Claude pricing; the real bill lives in the Anthropic console.
+// How answers are formatted. "auto" lets the model choose per question.
+export const ANSWER_STYLES: { id: string; label: string; note: string }[] = [
+  { id: "auto", label: "Auto", note: "best format per question" },
+  { id: "concise", label: "Concise", note: "glanceable bullets" },
+  { id: "star", label: "STAR", note: "behavioral structure" },
+  { id: "code", label: "Code", note: "solution + complexity" },
+];
+
 export const ASSISTANT_MODELS: { id: string; label: string; note: string; inPrice: number; outPrice: number }[] = [
   { id: "claude-opus-4-8", label: "Claude Opus 4.8", note: "most capable, slower", inPrice: 15, outPrice: 75 },
   { id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6", note: "balanced", inPrice: 3, outPrice: 15 },
