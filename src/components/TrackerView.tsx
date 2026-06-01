@@ -69,10 +69,42 @@ export function TrackerView({ onOpen }: { onOpen: (url: string) => void }) {
     load();
   };
 
+  const [copied, setCopied] = useState(false);
+  const exportMarkdown = async () => {
+    const lines: string[] = ["# Job applications", ""];
+    for (const st of APP_STATUSES) {
+      const col = applications.filter((a) => a.status === st);
+      if (!col.length) continue;
+      lines.push(`## ${APP_STATUS_LABELS[st]} (${col.length})`, "");
+      for (const a of col) {
+        let line = `- **${a.title}**${a.org ? ` — ${a.org}` : ""}`;
+        if (a.deadline) line += ` · due ${a.deadline}`;
+        if (a.nextAction) line += ` · next: ${a.nextAction}`;
+        if (a.url) line += ` · <${a.url}>`;
+        lines.push(line);
+      }
+      lines.push("");
+    }
+    try {
+      await navigator.clipboard.writeText(lines.join("\n"));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    } catch {
+      /* clipboard unavailable */
+    }
+  };
+
   return (
     <div className="tracker">
       <section>
-        <h2 className="section-title">Applications</h2>
+        <div className="section-head">
+          <h2 className="section-title">Applications</h2>
+          {applications.length > 0 && (
+            <button className="link-btn" onClick={() => void exportMarkdown()}>
+              {copied ? "Copied ✓" : "Copy as Markdown"}
+            </button>
+          )}
+        </div>
         {applications.length > 0 && (
           <div className="pipeline-stats">
             <span className="stat-pill">{active} active</span>

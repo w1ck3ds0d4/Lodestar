@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type CSSProperties,
+} from "react";
 import { Channel } from "@tauri-apps/api/core";
 import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -16,6 +24,7 @@ import {
   SlidersHorizontal,
   Sparkles,
   Square,
+  Upload,
   X,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
@@ -38,6 +47,7 @@ import {
   type MonitorInfo,
   type UsageReport,
 } from "../types";
+import { extractResumeText } from "../lib/extractText";
 import { ApplicationKit } from "./ApplicationKit";
 import { SessionsPanel } from "./SessionsPanel";
 import { StoriesPanel } from "./StoriesPanel";
@@ -283,6 +293,8 @@ export function AssistantView() {
   const [contextResume, setContextResume] = useState("");
   const [contextNotes, setContextNotes] = useState("");
   const [contextSaved, setContextSaved] = useState(false);
+  const [resumeMsg, setResumeMsg] = useState("");
+  const resumeFileRef = useRef<HTMLInputElement>(null);
 
   const [usage, setUsage] = useState<UsageReport | null>(null);
   const [claudeCreditInput, setClaudeCreditInput] = useState("");
@@ -408,6 +420,26 @@ export function AssistantView() {
     await api.setInterviewContext(contextRole, contextCompany, contextResume, contextNotes);
     setContextSaved(true);
     setTimeout(() => setContextSaved(false), 1500);
+  };
+
+  // Import a resume file (PDF/DOCX/TXT/MD) into the resume field; the user reviews
+  // and then hits Save context.
+  const onResumeFile = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // let the same file be re-picked later
+    if (!file) return;
+    setResumeMsg("Reading...");
+    try {
+      const text = await extractResumeText(file);
+      if (!text.trim()) {
+        setResumeMsg("No selectable text found in that file (a scanned PDF has none).");
+        return;
+      }
+      setContextResume(text);
+      setResumeMsg(`Imported ${text.length.toLocaleString()} chars from ${file.name} - review and Save context.`);
+    } catch (err) {
+      setResumeMsg(String(err));
+    }
   };
   const refreshOllamaModels = useCallback(() => {
     void api
@@ -1405,6 +1437,10 @@ export function AssistantView() {
               Always on top
             </label>
             <div className="muted sm">Dims the whole window (this UI too); min 30%.</div>
+            <div className="muted sm">
+              Panic hide: press <span className="kbd">Alt+Shift+H</span> anytime to hide/show the window
+              instantly (Windows).
+            </div>
             </div>
           </details>
 
@@ -1426,8 +1462,21 @@ export function AssistantView() {
                 rows={4}
                 value={contextResume}
                 onChange={(e) => setContextResume(e.target.value)}
-                placeholder="Paste your resume or a short summary…"
+                placeholder="Paste your resume, or import a file below…"
               />
+              <div className="resume-import">
+                <input
+                  ref={resumeFileRef}
+                  type="file"
+                  accept=".pdf,.docx,.txt,.md"
+                  className="hidden-file"
+                  onChange={(e) => void onResumeFile(e)}
+                />
+                <button className="link-btn" onClick={() => resumeFileRef.current?.click()}>
+                  <Upload size={13} /> Import PDF / DOCX / text
+                </button>
+                {resumeMsg && <span className="muted sm">{resumeMsg}</span>}
+              </div>
             </div>
             <div className="setup-field">
               <span className="setup-label">Notes / materials</span>
