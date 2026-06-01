@@ -5,7 +5,7 @@ use serde_json::Value;
 use tauri::{AppHandle, State};
 
 use crate::db;
-use crate::model::{Alert, Job, Skill, Source, Tracked};
+use crate::model::{Alert, Job, Skill, Source, Story, Tracked};
 use crate::util::now_ms;
 use crate::AppState;
 
@@ -335,6 +335,60 @@ pub fn remove_skill(state: State<'_, AppState>, id: i64) -> Result<(), String> {
     crate::career::remove_skill(&conn, id).map_err(|e| e.to_string())
 }
 
+// --- Interview story bank ---
+
+#[tauri::command]
+pub fn list_stories(state: State<'_, AppState>) -> Result<Vec<Story>, String> {
+    let conn = state.db.lock().map_err(|_| "db poisoned")?;
+    crate::career::list_stories(&conn).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn add_story(
+    state: State<'_, AppState>,
+    title: String,
+    content: String,
+    tags: String,
+) -> Result<i64, String> {
+    let conn = state.db.lock().map_err(|_| "db poisoned")?;
+    crate::career::add_story(&conn, now_ms(), &title, &content, &tags).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn update_story(
+    state: State<'_, AppState>,
+    id: i64,
+    title: String,
+    content: String,
+    tags: String,
+) -> Result<(), String> {
+    let conn = state.db.lock().map_err(|_| "db poisoned")?;
+    crate::career::update_story(&conn, now_ms(), id, &title, &content, &tags)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn remove_story(state: State<'_, AppState>, id: i64) -> Result<(), String> {
+    let conn = state.db.lock().map_err(|_| "db poisoned")?;
+    crate::career::remove_story(&conn, id).map_err(|e| e.to_string())
+}
+
+/// Draft a STAR story from the user's rough notes (uses the configured answer engine).
+#[tauri::command]
+pub async fn draft_story(state: State<'_, AppState>, notes: String) -> Result<String, String> {
+    if notes.trim().is_empty() {
+        return Err("Jot down a few notes about the experience first.".into());
+    }
+    let (engine, profile) = {
+        let conn = state.db.lock().map_err(|_| "db poisoned")?;
+        (build_engine(&conn)?, interview_profile(&conn))
+    };
+    let http = state.http.clone();
+    crate::assistant::story_draft(&http, &engine, &notes, profile.as_deref())
+        .await
+        .map_err(|e| e.to_string())
+}
+
 /// Generate an AI study plan for a skill (uses the configured answer engine + profile).
 #[tauri::command]
 pub async fn study_plan(
@@ -435,6 +489,30 @@ fn interview_profile(conn: &rusqlite::Connection) -> Option<String> {
     }
     if let Some(notes) = get("context_notes") {
         parts.push(format!("Notes / materials:\n{notes}"));
+    }
+    // The story bank: real experiences to ground behavioral answers in. The model is
+    // told to pick the most relevant and weave in concrete details (not invent any).
+    if let Ok(stories) = crate::career::list_stories(conn) {
+        if !stories.is_empty() {
+            let mut block = String::from(
+                "Candidate's real experience stories - for behavioral/experience questions, draw on the \
+                 most relevant one and weave in its concrete details; do not invent facts beyond these:",
+            );
+            for s in &stories {
+                let tags = if s.tags.trim().is_empty() {
+                    String::new()
+                } else {
+                    format!(" [{}]", s.tags.trim())
+                };
+                block.push_str(&format!(
+                    "\n\n# {}{}\n{}",
+                    s.title.trim(),
+                    tags,
+                    s.content.trim()
+                ));
+            }
+            parts.push(block);
+        }
     }
     (!parts.is_empty()).then(|| parts.join("\n\n"))
 }
@@ -678,7 +756,11 @@ pub async fn ask_assistant(
     // Build the engine + profile under a brief lock, then drop it before the await.
     let (engine, profile, style) = {
         let conn = state.db.lock().map_err(|_| "db poisoned")?;
-        (build_engine(&conn), interview_profile(&conn), answer_style(&conn))
+        (
+            build_engine(&conn),
+            interview_profile(&conn),
+            answer_style(&conn),
+        )
     };
     let engine = match engine {
         Ok(e) => e,
@@ -729,12 +811,23 @@ pub async fn auto_answer(
     }
     let (engine, profile, style) = {
         let conn = state.db.lock().map_err(|_| "db poisoned")?;
-        (build_engine(&conn)?, interview_profile(&conn), answer_style(&conn))
+        (
+            build_engine(&conn)?,
+            interview_profile(&conn),
+            answer_style(&conn),
+        )
     };
     let http = state.http.clone();
-    crate::assistant::auto_answer(&http, &engine, &transcript, &latest, profile.as_deref(), &style)
-        .await
-        .map_err(|e| e.to_string())
+    crate::assistant::auto_answer(
+        &http,
+        &engine,
+        &transcript,
+        &latest,
+        profile.as_deref(),
+        &style,
+    )
+    .await
+    .map_err(|e| e.to_string())
 }
 
 // --- Screen watcher: read questions off a monitor and auto-answer them ---

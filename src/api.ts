@@ -11,6 +11,7 @@ import type {
   Skill,
   Source,
   Stats,
+  Story,
   Tracked,
 } from "./types";
 
@@ -98,6 +99,15 @@ export const updateSkill = (id: number, name: string, goal: string, level: numbe
 export const logStudy = (id: number, hours: number) => invoke<void>("log_study", { id, hours });
 export const removeSkill = (id: number) => invoke<void>("remove_skill", { id });
 export const studyPlan = (skill: string, goal: string) => invoke<string>("study_plan", { skill, goal });
+
+// --- Interview story bank ---
+export const listStories = () => invoke<Story[]>("list_stories");
+export const addStory = (title: string, content: string, tags: string) =>
+  invoke<number>("add_story", { title, content, tags });
+export const updateStory = (id: number, title: string, content: string, tags: string) =>
+  invoke<void>("update_story", { id, title, content, tags });
+export const removeStory = (id: number) => invoke<void>("remove_story", { id });
+export const draftStory = (notes: string) => invoke<string>("draft_story", { notes });
 
 // --- Screen privacy (exclude window from screen capture / sharing) ---
 export const setScreenPrivacy = (enabled: boolean) => invoke<void>("set_screen_privacy", { enabled });

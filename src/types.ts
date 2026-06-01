@@ -82,6 +82,16 @@ export interface Skill {
   updatedAt: number;
 }
 
+// A reusable interview story (usually STAR) from the user's real experience.
+export interface Story {
+  id: number;
+  title: string;
+  content: string;
+  tags: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export const APP_STATUSES = ["saved", "applied", "screen", "interview", "offer", "accepted", "rejected"] as const;
 export const APP_STATUS_LABELS: Record<string, string> = {
   saved: "Saved",

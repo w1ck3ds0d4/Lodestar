@@ -315,6 +315,32 @@ pub async fn study_plan(
     }
 }
 
+/// System prompt for drafting a reusable STAR story from the user's rough notes.
+const STORY_PROMPT: &str = "You help a candidate turn rough notes about a real experience into a reusable \
+interview story. Write a tight first-person STAR story with four short labelled paragraphs - Situation, \
+Task, Action, Result. Keep it concrete and concise (the candidate will adapt it live), quantify impact \
+where the notes support it, and never invent facts that contradict or go beyond the notes. Output plain \
+text with the STAR labels, no preamble.";
+
+/// Draft a STAR story from the user's rough notes about an experience.
+pub async fn story_draft(
+    http: &reqwest::Client,
+    engine: &Engine,
+    notes: &str,
+    profile: Option<&str>,
+) -> Result<String> {
+    let user_text = format!("My rough notes about the experience:\n{notes}");
+    let system = with_profile(STORY_PROMPT, profile);
+    match engine {
+        Engine::Claude { api_key, model } => {
+            complete(http, api_key, model, &system, user_text, None).await
+        }
+        Engine::Ollama { url, model } => {
+            ollama_chat(http, url, model, &system, user_text, None, None).await
+        }
+    }
+}
+
 /// Auto-answer: given the recent transcript and the newest segment, answer it if it
 /// is a question/problem (in any language), otherwise return the literal "NONE".
 pub async fn auto_answer(
