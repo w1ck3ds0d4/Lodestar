@@ -389,6 +389,30 @@ pub async fn draft_story(state: State<'_, AppState>, notes: String) -> Result<St
         .map_err(|e| e.to_string())
 }
 
+/// Generate an application document tailored to a job. `kind` is "bullets", "cover",
+/// "ats", or "thanks"; `input` is the job description (or, for "thanks", the interview
+/// transcript). Uses the stored resume/profile.
+#[tauri::command]
+pub async fn application_doc(
+    state: State<'_, AppState>,
+    kind: String,
+    input: String,
+) -> Result<String, String> {
+    if input.trim().is_empty() {
+        return Err(
+            "Paste the job description first (or the interview transcript for a thank-you).".into(),
+        );
+    }
+    let (engine, profile) = {
+        let conn = state.db.lock().map_err(|_| "db poisoned")?;
+        (build_engine(&conn)?, interview_profile(&conn))
+    };
+    let http = state.http.clone();
+    crate::assistant::application_doc(&http, &engine, &kind, &input, profile.as_deref())
+        .await
+        .map_err(|e| e.to_string())
+}
+
 /// Generate an AI study plan for a skill (uses the configured answer engine + profile).
 #[tauri::command]
 pub async fn study_plan(

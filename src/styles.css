@@ -732,6 +732,25 @@ select:focus {
   font-size: 12.5px;
 }
 
+/* Application kit */
+.appkit {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.appkit-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.appkit-out {
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+.appkit-out .link-btn {
+  float: right;
+}
+
 /* Inline keyboard-shortcut chip. */
 .kbd {
   display: inline-block;

@@ -33,6 +33,7 @@ import {
   type MonitorInfo,
   type UsageReport,
 } from "../types";
+import { ApplicationKit } from "./ApplicationKit";
 import { StoriesPanel } from "./StoriesPanel";
 
 interface QA {
@@ -1250,6 +1251,13 @@ export function AssistantView() {
             <div className="muted sm">
               Uses the model's own knowledge + what you enter (no live web lookup), so verify specifics.
             </div>
+            </div>
+          </details>
+
+          <details className="acc">
+            <summary>Application kit</summary>
+            <div className="acc-body">
+              <ApplicationKit transcript={transcriptText(segments)} />
             </div>
           </details>
 

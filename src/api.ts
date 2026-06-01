@@ -109,6 +109,11 @@ export const updateStory = (id: number, title: string, content: string, tags: st
 export const removeStory = (id: number) => invoke<void>("remove_story", { id });
 export const draftStory = (notes: string) => invoke<string>("draft_story", { notes });
 
+// --- Application kit: tailor resume/cover/ATS/thank-you to a job ---
+// kind: "bullets" | "cover" | "ats" | "thanks"; input is the JD (or transcript for "thanks").
+export const applicationDoc = (kind: string, input: string) =>
+  invoke<string>("application_doc", { kind, input });
+
 // --- Screen privacy (exclude window from screen capture / sharing) ---
 export const setScreenPrivacy = (enabled: boolean) => invoke<void>("set_screen_privacy", { enabled });
 
