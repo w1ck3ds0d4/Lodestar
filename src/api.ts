@@ -185,6 +185,10 @@ export const setOutputDevice = (name: string) => invoke<void>("set_output_device
 export const startListening = () => invoke<void>("start_listening");
 export const stopListening = () => invoke<void>("stop_listening");
 
+// --- Capture mode (floating overlay panels) ---
+export const openCapturePanels = () => invoke<void>("open_capture_panels");
+export const closeCapturePanels = () => invoke<void>("close_capture_panels");
+
 // --- Screen watcher (capture a monitor -> Claude vision) ---
 export const listMonitors = () => invoke<MonitorInfo[]>("list_monitors");
 export const answerScreen = (monitor: number, force: boolean) =>
