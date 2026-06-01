@@ -1314,6 +1314,10 @@ export function AssistantView() {
               Always on top
             </label>
             <div className="muted sm">Dims the whole window (this UI too); min 30%.</div>
+            <div className="muted sm">
+              Panic hide: press <span className="kbd">Alt+Shift+H</span> anytime to hide/show the window
+              instantly (Windows).
+            </div>
             </div>
           </details>
 

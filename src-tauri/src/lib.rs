@@ -42,26 +42,40 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
-        // Global hotkey -> read the focused (browser) window's text via UI Automation,
-        // for pages that block copy/paste. Runs on a fresh thread (COM + UIA can be
-        // slow) and pushes the result to the UI as a `window-text` event.
+        // Global hotkeys:
+        //  - Alt+Shift+R: read the focused (browser) window's text via UI Automation
+        //    (for pages that block copy/paste). Runs on a fresh thread (COM + UIA can be
+        //    slow) and pushes the result to the UI as a `window-text` event.
+        //  - Alt+Shift+H: panic-hide - instantly toggle the app window's visibility.
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
-                .with_handler(|app, _shortcut, event| {
-                    use tauri::Emitter;
-                    use tauri_plugin_global_shortcut::ShortcutState;
+                .with_handler(|app, shortcut, event| {
+                    use tauri::{Emitter, Manager};
+                    use tauri_plugin_global_shortcut::{Code, Modifiers, ShortcutState};
                     if event.state() != ShortcutState::Pressed {
                         return;
                     }
-                    let app = app.clone();
-                    std::thread::spawn(move || match winauto::read_focused_window_text() {
-                        Ok(text) => {
-                            let _ = app.emit("window-text", text);
+                    let alt_shift = Modifiers::ALT | Modifiers::SHIFT;
+                    if shortcut.matches(alt_shift, Code::KeyH) {
+                        if let Some(win) = app.get_webview_window("main") {
+                            if win.is_visible().unwrap_or(true) {
+                                let _ = win.hide();
+                            } else {
+                                let _ = win.show();
+                                let _ = win.set_focus();
+                            }
                         }
-                        Err(e) => {
-                            let _ = app.emit("window-text-error", e.to_string());
-                        }
-                    });
+                    } else if shortcut.matches(alt_shift, Code::KeyR) {
+                        let app = app.clone();
+                        std::thread::spawn(move || match winauto::read_focused_window_text() {
+                            Ok(text) => {
+                                let _ = app.emit("window-text", text);
+                            }
+                            Err(e) => {
+                                let _ = app.emit("window-text-error", e.to_string());
+                            }
+                        });
+                    }
                 })
                 .build(),
         )
@@ -91,8 +105,10 @@ pub fn run() {
             // non-fatal so the rest of the app still starts.
             {
                 use tauri_plugin_global_shortcut::GlobalShortcutExt;
-                if let Err(e) = app.global_shortcut().register("Alt+Shift+R") {
-                    tracing::warn!("could not register read-window hotkey: {e}");
+                for sc in ["Alt+Shift+R", "Alt+Shift+H"] {
+                    if let Err(e) = app.global_shortcut().register(sc) {
+                        tracing::warn!("could not register hotkey {sc}: {e}");
+                    }
                 }
             }
 
