@@ -52,3 +52,19 @@ pub fn close_panels(app: &AppHandle) {
         }
     }
 }
+
+/// Hide the panels if any is visible, otherwise show them all. Bound to a global
+/// hotkey so the overlays can be dismissed instantly (e.g. when sharing a screen
+/// or someone glances over) without touching the app.
+pub fn toggle_visibility(app: &AppHandle) {
+    let any_visible = PANELS.iter().any(|&(label, ..)| {
+        app.get_webview_window(label)
+            .and_then(|w| w.is_visible().ok())
+            .unwrap_or(false)
+    });
+    for &(label, ..) in PANELS {
+        if let Some(win) = app.get_webview_window(label) {
+            let _ = if any_visible { win.hide() } else { win.show() };
+        }
+    }
+}
