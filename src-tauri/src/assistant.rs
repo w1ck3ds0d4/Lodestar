@@ -24,8 +24,9 @@ The user is often mid-call, in a lecture, or studying and needs fast, correct he
 snippet of conversation/transcript, work out what is actually being asked and answer it directly and \
 concisely - lead with the answer, then the key supporting steps. Format with GitHub-flavored Markdown: put \
 code in fenced code blocks with a language tag (```python ... ```), and write math in LaTeX - inline as \
-$...$ and display equations as $$...$$. Keep it tight, no filler. If the input is ambiguous, state your \
-best interpretation in one line, then answer it.";
+$...$ and display equations as $$...$$. When you write code, give real, runnable code, never pseudocode. \
+Keep it tight, no filler, and do not repeat yourself or restate the question. If the input is ambiguous, \
+state your best interpretation in one line, then answer it.";
 
 /// System prompt for auto-answer: watch a live transcript and answer only when
 /// something is actually being asked (in any language); otherwise reply "NONE".
@@ -53,9 +54,10 @@ short, glanceable bullet points. No preamble or long prose - it is read at a gla
         "star" => "\n\nANSWER FORMAT: for behavioral or experience questions, answer in the first \
 person using the STAR structure (Situation, Task, Action, Result) - concise but complete. For technical \
 or factual questions, answer directly.",
-        "code" => "\n\nANSWER FORMAT: when the question involves code, lead with the solution in a \
-language-tagged fenced code block, then a 1-2 line explanation and the time/space complexity. Keep prose \
-minimal.",
+        "code" => "\n\nANSWER FORMAT: lead with one complete, runnable solution in a single \
+language-tagged fenced code block - real code, never pseudocode unless explicitly asked. Then at most a \
+1-2 line explanation and the time and space complexity. Give exactly one focused solution; do not restate \
+the problem, list alternatives, or repeat yourself. Keep prose minimal.",
         _ => "",
     }
 }
@@ -799,7 +801,24 @@ fn api_error_message(status: u16, payload: &Value) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_cards_json;
+    use super::{parse_cards_json, style_directive};
+
+    #[test]
+    fn code_style_demands_real_code_and_complexity() {
+        let d = style_directive("code");
+        assert!(d.contains("pseudocode"), "should forbid pseudocode");
+        assert!(d.contains("complexity"), "should ask for complexity");
+        assert!(
+            d.contains("one"),
+            "should ask for a single focused solution"
+        );
+    }
+
+    #[test]
+    fn auto_and_unknown_styles_add_no_directive() {
+        assert_eq!(style_directive("auto"), "");
+        assert_eq!(style_directive("anything-else"), "");
+    }
 
     #[test]
     fn parses_a_plain_json_array() {
