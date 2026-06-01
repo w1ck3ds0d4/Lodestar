@@ -3,6 +3,7 @@ import type {
   Alert,
   AssistantSettings,
   AudioDevices,
+  Card,
   DeepgramBalance,
   UsageReport,
   Job,
@@ -119,6 +120,12 @@ export const applicationDoc = (kind: string, input: string) =>
 export const practiceQuestion = (asked: string[]) => invoke<string>("practice_question", { asked });
 export const practiceFeedback = (question: string, answer: string) =>
   invoke<string>("practice_feedback", { question, answer });
+
+// --- Flashcards (spaced repetition) ---
+export const listCards = () => invoke<Card[]>("list_cards");
+export const generateCards = (source: string) => invoke<number>("generate_cards", { source });
+export const reviewCard = (id: number, good: boolean) => invoke<void>("review_card", { id, good });
+export const removeCard = (id: number) => invoke<void>("remove_card", { id });
 
 // --- Interview session history ---
 export const listSessions = () => invoke<Session[]>("list_sessions");

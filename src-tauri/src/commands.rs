@@ -5,7 +5,7 @@ use serde_json::Value;
 use tauri::{AppHandle, State};
 
 use crate::db;
-use crate::model::{Alert, Job, Session, Skill, Source, Story, Tracked};
+use crate::model::{Alert, Card, Job, Session, Skill, Source, Story, Tracked};
 use crate::util::now_ms;
 use crate::AppState;
 
@@ -496,6 +496,49 @@ pub async fn session_review(
     crate::assistant::session_review(&http, &engine, &transcript, &answers, profile.as_deref())
         .await
         .map_err(|e| e.to_string())
+}
+
+// --- Spaced-repetition flashcards ---
+
+#[tauri::command]
+pub fn list_cards(state: State<'_, AppState>) -> Result<Vec<Card>, String> {
+    let conn = state.db.lock().map_err(|_| "db poisoned")?;
+    crate::career::list_cards(&conn).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn review_card(state: State<'_, AppState>, id: i64, good: bool) -> Result<(), String> {
+    let conn = state.db.lock().map_err(|_| "db poisoned")?;
+    crate::career::review_card(&conn, now_ms(), id, good).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn remove_card(state: State<'_, AppState>, id: i64) -> Result<(), String> {
+    let conn = state.db.lock().map_err(|_| "db poisoned")?;
+    crate::career::remove_card(&conn, id).map_err(|e| e.to_string())
+}
+
+/// Generate flashcards from study material (a session review, weak areas, notes, etc.)
+/// and save them. Returns how many were added.
+#[tauri::command]
+pub async fn generate_cards(state: State<'_, AppState>, source: String) -> Result<usize, String> {
+    if source.trim().is_empty() {
+        return Err("Paste some material to make cards from first.".into());
+    }
+    let (engine, profile) = {
+        let conn = state.db.lock().map_err(|_| "db poisoned")?;
+        (build_engine(&conn)?, interview_profile(&conn))
+    };
+    let http = state.http.clone();
+    let cards = crate::assistant::generate_cards(&http, &engine, &source, profile.as_deref())
+        .await
+        .map_err(|e| e.to_string())?;
+    let conn = state.db.lock().map_err(|_| "db poisoned")?;
+    let now = now_ms();
+    for (front, back) in &cards {
+        let _ = crate::career::add_card(&conn, now, front, back);
+    }
+    Ok(cards.len())
 }
 
 /// Generate an AI study plan for a skill (uses the configured answer engine + profile).

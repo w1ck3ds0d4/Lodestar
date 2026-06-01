@@ -4,7 +4,7 @@
 use anyhow::Result;
 use rusqlite::{params, Connection};
 
-use crate::model::{Milestone, Session, Skill, Story, Tracked};
+use crate::model::{Card, Milestone, Session, Skill, Story, Tracked};
 use crate::util::epoch_to_date;
 
 const TRACKED_COLS: &str = "id, kind, title, org, url, status, notes, applied_at, deadline, \
@@ -355,5 +355,65 @@ pub fn add_session(
 
 pub fn remove_session(conn: &Connection, id: i64) -> Result<()> {
     conn.execute("DELETE FROM sessions WHERE id=?1", params![id])?;
+    Ok(())
+}
+
+// --- Spaced-repetition flashcards (Leitner boxes) ---
+
+/// Days until a card in each box is due again after a correct review.
+const BOX_DAYS: [i64; 6] = [1, 1, 3, 7, 16, 35];
+const DAY_MS: i64 = 86_400_000;
+
+fn row_to_card(r: &rusqlite::Row) -> rusqlite::Result<Card> {
+    Ok(Card {
+        id: r.get(0)?,
+        front: r.get(1)?,
+        back: r.get(2)?,
+        bx: r.get(3)?,
+        due_at: r.get(4)?,
+        created_at: r.get(5)?,
+    })
+}
+
+pub fn list_cards(conn: &Connection) -> Result<Vec<Card>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, front, back, box, due_at, created_at FROM cards ORDER BY due_at, id",
+    )?;
+    let rows = stmt.query_map([], row_to_card)?;
+    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
+pub fn add_card(conn: &Connection, now: i64, front: &str, back: &str) -> Result<i64> {
+    // New cards are due immediately (box 0).
+    conn.execute(
+        "INSERT INTO cards (front, back, box, due_at, created_at) VALUES (?1,?2,0,?3,?3)",
+        params![front, back, now],
+    )?;
+    Ok(conn.last_insert_rowid())
+}
+
+/// Record a review. `good` promotes the card a box and pushes the due date out;
+/// otherwise it resets to box 0 and comes back in ~10 minutes.
+pub fn review_card(conn: &Connection, now: i64, id: i64, good: bool) -> Result<()> {
+    let bx: i64 = conn
+        .query_row("SELECT box FROM cards WHERE id=?1", params![id], |r| {
+            r.get(0)
+        })
+        .unwrap_or(0);
+    let (new_box, due) = if good {
+        let nb = (bx + 1).clamp(0, 5);
+        (nb, now + BOX_DAYS[nb as usize] * DAY_MS)
+    } else {
+        (0, now + 600_000)
+    };
+    conn.execute(
+        "UPDATE cards SET box=?2, due_at=?3 WHERE id=?1",
+        params![id, new_box, due],
+    )?;
+    Ok(())
+}
+
+pub fn remove_card(conn: &Connection, id: i64) -> Result<()> {
+    conn.execute("DELETE FROM cards WHERE id=?1", params![id])?;
     Ok(())
 }

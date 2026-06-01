@@ -141,3 +141,17 @@ pub struct Session {
     pub answers: String,
     pub created_at: i64,
 }
+
+/// A spaced-repetition flashcard. `box` is the Leitner level (0-5) and `due_at` is when
+/// it should next be reviewed (Unix ms).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Card {
+    pub id: i64,
+    pub front: String,
+    pub back: String,
+    #[serde(rename = "box")]
+    pub bx: i64,
+    pub due_at: i64,
+    pub created_at: i64,
+}

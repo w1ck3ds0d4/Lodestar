@@ -483,6 +483,63 @@ pub async fn session_review(
     }
 }
 
+/// System prompt for turning material into spaced-repetition flashcards.
+const CARDS_PROMPT: &str = "Turn the material into spaced-repetition flashcards. Output ONLY a JSON array \
+of objects, each exactly {\"front\": \"<question or prompt>\", \"back\": \"<concise answer>\"} - between 6 \
+and 12 cards, focused on the weak areas or the key facts/concepts. No prose, no Markdown, no code fences - \
+just the raw JSON array.";
+
+/// Generate flashcards (front/back pairs) from arbitrary study material.
+pub async fn generate_cards(
+    http: &reqwest::Client,
+    engine: &Engine,
+    source: &str,
+    profile: Option<&str>,
+) -> Result<Vec<(String, String)>> {
+    let user_text = format!("Material:\n{source}");
+    let system = with_profile(CARDS_PROMPT, profile);
+    let raw = match engine {
+        Engine::Claude { api_key, model } => {
+            complete(http, api_key, model, &system, user_text, None).await?
+        }
+        Engine::Ollama { url, model } => {
+            ollama_chat(http, url, model, &system, user_text, None, None).await?
+        }
+    };
+    // Be lenient: models sometimes wrap JSON in code fences or prose.
+    let cleaned = raw.trim();
+    let cleaned = cleaned
+        .strip_prefix("```json")
+        .or_else(|| cleaned.strip_prefix("```"))
+        .unwrap_or(cleaned)
+        .trim_end_matches("```")
+        .trim();
+    let start = cleaned.find('[');
+    let end = cleaned.rfind(']');
+    let slice = match (start, end) {
+        (Some(s), Some(e)) if e > s => &cleaned[s..=e],
+        _ => return Err(anyhow!("The model did not return flashcards.")),
+    };
+    let value: Value =
+        serde_json::from_str(slice).map_err(|e| anyhow!("Could not parse flashcards: {e}"))?;
+    let cards: Vec<(String, String)> = value
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|c| {
+                    let f = c.get("front")?.as_str()?.trim().to_string();
+                    let b = c.get("back")?.as_str()?.trim().to_string();
+                    (!f.is_empty() && !b.is_empty()).then_some((f, b))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    if cards.is_empty() {
+        return Err(anyhow!("No usable flashcards were produced."));
+    }
+    Ok(cards)
+}
+
 /// Auto-answer: given the recent transcript and the newest segment, answer it if it
 /// is a question/problem (in any language), otherwise return the literal "NONE".
 pub async fn auto_answer(

@@ -150,6 +150,15 @@ pub fn init(path: &Path) -> Result<Connection> {
             created_at INTEGER NOT NULL
         );
 
+        CREATE TABLE IF NOT EXISTS cards (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            front TEXT NOT NULL,
+            back TEXT NOT NULL,
+            box INTEGER NOT NULL DEFAULT 0,
+            due_at INTEGER NOT NULL DEFAULT 0,
+            created_at INTEGER NOT NULL
+        );
+
         CREATE TABLE IF NOT EXISTS settings (
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL
