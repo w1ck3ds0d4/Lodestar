@@ -8,9 +8,11 @@ use std::path::Path;
 
 use crate::model::{Alert, Job, RawJob, Source};
 use crate::util::{
-    classify_experience, detect_relocation, excluded_remote_regions, infer_workplace, now_ms,
-    remote_region, stable_hash,
+    classify_experience, date_to_epoch_ms, detect_relocation, excluded_remote_regions,
+    infer_workplace, now_ms, remote_region, stable_hash,
 };
+
+const DAY_MS: i64 = 86_400_000;
 
 const JOB_COLS: &str = "j.id, j.source_kind, COALESCE(s.label, j.source_kind) AS source_label, \
     j.external_id, j.title, j.company, j.location, j.remote, j.workplace, j.experience_level, \
@@ -175,6 +177,13 @@ pub fn init(path: &Path) -> Result<Connection> {
     )?;
     ensure_column(&conn, "jobs", "relocation", "INTEGER NOT NULL DEFAULT 0")?;
     ensure_column(&conn, "jobs", "remote_region", "TEXT NOT NULL DEFAULT ''")?;
+    // Parsed posting date (Unix ms) for freshness filtering/sorting; NULL falls back
+    // to first_seen_at via COALESCE, so old rows need no backfill.
+    ensure_column(&conn, "jobs", "posted_at_ms", "INTEGER")?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_jobs_posted_at_ms ON jobs(posted_at_ms)",
+        [],
+    )?;
     ensure_column(&conn, "tracked", "next_action", "TEXT")?;
     ensure_column(&conn, "tracked", "prep", "TEXT")?;
     seed_defaults(&conn)?;
@@ -363,9 +372,11 @@ pub fn search_jobs(
     kinds: &[String],
     relocation_only: bool,
     remote_eligible: bool,
+    posted_within_days: Option<i64>,
     limit: i64,
 ) -> Result<Vec<Job>> {
     let fts = build_fts_query(query);
+    let now = now_ms();
     let mut params: Vec<SqlValue> = Vec::new();
     let mut sql = format!("SELECT {JOB_COLS} FROM ");
     if let Some(ref q) = fts {
@@ -395,13 +406,28 @@ pub fn search_jobs(
             sql.push_str(&format!(" AND j.remote_region NOT IN ({list})"));
         }
     }
-    sql.push_str(if fts.is_some() {
-        // Weight columns (title, company, location, description) so a title hit ranks
-        // above a company/location hit, and a description-only hit ranks lowest.
-        " ORDER BY bm25(jobs_fts, 10.0, 2.0, 2.0, 1.0)"
+    // Freshness filter: keep only jobs posted within N days. Rows with no parsed
+    // posting date fall back to first_seen_at (when we first crawled them).
+    if let Some(days) = posted_within_days.filter(|d| *d > 0) {
+        sql.push_str(" AND COALESCE(j.posted_at_ms, j.first_seen_at) >= ?");
+        params.push(SqlValue::Integer(now - days * DAY_MS));
+    }
+    // Ranking. Text queries sort by weighted relevance, but with a recency bonus
+    // subtracted from the (negative) bm25 score so a fresh role isn't buried under a
+    // stale strong-keyword match. Bonuses are deliberately modest and tunable. With no
+    // text query, sort purely by freshness.
+    if fts.is_some() {
+        sql.push_str(
+            " ORDER BY bm25(jobs_fts, 10.0, 2.0, 2.0, 1.0) - CASE \
+               WHEN COALESCE(j.posted_at_ms, j.first_seen_at) >= ? THEN 2.0 \
+               WHEN COALESCE(j.posted_at_ms, j.first_seen_at) >= ? THEN 0.8 \
+               ELSE 0.0 END",
+        );
+        params.push(SqlValue::Integer(now - 7 * DAY_MS));
+        params.push(SqlValue::Integer(now - 30 * DAY_MS));
     } else {
-        " ORDER BY j.last_seen_at DESC"
-    });
+        sql.push_str(" ORDER BY COALESCE(j.posted_at_ms, j.first_seen_at) DESC");
+    }
     sql.push_str(" LIMIT ?");
     params.push(SqlValue::Integer(limit));
 
@@ -510,15 +536,15 @@ pub fn upsert_jobs(
         let mut stmt = tx.prepare(
             "INSERT INTO jobs (source_id, source_kind, external_id, title, company, location, remote, \
                 workplace, experience_level, employment_type, description, url, salary, posted_at, \
-                relocation, remote_region, content_hash, first_seen_at, last_seen_at, removed_at) \
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?18,NULL) \
+                relocation, remote_region, content_hash, posted_at_ms, first_seen_at, last_seen_at, removed_at) \
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?19,NULL) \
              ON CONFLICT(source_id, external_id) DO UPDATE SET \
                 title=excluded.title, company=excluded.company, location=excluded.location, remote=excluded.remote, \
                 workplace=excluded.workplace, experience_level=excluded.experience_level, \
                 employment_type=excluded.employment_type, description=excluded.description, url=excluded.url, \
                 salary=excluded.salary, posted_at=excluded.posted_at, relocation=excluded.relocation, \
                 remote_region=excluded.remote_region, content_hash=excluded.content_hash, \
-                last_seen_at=excluded.last_seen_at, removed_at=NULL",
+                posted_at_ms=excluded.posted_at_ms, last_seen_at=excluded.last_seen_at, removed_at=NULL",
         )?;
         for j in jobs {
             let workplace = infer_workplace(j.remote, &j.location, &j.title);
@@ -541,6 +567,7 @@ pub fn upsert_jobs(
                 j.company.to_lowercase(),
                 j.location.to_lowercase()
             ));
+            let posted_at_ms = j.posted_at.as_deref().and_then(date_to_epoch_ms);
             stmt.execute(params![
                 source_id,
                 kind,
@@ -559,6 +586,7 @@ pub fn upsert_jobs(
                 relocation,
                 region,
                 hash,
+                posted_at_ms,
                 now,
             ])?;
         }

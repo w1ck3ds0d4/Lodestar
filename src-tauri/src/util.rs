@@ -183,6 +183,29 @@ pub fn epoch_to_date(secs: i64) -> String {
     format!("{y:04}-{m:02}-{d:02}")
 }
 
+/// Parse a `YYYY-MM-DD` date (the form every adapter stores in `posted_at`) into Unix
+/// milliseconds at UTC midnight, for freshness filtering/sorting. Inverse of
+/// [`epoch_to_date`]; returns None if the string doesn't start with a valid date.
+pub fn date_to_epoch_ms(s: &str) -> Option<i64> {
+    let date = s.get(..10)?;
+    let mut parts = date.split('-');
+    let y: i64 = parts.next()?.parse().ok()?;
+    let m: i64 = parts.next()?.parse().ok()?;
+    let d: i64 = parts.next()?.parse().ok()?;
+    if !(1..=12).contains(&m) || !(1..=31).contains(&d) {
+        return None;
+    }
+    // Howard Hinnant's days-from-civil (the inverse of the algorithm in epoch_to_date).
+    let yy = y - (m <= 2) as i64;
+    let era = if yy >= 0 { yy } else { yy - 399 } / 400;
+    let yoe = yy - era * 400;
+    let mp = if m > 2 { m - 3 } else { m + 9 };
+    let doy = (153 * mp + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146_097 + doe - 719_468;
+    Some(days * 86_400_000)
+}
+
 /// Classify the work arrangement as one of "remote" | "hybrid" | "onsite".
 /// Uses the source's remote flag plus keywords in the location/title.
 pub fn infer_workplace(remote: bool, location: &str, title: &str) -> String {
@@ -482,6 +505,17 @@ mod tests {
     fn epoch_to_date_known_dates() {
         assert_eq!(epoch_to_date(0), "1970-01-01");
         assert_eq!(epoch_to_date(1_700_000_000), "2023-11-14");
+    }
+
+    #[test]
+    fn date_to_epoch_ms_parses_and_round_trips() {
+        assert_eq!(date_to_epoch_ms("1970-01-01"), Some(0));
+        assert_eq!(date_to_epoch_ms("2023-11-14"), Some(1_699_920_000_000));
+        // Accepts a full timestamp prefix and round-trips through epoch_to_date.
+        let ms = date_to_epoch_ms("2024-02-29T08:00:00Z").unwrap();
+        assert_eq!(epoch_to_date(ms / 1000), "2024-02-29");
+        assert_eq!(date_to_epoch_ms("not-a-date"), None);
+        assert_eq!(date_to_epoch_ms("2023-13-01"), None);
     }
 
     #[test]
