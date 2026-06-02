@@ -5,12 +5,15 @@
 pub mod adzuna;
 pub mod arbeitnow;
 pub mod ashby;
+pub mod findwork;
 pub mod greenhouse;
 pub mod himalayas;
 pub mod jobicy;
+pub mod jooble;
 pub mod jsonld;
 pub mod lever;
 pub mod recruitee;
+pub mod reed;
 pub mod remoteok;
 pub mod remotive;
 pub mod smartrecruiters;
@@ -41,6 +44,9 @@ pub async fn fetch(http: &Client, kind: &str, config: &Value) -> Result<Vec<RawJ
         "jsonld" => jsonld::fetch(http, config).await,
         "adzuna" => adzuna::fetch(http, config).await,
         "themuse" => themuse::fetch(http, config).await,
+        "findwork" => findwork::fetch(http, config).await,
+        "reed" => reed::fetch(http, config).await,
+        "jooble" => jooble::fetch(http, config).await,
         "usajobs" => usajobs::fetch(http, config).await,
         other => anyhow::bail!("unknown source kind: {other}"),
     }

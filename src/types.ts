@@ -212,6 +212,9 @@ export const SOURCE_KINDS = [
   "jsonld",
   "adzuna",
   "themuse",
+  "findwork",
+  "reed",
+  "jooble",
   "usajobs",
 ] as const;
 
@@ -263,6 +266,9 @@ export const KIND_LABELS: Record<string, string> = {
   jsonld: "Career page",
   adzuna: "Adzuna",
   themuse: "The Muse",
+  findwork: "Findwork",
+  reed: "Reed",
+  jooble: "Jooble",
   usajobs: "USAJOBS",
 };
 
@@ -293,6 +299,23 @@ export const CONFIG_FIELDS: Record<string, { key: string; label: string; placeho
     { key: "location", label: "Location (optional)", placeholder: "Lisbon, Portugal" },
     { key: "level", label: "Level (optional)", placeholder: "Senior Level" },
     { key: "company", label: "Company (optional)" },
+  ],
+  findwork: [
+    { key: "api_key", label: "API key", placeholder: "from findwork.dev/developers" },
+    { key: "search", label: "Keywords (optional)", placeholder: "react developer" },
+    { key: "location", label: "Location (optional)", placeholder: "Lisbon" },
+    { key: "remote", label: "Remote only? (optional)", placeholder: "true" },
+    { key: "auth_scheme", label: "Auth scheme (optional)", placeholder: "Token" },
+  ],
+  reed: [
+    { key: "api_key", label: "API key", placeholder: "from reed.co.uk/developers" },
+    { key: "keywords", label: "Keywords (optional)", placeholder: ".net developer" },
+    { key: "location", label: "Location (optional)", placeholder: "London" },
+  ],
+  jooble: [
+    { key: "api_key", label: "API key", placeholder: "from jooble.org/api/about" },
+    { key: "keywords", label: "Keywords (optional)", placeholder: "software engineer" },
+    { key: "location", label: "Location (optional)", placeholder: "Porto" },
   ],
   arbeitnow: [],
   remoteok: [],
