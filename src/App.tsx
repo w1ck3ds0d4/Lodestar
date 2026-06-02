@@ -21,6 +21,8 @@ export default function App() {
   const [selectedKinds, setSelectedKinds] = useState<string[]>([]);
   const [remoteEligible, setRemoteEligible] = useState(false);
   const [relocationOnly, setRelocationOnly] = useState(false);
+  // Freshness filter: null = any time, otherwise jobs posted within N days.
+  const [postedWithin, setPostedWithin] = useState<number | null>(null);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [stats, setStats] = useState<Stats>({ totalJobs: 0, companies: 0 });
   const [sources, setSources] = useState<Source[]>([]);
@@ -44,12 +46,22 @@ export default function App() {
   const runSearch = useCallback(async () => {
     setLoading(true);
     try {
-      setJobs(await api.searchJobs(query, workplaces, levels, selectedKinds, relocationOnly, remoteEligible));
+      setJobs(
+        await api.searchJobs(
+          query,
+          workplaces,
+          levels,
+          selectedKinds,
+          relocationOnly,
+          remoteEligible,
+          postedWithin,
+        ),
+      );
     } finally {
       setLoading(false);
     }
     // workCountry is read server-side; included so changing it re-runs the search.
-  }, [query, workplaces, levels, selectedKinds, relocationOnly, remoteEligible, workCountry]);
+  }, [query, workplaces, levels, selectedKinds, relocationOnly, remoteEligible, postedWithin, workCountry]);
 
   useEffect(() => {
     void refreshSources();
@@ -131,7 +143,8 @@ export default function App() {
     workplaces.length > 0 ||
     levels.length > 0 ||
     remoteEligible ||
-    relocationOnly;
+    relocationOnly ||
+    postedWithin !== null;
 
   const toggle = (setter: Dispatch<SetStateAction<string[]>>, k: string) =>
     setter((prev) => (prev.includes(k) ? prev.filter((x) => x !== k) : [...prev, k]));
@@ -269,6 +282,24 @@ export default function App() {
                 </button>
               </div>
 
+              <span className="filter-label">Posted</span>
+              <div className="chip-row">
+                {[
+                  { label: "Any time", days: null },
+                  { label: "24h", days: 1 },
+                  { label: "7 days", days: 7 },
+                  { label: "30 days", days: 30 },
+                ].map((o) => (
+                  <button
+                    key={o.label}
+                    className={"chip" + (postedWithin === o.days ? " active" : "")}
+                    onClick={() => setPostedWithin(o.days)}
+                  >
+                    {o.label}
+                  </button>
+                ))}
+              </div>
+
               {availableKinds.length > 0 && (
                 <>
                   <span className="filter-label">Source</span>
@@ -302,6 +333,7 @@ export default function App() {
                     setLevels([]);
                     setRemoteEligible(false);
                     setRelocationOnly(false);
+                    setPostedWithin(null);
                   }}
                 >
                   <X size={13} /> Clear all

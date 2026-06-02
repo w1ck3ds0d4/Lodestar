@@ -25,6 +25,7 @@ export const searchJobs = (
   kinds: string[],
   relocationOnly = false,
   remoteEligible = false,
+  postedWithinDays: number | null = null,
   limit = 200,
 ) =>
   invoke<Job[]>("search_jobs", {
@@ -34,6 +35,7 @@ export const searchJobs = (
     kinds,
     relocationOnly,
     remoteEligible,
+    postedWithinDays,
     limit,
   });
 

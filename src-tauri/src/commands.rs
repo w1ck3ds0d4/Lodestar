@@ -26,6 +26,7 @@ pub fn search_jobs(
     kinds: Vec<String>,
     relocation_only: bool,
     remote_eligible: bool,
+    posted_within_days: Option<i64>,
     limit: i64,
 ) -> Result<Vec<Job>, String> {
     let conn = state.db.lock().map_err(|_| "db poisoned")?;
@@ -37,6 +38,7 @@ pub fn search_jobs(
         &kinds,
         relocation_only,
         remote_eligible,
+        posted_within_days,
         limit,
     )
     .map_err(|e| e.to_string())
