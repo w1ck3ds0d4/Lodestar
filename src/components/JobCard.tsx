@@ -52,6 +52,11 @@ export function JobCard({
           {job.relocation && <span className="badge badge-reloc">Relocation</span>}
         </h3>
         <span className="badge badge-source">{kindLabel}</span>
+        {job.alsoOn.length > 0 && (
+          <span className="badge badge-also" title={`Also posted on: ${job.alsoOn.join(", ")}`}>
+            +{job.alsoOn.length} {job.alsoOn.length === 1 ? "board" : "boards"}
+          </span>
+        )}
       </div>
 
       <div className="card-meta">

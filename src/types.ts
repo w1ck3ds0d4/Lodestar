@@ -18,6 +18,7 @@ export interface Job {
   remoteRegion: string;
   firstSeenAt: number;
   lastSeenAt: number;
+  alsoOn: string[];
 }
 
 export interface Source {
