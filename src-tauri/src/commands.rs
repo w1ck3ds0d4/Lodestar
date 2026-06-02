@@ -28,6 +28,7 @@ pub fn search_jobs(
     remote_eligible: bool,
     posted_within_days: Option<i64>,
     min_salary: Option<i64>,
+    langs: Vec<String>,
     limit: i64,
 ) -> Result<Vec<Job>, String> {
     let conn = state.db.lock().map_err(|_| "db poisoned")?;
@@ -41,6 +42,7 @@ pub fn search_jobs(
         remote_eligible,
         posted_within_days,
         min_salary,
+        &langs,
         limit,
     )
     .map_err(|e| e.to_string())

@@ -8,7 +8,7 @@ use std::path::Path;
 
 use crate::model::{Alert, Job, RawJob, Source};
 use crate::util::{
-    classify_experience, date_to_epoch_ms, detect_relocation, excluded_remote_regions,
+    classify_experience, date_to_epoch_ms, detect_lang, detect_relocation, excluded_remote_regions,
     infer_workplace, now_ms, parse_salary, remote_region, stable_hash,
 };
 
@@ -17,7 +17,7 @@ const DAY_MS: i64 = 86_400_000;
 const JOB_COLS: &str = "j.id, j.source_kind, COALESCE(s.label, j.source_kind) AS source_label, \
     j.external_id, j.title, j.company, j.location, j.remote, j.workplace, j.experience_level, \
     j.employment_type, j.description, j.url, j.salary, j.posted_at, j.relocation, j.remote_region, \
-    j.first_seen_at, j.last_seen_at";
+    j.first_seen_at, j.last_seen_at, j.lang";
 
 /// Open the database, apply the schema, and seed default sources on first run.
 pub fn init(path: &Path) -> Result<Connection> {
@@ -189,14 +189,17 @@ pub fn init(path: &Path) -> Result<Connection> {
     ensure_column(&conn, "jobs", "salary_min", "INTEGER")?;
     ensure_column(&conn, "jobs", "salary_max", "INTEGER")?;
     ensure_column(&conn, "jobs", "salary_currency", "TEXT")?;
+    // Detected posting language (ISO 639-1); NULL = unknown, which the filter keeps.
+    ensure_column(&conn, "jobs", "lang", "TEXT")?;
     ensure_column(&conn, "tracked", "next_action", "TEXT")?;
     ensure_column(&conn, "tracked", "prep", "TEXT")?;
-    // One-off: recompute derived columns (remote_region, posted_at_ms, salary_*) for
-    // rows crawled before those derivations existed, so the search filters apply to
-    // existing jobs immediately instead of only after the next crawl. Runs once.
-    if get_setting(&conn, "derived_backfill_v1")?.is_none() {
+    // One-off: recompute derived columns (remote_region, posted_at_ms, salary_*, lang)
+    // for rows crawled before those derivations existed, so the search filters apply to
+    // existing jobs immediately instead of only after the next crawl. The version bumps
+    // when a new derived column is added (v2 added `lang`).
+    if get_setting(&conn, "derived_backfill_v2")?.is_none() {
         backfill_derived(&conn)?;
-        set_setting(&conn, "derived_backfill_v1", "1")?;
+        set_setting(&conn, "derived_backfill_v2", "1")?;
     }
     seed_defaults(&conn)?;
     Ok(conn)
@@ -235,7 +238,7 @@ fn backfill_derived(conn: &Connection) -> Result<()> {
     {
         let mut up = tx.prepare(
             "UPDATE jobs SET remote_region=?2, posted_at_ms=?3, salary_min=?4, salary_max=?5, \
-             salary_currency=?6 WHERE id=?1",
+             salary_currency=?6, lang=?7 WHERE id=?1",
         )?;
         for (id, remote, location, title, description, posted_at, salary) in rows {
             let region = remote_region(remote != 0, &location, &title, &description);
@@ -244,7 +247,8 @@ fn backfill_derived(conn: &Connection) -> Result<()> {
                 .as_deref()
                 .map(parse_salary)
                 .unwrap_or((None, None, None));
-            up.execute(params![id, region, posted_ms, smin, smax, scur])?;
+            let lang = detect_lang(&title, &description);
+            up.execute(params![id, region, posted_ms, smin, smax, scur, lang])?;
         }
     }
     tx.commit()?;
@@ -411,6 +415,7 @@ fn row_to_job(r: &rusqlite::Row) -> rusqlite::Result<Job> {
         remote_region: r.get(16)?,
         first_seen_at: r.get(17)?,
         last_seen_at: r.get(18)?,
+        lang: r.get(19)?,
         also_on: Vec::new(),
     })
 }
@@ -528,6 +533,7 @@ pub fn search_jobs(
     remote_eligible: bool,
     posted_within_days: Option<i64>,
     min_salary: Option<i64>,
+    langs: &[String],
     limit: i64,
 ) -> Result<Vec<Job>> {
     let fts = build_fts_query(query);
@@ -593,6 +599,17 @@ pub fn search_jobs(
                OR COALESCE(j.salary_max, j.salary_min) >= ?)",
         );
         params.push(SqlValue::Integer(min));
+    }
+    // Language filter: keep the selected languages plus jobs whose language we
+    // couldn't detect (NULL) - unknown is not "a language you can't read".
+    if !langs.is_empty() {
+        let placeholders = vec!["?"; langs.len()].join(",");
+        sql.push_str(&format!(
+            " AND (j.lang IS NULL OR j.lang IN ({placeholders}))"
+        ));
+        for l in langs {
+            params.push(SqlValue::Text(l.clone()));
+        }
     }
     // Ranking. Text queries sort by weighted relevance, but with a recency bonus
     // subtracted from the (negative) bm25 score so a fresh role isn't buried under a
@@ -721,8 +738,8 @@ pub fn upsert_jobs(
             "INSERT INTO jobs (source_id, source_kind, external_id, title, company, location, remote, \
                 workplace, experience_level, employment_type, description, url, salary, posted_at, \
                 relocation, remote_region, content_hash, posted_at_ms, salary_min, salary_max, \
-                salary_currency, first_seen_at, last_seen_at, removed_at) \
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?22,NULL) \
+                salary_currency, lang, first_seen_at, last_seen_at, removed_at) \
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?23,NULL) \
              ON CONFLICT(source_id, external_id) DO UPDATE SET \
                 title=excluded.title, company=excluded.company, location=excluded.location, remote=excluded.remote, \
                 workplace=excluded.workplace, experience_level=excluded.experience_level, \
@@ -731,7 +748,7 @@ pub fn upsert_jobs(
                 remote_region=excluded.remote_region, content_hash=excluded.content_hash, \
                 posted_at_ms=excluded.posted_at_ms, salary_min=excluded.salary_min, \
                 salary_max=excluded.salary_max, salary_currency=excluded.salary_currency, \
-                last_seen_at=excluded.last_seen_at, removed_at=NULL",
+                lang=excluded.lang, last_seen_at=excluded.last_seen_at, removed_at=NULL",
         )?;
         for j in jobs {
             let workplace = infer_workplace(j.remote, &j.location, &j.title);
@@ -760,6 +777,7 @@ pub fn upsert_jobs(
                 .as_deref()
                 .map(parse_salary)
                 .unwrap_or((None, None, None));
+            let lang = detect_lang(&j.title, &j.description);
             stmt.execute(params![
                 source_id,
                 kind,
@@ -782,6 +800,7 @@ pub fn upsert_jobs(
                 salary_min,
                 salary_max,
                 salary_currency,
+                lang,
                 now,
             ])?;
         }
@@ -899,6 +918,7 @@ mod tests {
             remote_region: String::new(),
             first_seen_at: 0,
             last_seen_at: 0,
+            lang: None,
             also_on: Vec::new(),
         }
     }
