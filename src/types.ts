@@ -300,6 +300,20 @@ export interface ScreenAnswer {
   answer: string;
 }
 
+// Structured ATS-style resume/JD match score. `overall` is a weighted blend of the
+// sub-scores (each 0-100), computed on the backend.
+export interface AtsScore {
+  overall: number;
+  keywords: number;
+  responsibilities: number;
+  title: number;
+  impact: number;
+  format: number;
+  matched: string[];
+  missing: string[];
+  fixes: string[];
+}
+
 // Deepgram transcription languages. "multi" is the multilingual / code-switching
 // model; the rest pin a single language (streaming has no auto-detect, unlike batch).
 export const STT_LANGUAGES: { code: string; label: string }[] = [

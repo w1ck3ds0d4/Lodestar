@@ -183,6 +183,7 @@ pub fn run() {
             commands::remove_story,
             commands::draft_story,
             commands::application_doc,
+            commands::score_ats,
             commands::practice_question,
             commands::practice_feedback,
             commands::list_sessions,

@@ -994,6 +994,99 @@ select:focus {
   float: right;
 }
 
+/* ATS scorecard */
+.ats-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+  padding: 14px;
+}
+.ats-overall {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.ats-overall-num {
+  font-size: 34px;
+  font-weight: 800;
+  color: var(--accent-2);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.ats-overall-lbl {
+  color: var(--muted);
+  font-size: 13px;
+}
+.ats-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ats-bar-row {
+  display: grid;
+  grid-template-columns: 120px 1fr 32px;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+}
+.ats-bar-lbl {
+  color: var(--muted);
+}
+.ats-bar {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--bg-2);
+  overflow: hidden;
+}
+.ats-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+}
+.ats-bar-num {
+  text-align: right;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.ats-tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.ats-tags-lbl {
+  color: var(--muted);
+  font-size: 12px;
+  margin-right: 2px;
+}
+.ats-chip {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 9px;
+  font-size: 12px;
+}
+.ats-chip.ok {
+  border-color: var(--accent);
+  color: var(--accent-2);
+  background: rgba(16, 185, 129, 0.12);
+}
+.ats-chip.miss {
+  border-color: var(--danger);
+  color: var(--danger);
+  background: rgba(248, 113, 113, 0.1);
+}
+.ats-fixes ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
+.ats-fixes li {
+  font-size: 13px;
+  margin-bottom: 3px;
+}
+
 /* Getting-started modal */
 .intro-overlay {
   position: fixed;

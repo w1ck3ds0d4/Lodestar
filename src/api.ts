@@ -2,6 +2,7 @@ import { Channel, invoke } from "@tauri-apps/api/core";
 import type {
   Alert,
   AssistantSettings,
+  AtsScore,
   AudioDevices,
   Card,
   DeepgramBalance,
@@ -118,6 +119,8 @@ export const draftStory = (notes: string) => invoke<string>("draft_story", { not
 // kind: "bullets" | "cover" | "ats" | "thanks"; input is the JD (or transcript for "thanks").
 export const applicationDoc = (kind: string, input: string) =>
   invoke<string>("application_doc", { kind, input });
+// Structured ATS score of the stored resume/profile against a job description.
+export const scoreAts = (jd: string) => invoke<AtsScore>("score_ats", { jd });
 
 // --- Mock interview practice ---
 export const practiceQuestion = (asked: string[]) => invoke<string>("practice_question", { asked });
