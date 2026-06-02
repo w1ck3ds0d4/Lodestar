@@ -191,6 +191,10 @@ export const SOURCE_KINDS = [
   "remoteok",
   "remotive",
   "jobicy",
+  "himalayas",
+  "workable",
+  "recruitee",
+  "smartrecruiters",
   "jsonld",
   "adzuna",
   "usajobs",
@@ -237,6 +241,10 @@ export const KIND_LABELS: Record<string, string> = {
   remoteok: "RemoteOK",
   remotive: "Remotive",
   jobicy: "Jobicy",
+  himalayas: "Himalayas",
+  workable: "Workable",
+  recruitee: "Recruitee",
+  smartrecruiters: "SmartRecruiters",
   jsonld: "Career page",
   adzuna: "Adzuna",
   usajobs: "USAJOBS",
@@ -267,6 +275,10 @@ export const CONFIG_FIELDS: Record<string, { key: string; label: string; placeho
   remoteok: [],
   remotive: [],
   jobicy: [],
+  himalayas: [],
+  workable: [{ key: "account", label: "Account", placeholder: "your-company (apply.workable.com/...)" }],
+  recruitee: [{ key: "company", label: "Company", placeholder: "your-company (.recruitee.com)" }],
+  smartrecruiters: [{ key: "company", label: "Company ID", placeholder: "CompanyName" }],
 };
 
 export interface AssistantSettings {
