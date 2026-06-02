@@ -187,6 +187,7 @@ export const SOURCE_KINDS = [
   "lever",
   "ashby",
   "arbeitnow",
+  "remoteok",
   "remotive",
   "jobicy",
   "jsonld",
@@ -232,6 +233,7 @@ export const KIND_LABELS: Record<string, string> = {
   lever: "Lever",
   ashby: "Ashby",
   arbeitnow: "Arbeitnow",
+  remoteok: "RemoteOK",
   remotive: "Remotive",
   jobicy: "Jobicy",
   jsonld: "Career page",
@@ -261,6 +263,7 @@ export const CONFIG_FIELDS: Record<string, { key: string; label: string; placeho
     { key: "keyword", label: "Keyword (optional)" },
   ],
   arbeitnow: [],
+  remoteok: [],
   remotive: [],
   jobicy: [],
 };

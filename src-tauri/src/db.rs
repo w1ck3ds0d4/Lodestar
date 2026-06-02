@@ -242,6 +242,7 @@ fn seed_defaults(conn: &Connection) -> Result<()> {
         ("arbeitnow", "Arbeitnow (EU + remote)", "{}", 1, 3600),
         ("remotive", "Remotive (remote)", "{}", 1, 21600),
         ("jobicy", "Jobicy (remote)", "{}", 1, 3600),
+        ("remoteok", "RemoteOK (remote)", "{}", 1, 21600),
         (
             "greenhouse",
             "Stripe (Greenhouse)",
