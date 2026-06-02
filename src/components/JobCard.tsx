@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Building2, CalendarDays, Check, ExternalLink, MapPin, Plus, Wallet } from "lucide-react";
+import { Building2, CalendarDays, Check, ExternalLink, Gauge, MapPin, Plus, Wallet } from "lucide-react";
 import { LEVEL_LABELS, REMOTE_REGION_LABELS, WORKPLACE_LABELS, type Job } from "../types";
 
 const EXCERPT = 280;
@@ -8,7 +8,7 @@ const EXCERPT = 280;
 // HTML. Render them as readable plain text: turn block boundaries into spaces so
 // words don't run together, then let the browser strip the remaining tags and
 // decode entities (&amp;, &#39;, ...).
-function htmlToText(html: string): string {
+export function htmlToText(html: string): string {
   if (!html) return "";
   if (!html.includes("<")) return html;
   const withSpaces = html.replace(/<\/(p|div|li|h[1-6]|tr|ul|ol|table|section)>|<br\s*\/?>/gi, " ");
@@ -21,11 +21,13 @@ export function JobCard({
   kindLabel,
   onOpen,
   onTrack,
+  onScore,
 }: {
   job: Job;
   kindLabel: string;
   onOpen: (url: string) => void;
   onTrack: (job: Job) => Promise<void> | void;
+  onScore: (job: Job) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [tracked, setTracked] = useState(false);
@@ -76,6 +78,14 @@ export function JobCard({
           </button>
         )}
         <div className="spacer" />
+        <button
+          className="btn-ghost"
+          disabled={!desc}
+          title={desc ? "Score this job against your saved resume" : "No description to score against"}
+          onClick={() => onScore(job)}
+        >
+          <Gauge size={14} /> Score
+        </button>
         <button
           className="btn-ghost"
           disabled={tracked}

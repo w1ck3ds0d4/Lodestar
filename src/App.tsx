@@ -2,8 +2,9 @@ import { useCallback, useEffect, useMemo, useState, type Dispatch, type SetState
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { Bell, Bot, ChevronDown, ClipboardList, Eye, EyeOff, GraduationCap, HelpCircle, Radar, RefreshCw, Search, Settings, X } from "lucide-react";
 import * as api from "./api";
-import { KIND_LABELS, LANG_LABELS, LEVELS, WORKPLACES, type Alert, type Job, type Source, type Stats } from "./types";
-import { JobCard } from "./components/JobCard";
+import { KIND_LABELS, LANG_LABELS, LEVELS, WORKPLACES, type Alert, type AtsScore, type Job, type Source, type Stats } from "./types";
+import { JobCard, htmlToText } from "./components/JobCard";
+import { AtsScoreCard } from "./components/AtsScoreCard";
 import { SourcesPanel } from "./components/SourcesPanel";
 import { AlertsPanel } from "./components/AlertsPanel";
 import { TrackerView } from "./components/TrackerView";
@@ -44,6 +45,13 @@ export default function App() {
   }, []);
   const [workCountry, setWorkCountry] = useState("");
   const [editingCountry, setEditingCountry] = useState(false);
+  // Active one-click ATS score modal (null = closed).
+  const [scoring, setScoring] = useState<{
+    title: string;
+    score: AtsScore | null;
+    loading: boolean;
+    err: string;
+  } | null>(null);
 
   const refreshSources = useCallback(async () => setSources(await api.listSources()), []);
   const refreshAlerts = useCallback(async () => setAlerts(await api.listAlerts()), []);
@@ -148,6 +156,16 @@ export default function App() {
       deadline: null,
       sourceJobId: job.id,
     });
+  }, []);
+
+  // One-click ATS score: score a job's description against the saved resume, shown
+  // in a small modal.
+  const onScore = useCallback((job: Job) => {
+    setScoring({ title: job.title, score: null, loading: true, err: "" });
+    void api
+      .scoreAts(htmlToText(job.description || ""))
+      .then((score) => setScoring({ title: job.title, score, loading: false, err: "" }))
+      .catch((e) => setScoring({ title: job.title, score: null, loading: false, err: String(e) }));
   }, []);
 
   const availableKinds = useMemo(() => Array.from(new Set(sources.map((s) => s.kind))), [sources]);
@@ -446,6 +464,7 @@ export default function App() {
                     kindLabel={KIND_LABELS[j.sourceKind] ?? j.sourceKind}
                     onOpen={onOpen}
                     onTrack={onTrack}
+                    onScore={onScore}
                   />
                 ))}
               </>
@@ -492,6 +511,20 @@ export default function App() {
             dismissIntro();
           }}
         />
+      )}
+
+      {scoring && (
+        <div className="intro-overlay" onClick={() => setScoring(null)}>
+          <div className="score-modal" onClick={(e) => e.stopPropagation()}>
+            <button className="intro-close" title="Close" onClick={() => setScoring(null)}>
+              <X size={18} />
+            </button>
+            <h3 className="score-modal-title">{scoring.title}</h3>
+            {scoring.loading && <p className="muted sm">Scoring against your saved resume…</p>}
+            {scoring.err && <div className="assistant-error">{scoring.err}</div>}
+            {scoring.score && <AtsScoreCard score={scoring.score} />}
+          </div>
+        </div>
       )}
     </div>
   );

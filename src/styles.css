@@ -1110,6 +1110,26 @@ select:focus {
   box-shadow: var(--shadow-lg);
   padding: 22px 24px;
 }
+/* One-click ATS score modal (reuses .intro-overlay). */
+.score-modal {
+  position: relative;
+  width: min(560px, 100%);
+  max-height: 88vh;
+  overflow-y: auto;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: 20px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.score-modal-title {
+  margin: 0;
+  padding-right: 28px;
+  font-size: 16px;
+}
 .intro-card h2 {
   margin: 0 0 6px;
 }
