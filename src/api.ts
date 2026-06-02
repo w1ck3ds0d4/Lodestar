@@ -27,6 +27,7 @@ export const searchJobs = (
   relocationOnly = false,
   remoteEligible = false,
   postedWithinDays: number | null = null,
+  minSalary: number | null = null,
   limit = 200,
 ) =>
   invoke<Job[]>("search_jobs", {
@@ -37,6 +38,7 @@ export const searchJobs = (
     relocationOnly,
     remoteEligible,
     postedWithinDays,
+    minSalary,
     limit,
   });
 

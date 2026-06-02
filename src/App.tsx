@@ -23,6 +23,8 @@ export default function App() {
   const [relocationOnly, setRelocationOnly] = useState(false);
   // Freshness filter: null = any time, otherwise jobs posted within N days.
   const [postedWithin, setPostedWithin] = useState<number | null>(null);
+  // Minimum salary (nominal, in the posting's currency); null = any.
+  const [minSalary, setMinSalary] = useState<number | null>(null);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [stats, setStats] = useState<Stats>({ totalJobs: 0, companies: 0 });
   const [sources, setSources] = useState<Source[]>([]);
@@ -55,13 +57,24 @@ export default function App() {
           relocationOnly,
           remoteEligible,
           postedWithin,
+          minSalary,
         ),
       );
     } finally {
       setLoading(false);
     }
     // workCountry is read server-side; included so changing it re-runs the search.
-  }, [query, workplaces, levels, selectedKinds, relocationOnly, remoteEligible, postedWithin, workCountry]);
+  }, [
+    query,
+    workplaces,
+    levels,
+    selectedKinds,
+    relocationOnly,
+    remoteEligible,
+    postedWithin,
+    minSalary,
+    workCountry,
+  ]);
 
   useEffect(() => {
     void refreshSources();
@@ -144,7 +157,8 @@ export default function App() {
     levels.length > 0 ||
     remoteEligible ||
     relocationOnly ||
-    postedWithin !== null;
+    postedWithin !== null ||
+    minSalary !== null;
 
   const toggle = (setter: Dispatch<SetStateAction<string[]>>, k: string) =>
     setter((prev) => (prev.includes(k) ? prev.filter((x) => x !== k) : [...prev, k]));
@@ -300,6 +314,26 @@ export default function App() {
                 ))}
               </div>
 
+              <span className="filter-label">Min salary</span>
+              <div className="chip-row">
+                {[
+                  { label: "Any", v: null },
+                  { label: "50k+", v: 50000 },
+                  { label: "80k+", v: 80000 },
+                  { label: "100k+", v: 100000 },
+                  { label: "150k+", v: 150000 },
+                ].map((o) => (
+                  <button
+                    key={o.label}
+                    className={"chip" + (minSalary === o.v ? " active" : "")}
+                    title="Nominal, in the posting's own currency; postings with no listed salary are kept"
+                    onClick={() => setMinSalary(o.v)}
+                  >
+                    {o.label}
+                  </button>
+                ))}
+              </div>
+
               {availableKinds.length > 0 && (
                 <>
                   <span className="filter-label">Source</span>
@@ -334,6 +368,7 @@ export default function App() {
                     setRemoteEligible(false);
                     setRelocationOnly(false);
                     setPostedWithin(null);
+                    setMinSalary(null);
                   }}
                 >
                   <X size={13} /> Clear all

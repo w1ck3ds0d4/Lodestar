@@ -206,6 +206,55 @@ pub fn date_to_epoch_ms(s: &str) -> Option<i64> {
     Some(days * 86_400_000)
 }
 
+/// Best-effort parse of a source's salary string into (min, max, currency code) in
+/// whole annual units. Deliberately conservative: only parses when a currency
+/// symbol/code is present, so years, counts, or "401k" are never mistaken for pay.
+/// Numbers are normalized (commas stripped, a trailing `k` = x1000) and bounded to a
+/// sane range. FX conversion is out of scope - amounts stay in the stated currency.
+pub fn parse_salary(s: &str) -> (Option<i64>, Option<i64>, Option<String>) {
+    let lower = s.to_lowercase();
+    let currency = if s.contains('$') || lower.contains("usd") {
+        "USD"
+    } else if s.contains('€') || lower.contains("eur") {
+        "EUR"
+    } else if s.contains('£') || lower.contains("gbp") {
+        "GBP"
+    } else {
+        return (None, None, None);
+    };
+
+    static RE: OnceLock<Regex> = OnceLock::new();
+    let re = RE.get_or_init(|| Regex::new(r"(?i)(\d[\d,.]*)\s*(k)?").unwrap());
+    let mut nums: Vec<i64> = Vec::new();
+    for c in re.captures_iter(s) {
+        let raw = c.get(1).unwrap().as_str().replace(',', "");
+        let Ok(mut n) = raw.trim_end_matches('.').parse::<f64>() else {
+            continue;
+        };
+        if c.get(2).is_some() {
+            n *= 1000.0;
+        }
+        let n = n.round() as i64;
+        if (1000..=10_000_000).contains(&n) {
+            nums.push(n);
+        }
+    }
+    if nums.is_empty() {
+        return (None, None, Some(currency.to_string()));
+    }
+    let (lo, hi) = (*nums.iter().min().unwrap(), *nums.iter().max().unwrap());
+    let (min, max) = if lower.contains("up to") || lower.contains("max") {
+        (None, Some(hi))
+    } else if s.contains('+') || lower.contains("from ") || lower.contains("starting") {
+        (Some(lo), None)
+    } else if nums.len() >= 2 {
+        (Some(lo), Some(hi))
+    } else {
+        (Some(lo), Some(lo))
+    };
+    (min, max, Some(currency.to_string()))
+}
+
 /// Classify the work arrangement as one of "remote" | "hybrid" | "onsite".
 /// Uses the source's remote flag plus keywords in the location/title.
 pub fn infer_workplace(remote: bool, location: &str, title: &str) -> String {
@@ -505,6 +554,33 @@ mod tests {
     fn epoch_to_date_known_dates() {
         assert_eq!(epoch_to_date(0), "1970-01-01");
         assert_eq!(epoch_to_date(1_700_000_000), "2023-11-14");
+    }
+
+    #[test]
+    fn parse_salary_handles_ranges_bounds_and_currency() {
+        assert_eq!(
+            parse_salary("$120000-$160000"),
+            (Some(120000), Some(160000), Some("USD".into()))
+        );
+        assert_eq!(
+            parse_salary("$120000+"),
+            (Some(120000), None, Some("USD".into()))
+        );
+        assert_eq!(
+            parse_salary("up to $160000"),
+            (None, Some(160000), Some("USD".into()))
+        );
+        assert_eq!(
+            parse_salary("$70k - $90k"),
+            (Some(70000), Some(90000), Some("USD".into()))
+        );
+        assert_eq!(
+            parse_salary("€50,000"),
+            (Some(50000), Some(50000), Some("EUR".into()))
+        );
+        // No currency -> not parsed (avoids years/counts/401k as "pay").
+        assert_eq!(parse_salary("120000"), (None, None, None));
+        assert_eq!(parse_salary(""), (None, None, None));
     }
 
     #[test]
