@@ -1483,8 +1483,14 @@ pub fn stop_listening(state: State<'_, AppState>) -> Result<(), String> {
 // --- Capture mode (floating overlay panels) ---
 
 /// Open (or focus) the floating, always-on-top capture panels.
+///
+/// Async so it runs off the main thread: creating WebView2 windows needs the main
+/// event loop to pump during initialization, so building them from a *synchronous*
+/// command (which blocks the main thread) deadlocks - the windows show up blank and
+/// the app freezes. Running async lets the runtime dispatch creation to the main
+/// loop without blocking it.
 #[tauri::command]
-pub fn open_capture_panels(app: AppHandle) -> Result<(), String> {
+pub async fn open_capture_panels(app: AppHandle) -> Result<(), String> {
     crate::capture::open_panels(&app)
 }
 
