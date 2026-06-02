@@ -9,6 +9,7 @@ pub mod greenhouse;
 pub mod jobicy;
 pub mod jsonld;
 pub mod lever;
+pub mod remoteok;
 pub mod remotive;
 pub mod usajobs;
 
@@ -25,6 +26,7 @@ pub async fn fetch(http: &Client, kind: &str, config: &Value) -> Result<Vec<RawJ
         "lever" => lever::fetch(http, config).await,
         "ashby" => ashby::fetch(http, config).await,
         "arbeitnow" => arbeitnow::fetch(http, config).await,
+        "remoteok" => remoteok::fetch(http, config).await,
         "remotive" => remotive::fetch(http, config).await,
         "jobicy" => jobicy::fetch(http, config).await,
         "jsonld" => jsonld::fetch(http, config).await,
