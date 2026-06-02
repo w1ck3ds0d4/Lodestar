@@ -349,7 +349,58 @@ fn row_to_job(r: &rusqlite::Row) -> rusqlite::Result<Job> {
         remote_region: r.get(16)?,
         first_seen_at: r.get(17)?,
         last_seen_at: r.get(18)?,
+        also_on: Vec::new(),
     })
+}
+
+/// Dedup key for a posting: title + company, lowercased, punctuation-stripped, with
+/// common seniority/level noise words removed so the same role at the same company
+/// collapses regardless of source or "Senior"/"Jr"/level wording.
+fn dedupe_key(j: &Job) -> String {
+    const NOISE: &[&str] = &[
+        "senior",
+        "sr",
+        "junior",
+        "jr",
+        "staff",
+        "lead",
+        "principal",
+        "mid",
+        "level",
+        "i",
+        "ii",
+        "iii",
+        "iv",
+    ];
+    let norm = |s: &str| {
+        s.to_lowercase()
+            .split(|c: char| !c.is_alphanumeric())
+            .filter(|w| !w.is_empty() && !NOISE.contains(w))
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    format!("{}|{}", norm(&j.title), norm(&j.company))
+}
+
+/// Collapse duplicate postings (same role across multiple boards) in ranked order,
+/// keeping the highest-ranked and recording the other boards' labels on it.
+fn dedupe_jobs(jobs: Vec<Job>) -> Vec<Job> {
+    use std::collections::HashMap;
+    let mut seen: HashMap<String, usize> = HashMap::new();
+    let mut out: Vec<Job> = Vec::new();
+    for j in jobs {
+        let key = dedupe_key(&j);
+        if let Some(&pos) = seen.get(&key) {
+            let kept = &mut out[pos];
+            if j.source_label != kept.source_label && !kept.also_on.contains(&j.source_label) {
+                kept.also_on.push(j.source_label.clone());
+            }
+        } else {
+            seen.insert(key, out.len());
+            out.push(j);
+        }
+    }
+    out
 }
 
 fn row_to_source(r: &rusqlite::Row) -> rusqlite::Result<Source> {
@@ -478,7 +529,9 @@ pub fn search_jobs(
     for r in rows {
         out.push(r?);
     }
-    Ok(out)
+    // Collapse the same role appearing on multiple boards (read-time only; storage
+    // and stale-sweeping stay per source/external_id).
+    Ok(dedupe_jobs(out))
 }
 
 pub fn list_sources(conn: &Connection) -> Result<Vec<Source>> {
@@ -718,4 +771,58 @@ pub fn count_new_matches(conn: &Connection, alert: &Alert, since: i64) -> Result
     }
     let n: i64 = conn.query_row(&sql, params_from_iter(params.iter()), |r| r.get(0))?;
     Ok(n)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{dedupe_jobs, Job};
+
+    fn job(title: &str, company: &str, label: &str) -> Job {
+        Job {
+            id: 0,
+            source_kind: "x".into(),
+            source_label: label.into(),
+            external_id: String::new(),
+            title: title.into(),
+            company: company.into(),
+            location: String::new(),
+            remote: false,
+            workplace: String::new(),
+            experience_level: String::new(),
+            employment_type: None,
+            description: String::new(),
+            url: String::new(),
+            salary: None,
+            posted_at: None,
+            relocation: false,
+            remote_region: String::new(),
+            first_seen_at: 0,
+            last_seen_at: 0,
+            also_on: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn collapses_same_role_across_boards_ignoring_seniority() {
+        let jobs = vec![
+            job("Senior Rust Engineer", "Acme", "Greenhouse"),
+            job("Rust Engineer", "Acme", "Lever"), // same role, different level + board
+            job("Data Scientist", "Globex", "Remotive"),
+        ];
+        let out = dedupe_jobs(jobs);
+        assert_eq!(out.len(), 2);
+        assert_eq!(out[0].source_label, "Greenhouse"); // highest-ranked kept
+        assert_eq!(out[0].also_on, vec!["Lever".to_string()]);
+        assert!(out[1].also_on.is_empty());
+    }
+
+    #[test]
+    fn same_board_duplicate_is_not_listed_in_also_on() {
+        let out = dedupe_jobs(vec![
+            job("Engineer", "Acme", "Greenhouse"),
+            job("Engineer", "Acme", "Greenhouse"),
+        ]);
+        assert_eq!(out.len(), 1);
+        assert!(out[0].also_on.is_empty());
+    }
 }

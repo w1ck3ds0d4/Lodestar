@@ -44,6 +44,9 @@ pub struct Job {
     pub remote_region: String,
     pub first_seen_at: i64,
     pub last_seen_at: i64,
+    /// Other source labels carrying the same role, filled at search time when
+    /// duplicate postings across boards are collapsed into this one.
+    pub also_on: Vec<String>,
 }
 
 /// A configured source and its last-run status.
