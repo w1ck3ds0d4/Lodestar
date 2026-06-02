@@ -403,6 +403,111 @@ pub async fn application_doc(
     }
 }
 
+const ATS_PROMPT: &str = "Act as an applicant-tracking-system (ATS) resume scorer. Compare the candidate's \
+resume and profile to the job description and return ONLY a JSON object (no prose, no code fence) with \
+exactly these fields: \"keywords\" (0-100: how well the resume covers the JD's hard skills and keywords), \
+\"responsibilities\" (0-100: match to the role's duties and requirements), \"title\" (0-100: job title and \
+seniority alignment), \"impact\" (0-100: presence of quantified, relevant achievements), \"format\" (0-100: \
+ATS-friendly, cleanly parseable structure), \"matched\" (array of important JD keywords/skills found in the \
+resume), \"missing\" (array of important JD keywords/skills not found), and \"fixes\" (array of concrete, \
+truthful improvements; never suggest claiming skills the candidate does not have). Score honestly and \
+specifically. Output the JSON object only.";
+
+/// A structured ATS-style match score for a resume against a job description. The
+/// sub-scores come from the model; `overall` is a weighted blend computed in Rust.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AtsScore {
+    pub overall: u8,
+    pub keywords: u8,
+    pub responsibilities: u8,
+    pub title: u8,
+    pub impact: u8,
+    pub format: u8,
+    pub matched: Vec<String>,
+    pub missing: Vec<String>,
+    pub fixes: Vec<String>,
+}
+
+/// Score the stored resume/profile against a job description. Emits strict JSON,
+/// parsed leniently; the overall is computed here (not trusted to the model).
+pub async fn score_ats(
+    http: &reqwest::Client,
+    engine: &Engine,
+    jd: &str,
+    profile: Option<&str>,
+) -> Result<AtsScore> {
+    let system = with_profile(ATS_PROMPT, profile);
+    let user_text = format!("Job description:\n{jd}");
+    let raw = match engine {
+        Engine::Claude { api_key, model } => {
+            complete(http, api_key, model, &system, user_text, None).await?
+        }
+        Engine::Ollama { url, model } => {
+            ollama_chat(http, url, model, &system, user_text, None, None).await?
+        }
+    };
+    parse_ats_json(&raw)
+}
+
+/// Parse the ATS score JSON, tolerating code fences/prose (same approach as
+/// parse_cards_json): take the outermost object, clamp each sub-score to 0-100, and
+/// compute the weighted overall in Rust so a chatty model can't skew it.
+fn parse_ats_json(raw: &str) -> Result<AtsScore> {
+    let cleaned = raw.trim();
+    let cleaned = cleaned
+        .strip_prefix("```json")
+        .or_else(|| cleaned.strip_prefix("```"))
+        .unwrap_or(cleaned)
+        .trim_end_matches("```")
+        .trim();
+    let slice = match (cleaned.find('{'), cleaned.rfind('}')) {
+        (Some(s), Some(e)) if e > s => &cleaned[s..=e],
+        _ => return Err(anyhow!("The model did not return a score.")),
+    };
+    let v: Value =
+        serde_json::from_str(slice).map_err(|e| anyhow!("Could not parse the ATS score: {e}"))?;
+    let sub = |k: &str| {
+        v.get(k)
+            .and_then(Value::as_f64)
+            .unwrap_or(0.0)
+            .clamp(0.0, 100.0)
+    };
+    let (keywords, responsibilities, title, impact, format) = (
+        sub("keywords"),
+        sub("responsibilities"),
+        sub("title"),
+        sub("impact"),
+        sub("format"),
+    );
+    let overall =
+        (keywords * 0.40 + responsibilities * 0.20 + title * 0.15 + impact * 0.15 + format * 0.10)
+            .round();
+    let list = |k: &str| {
+        v.get(k)
+            .and_then(Value::as_array)
+            .map(|a| {
+                a.iter()
+                    .filter_map(Value::as_str)
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    Ok(AtsScore {
+        overall: overall as u8,
+        keywords: keywords as u8,
+        responsibilities: responsibilities as u8,
+        title: title as u8,
+        impact: impact as u8,
+        format: format as u8,
+        matched: list("matched"),
+        missing: list("missing"),
+        fixes: list("fixes"),
+    })
+}
+
 /// System prompt for the mock-interviewer: ask one realistic question at a time.
 const PRACTICE_Q_PROMPT: &str = "You are running a realistic mock interview for the candidate's target role \
 and company (see their profile). Ask exactly ONE interview question. Across a session, vary the type - \
@@ -809,7 +914,36 @@ fn api_error_message(status: u16, payload: &Value) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_cards_json, style_directive};
+    use super::{parse_ats_json, parse_cards_json, style_directive};
+
+    #[test]
+    fn ats_weighted_overall_and_clamping() {
+        // keywords 100*.40 + resp 80*.20 + title 60*.15 + impact 40*.15 + format 20*.10
+        // = 40 + 16 + 9 + 6 + 2 = 73. Out-of-range sub-scores are clamped.
+        let raw = r#"```json
+        {"keywords":100,"responsibilities":80,"title":60,"impact":40,"format":20,
+         "matched":["rust"," tokio "],"missing":["k8s"],"fixes":["quantify impact"]}
+        ```"#;
+        let s = parse_ats_json(raw).unwrap();
+        assert_eq!(s.overall, 73);
+        assert_eq!(s.keywords, 100);
+        assert_eq!(s.matched, vec!["rust".to_string(), "tokio".to_string()]);
+        assert_eq!(s.missing, vec!["k8s".to_string()]);
+    }
+
+    #[test]
+    fn ats_clamps_and_defaults_missing_fields() {
+        let s = parse_ats_json(r#"{"keywords":150}"#).unwrap();
+        assert_eq!(s.keywords, 100); // clamped from 150
+        assert_eq!(s.responsibilities, 0); // missing -> 0
+        assert_eq!(s.overall, 40); // 100*.40 only
+        assert!(s.fixes.is_empty());
+    }
+
+    #[test]
+    fn ats_errors_without_an_object() {
+        assert!(parse_ats_json("I couldn't score this.").is_err());
+    }
 
     #[test]
     fn code_style_demands_real_code_and_complexity() {

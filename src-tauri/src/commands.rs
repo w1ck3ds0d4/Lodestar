@@ -424,6 +424,25 @@ pub async fn application_doc(
         .map_err(|e| e.to_string())
 }
 
+/// Score the stored resume/profile against a job description (structured ATS score).
+#[tauri::command]
+pub async fn score_ats(
+    state: State<'_, AppState>,
+    jd: String,
+) -> Result<crate::assistant::AtsScore, String> {
+    if jd.trim().is_empty() {
+        return Err("Paste the job description first.".into());
+    }
+    let (engine, profile) = {
+        let conn = state.db.lock().map_err(|_| "db poisoned")?;
+        (build_engine(&conn)?, interview_profile(&conn))
+    };
+    let http = state.http.clone();
+    crate::assistant::score_ats(&http, &engine, &jd, profile.as_deref())
+        .await
+        .map_err(|e| e.to_string())
+}
+
 /// Mock interview: ask the next question (given the ones already asked this session).
 #[tauri::command]
 pub async fn practice_question(
