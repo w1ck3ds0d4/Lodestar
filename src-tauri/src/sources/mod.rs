@@ -14,6 +14,7 @@ pub mod recruitee;
 pub mod remoteok;
 pub mod remotive;
 pub mod smartrecruiters;
+pub mod themuse;
 pub mod usajobs;
 pub mod workable;
 
@@ -39,6 +40,7 @@ pub async fn fetch(http: &Client, kind: &str, config: &Value) -> Result<Vec<RawJ
         "smartrecruiters" => smartrecruiters::fetch(http, config).await,
         "jsonld" => jsonld::fetch(http, config).await,
         "adzuna" => adzuna::fetch(http, config).await,
+        "themuse" => themuse::fetch(http, config).await,
         "usajobs" => usajobs::fetch(http, config).await,
         other => anyhow::bail!("unknown source kind: {other}"),
     }

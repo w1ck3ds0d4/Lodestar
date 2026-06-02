@@ -211,6 +211,7 @@ export const SOURCE_KINDS = [
   "smartrecruiters",
   "jsonld",
   "adzuna",
+  "themuse",
   "usajobs",
 ] as const;
 
@@ -261,6 +262,7 @@ export const KIND_LABELS: Record<string, string> = {
   smartrecruiters: "SmartRecruiters",
   jsonld: "Career page",
   adzuna: "Adzuna",
+  themuse: "The Muse",
   usajobs: "USAJOBS",
 };
 
@@ -284,6 +286,13 @@ export const CONFIG_FIELDS: Record<string, { key: string; label: string; placeho
     { key: "email", label: "Email (User-Agent)" },
     { key: "api_key", label: "API key" },
     { key: "keyword", label: "Keyword (optional)" },
+  ],
+  themuse: [
+    { key: "api_key", label: "API key (optional, raises rate limit)" },
+    { key: "category", label: "Category (optional)", placeholder: "Software Engineering" },
+    { key: "location", label: "Location (optional)", placeholder: "Lisbon, Portugal" },
+    { key: "level", label: "Level (optional)", placeholder: "Senior Level" },
+    { key: "company", label: "Company (optional)" },
   ],
   arbeitnow: [],
   remoteok: [],
