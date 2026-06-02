@@ -191,8 +191,64 @@ pub fn init(path: &Path) -> Result<Connection> {
     ensure_column(&conn, "jobs", "salary_currency", "TEXT")?;
     ensure_column(&conn, "tracked", "next_action", "TEXT")?;
     ensure_column(&conn, "tracked", "prep", "TEXT")?;
+    // One-off: recompute derived columns (remote_region, posted_at_ms, salary_*) for
+    // rows crawled before those derivations existed, so the search filters apply to
+    // existing jobs immediately instead of only after the next crawl. Runs once.
+    if get_setting(&conn, "derived_backfill_v1")?.is_none() {
+        backfill_derived(&conn)?;
+        set_setting(&conn, "derived_backfill_v1", "1")?;
+    }
     seed_defaults(&conn)?;
     Ok(conn)
+}
+
+/// Recompute derived columns for existing rows using the same logic as `upsert_jobs`.
+/// One-off (gated by a settings flag); a no-op on a fresh database.
+fn backfill_derived(conn: &Connection) -> Result<()> {
+    #[allow(clippy::type_complexity)]
+    let rows: Vec<(
+        i64,
+        i64,
+        String,
+        String,
+        String,
+        Option<String>,
+        Option<String>,
+    )> = {
+        let mut stmt = conn.prepare(
+            "SELECT id, remote, location, title, description, posted_at, salary FROM jobs",
+        )?;
+        let mapped = stmt.query_map([], |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, i64>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, String>(3)?,
+                r.get::<_, String>(4)?,
+                r.get::<_, Option<String>>(5)?,
+                r.get::<_, Option<String>>(6)?,
+            ))
+        })?;
+        mapped.collect::<rusqlite::Result<Vec<_>>>()?
+    };
+    let tx = conn.unchecked_transaction()?;
+    {
+        let mut up = tx.prepare(
+            "UPDATE jobs SET remote_region=?2, posted_at_ms=?3, salary_min=?4, salary_max=?5, \
+             salary_currency=?6 WHERE id=?1",
+        )?;
+        for (id, remote, location, title, description, posted_at, salary) in rows {
+            let region = remote_region(remote != 0, &location, &title, &description);
+            let posted_ms = posted_at.as_deref().and_then(date_to_epoch_ms);
+            let (smin, smax, scur) = salary
+                .as_deref()
+                .map(parse_salary)
+                .unwrap_or((None, None, None));
+            up.execute(params![id, region, posted_ms, smin, smax, scur])?;
+        }
+    }
+    tx.commit()?;
+    Ok(())
 }
 
 /// Add a column to a table if it isn't already present (lightweight migration).
@@ -489,19 +545,37 @@ pub fn search_jobs(
     if relocation_only {
         sql.push_str(" AND j.relocation = 1");
     }
-    if remote_eligible {
-        // Remote roles workable from the user's country: keep worldwide / their
-        // own region / unstated, and drop ones locked to a different region.
+    // Geo-lock remote rows to the user's country in two cases:
+    //  (a) the explicit "Workable from <country>" chip (remote_eligible), which also
+    //      narrows the whole result set to remote-only; and
+    //  (b) a plain WORKPLACE="remote" filter, where we hide remote roles locked to a
+    //      region the user can't work from.
+    // The exclusion is scoped per-row via the inner workplace='remote' guard, so any
+    // hybrid/onsite rows the WORKPLACE filter let through are untouched. Worldwide
+    // and unstated regions are never in `excluded`, so they are always kept.
+    let want_remote = workplaces.iter().any(|w| w == "remote");
+    if remote_eligible || want_remote {
         let country = get_setting(conn, "work_from_country")?.unwrap_or_default();
-        sql.push_str(" AND j.workplace = 'remote'");
-        let excluded = excluded_remote_regions(&country);
+        if remote_eligible {
+            // The explicit chip also restricts the whole result set to remote.
+            sql.push_str(" AND j.workplace = 'remote'");
+        }
+        // The plain Remote path only geo-locks when a country is known (unknown ->
+        // show all remote). The explicit chip keeps its prior all-regions behavior.
+        let excluded = if remote_eligible || !country.trim().is_empty() {
+            excluded_remote_regions(&country)
+        } else {
+            Vec::new()
+        };
         if !excluded.is_empty() {
             let list = excluded
                 .iter()
                 .map(|r| format!("'{r}'"))
                 .collect::<Vec<_>>()
                 .join(",");
-            sql.push_str(&format!(" AND j.remote_region NOT IN ({list})"));
+            sql.push_str(&format!(
+                " AND NOT (j.workplace = 'remote' AND j.remote_region IN ({list}))"
+            ));
         }
     }
     // Freshness filter: keep only jobs posted within N days. Rows with no parsed
