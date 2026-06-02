@@ -260,14 +260,23 @@ pub async fn prep_application(
     title: String,
     org: String,
 ) -> Result<String, String> {
-    let (engine, profile) = {
+    let (engine, profile, jd) = {
         let conn = state.db.lock().map_err(|_| "db poisoned")?;
-        (build_engine(&conn)?, interview_profile(&conn))
+        // Ground prep in the linked posting's description when this app came from one.
+        let jd = db::job_jd(&conn, id).map_err(|e| e.to_string())?;
+        (build_engine(&conn)?, interview_profile(&conn), jd)
     };
     let http = state.http.clone();
-    let prep = crate::assistant::interview_prep(&http, &engine, &title, &org, profile.as_deref())
-        .await
-        .map_err(|e| e.to_string())?;
+    let prep = crate::assistant::interview_prep(
+        &http,
+        &engine,
+        &title,
+        &org,
+        jd.as_deref(),
+        profile.as_deref(),
+    )
+    .await
+    .map_err(|e| e.to_string())?;
     {
         let conn = state.db.lock().map_err(|_| "db poisoned")?;
         crate::career::set_prep(&conn, id, &prep).map_err(|e| e.to_string())?;

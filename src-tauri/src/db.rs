@@ -203,6 +203,46 @@ fn ensure_column(conn: &Connection, table: &str, col: &str, decl: &str) -> Resul
     Ok(())
 }
 
+/// The job description (with location/salary context) for a tracked application that
+/// was created from a saved posting, or None if it has no linked posting or no text.
+/// Used to ground interview prep in the real job requirements.
+pub fn job_jd(conn: &Connection, tracked_id: i64) -> Result<Option<String>> {
+    use rusqlite::OptionalExtension;
+    let row = conn
+        .query_row(
+            "SELECT j.location, j.salary, j.description \
+             FROM tracked t JOIN jobs j ON j.id = t.source_job_id \
+             WHERE t.id = ?1 AND j.removed_at IS NULL",
+            params![tracked_id],
+            |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, Option<String>>(1)?,
+                    r.get::<_, String>(2)?,
+                ))
+            },
+        )
+        .optional()?;
+    Ok(row.and_then(|(location, salary, description)| {
+        let desc = description.trim();
+        if desc.is_empty() {
+            return None;
+        }
+        let mut jd = String::new();
+        if !location.trim().is_empty() {
+            jd.push_str(&format!("Location: {}\n", location.trim()));
+        }
+        if let Some(s) = salary.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+            jd.push_str(&format!("Salary: {s}\n"));
+        }
+        if !jd.is_empty() {
+            jd.push('\n');
+        }
+        jd.push_str(desc);
+        Some(jd)
+    }))
+}
+
 /// Read a value from the key-value settings table.
 pub fn get_setting(conn: &Connection, key: &str) -> Result<Option<String>> {
     use rusqlite::OptionalExtension;

@@ -258,22 +258,30 @@ const PREP_PROMPT: &str = "You are an interview coach. Given a role and company 
 (plus their profile if provided), produce concise prep in GitHub-flavored Markdown: likely interview \
 questions grouped by type (behavioral, role/technical, and about the company), strong talking points or \
 angles the candidate can lean on, and a short 'research before the interview' checklist. Be specific to the \
-role and company. Note where you are unsure - you may not have current data about this company.";
+role and company. When a job description is provided, ground the questions and talking points in its actual \
+requirements and responsibilities. Note where you are unsure - you may not have current data about this company.";
 
 /// Generate interview prep for a tracked application (role + company), tailored to
-/// the user's profile.
+/// the user's profile. When the application came from a saved posting, its job
+/// description is passed in `jd` so the prep is grounded in the real requirements.
 pub async fn interview_prep(
     http: &reqwest::Client,
     engine: &Engine,
     title: &str,
     org: &str,
+    jd: Option<&str>,
     profile: Option<&str>,
 ) -> Result<String> {
-    let user_text = if org.trim().is_empty() {
+    let mut user_text = if org.trim().is_empty() {
         format!("Role: {title}")
     } else {
         format!("Role: {title}\nCompany: {org}")
     };
+    if let Some(jd) = jd.map(str::trim).filter(|s| !s.is_empty()) {
+        // Cap the JD so a very long posting doesn't blow up the input.
+        let jd: String = jd.chars().take(6000).collect();
+        user_text.push_str(&format!("\n\nJob description:\n{jd}"));
+    }
     let system = with_profile(PREP_PROMPT, profile);
     match engine {
         Engine::Claude { api_key, model } => {
