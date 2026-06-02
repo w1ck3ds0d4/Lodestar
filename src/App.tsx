@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { Bell, Bot, ClipboardList, Eye, EyeOff, GraduationCap, HelpCircle, Radar, RefreshCw, Search, Settings, X } from "lucide-react";
+import { Bell, Bot, ChevronDown, ClipboardList, Eye, EyeOff, GraduationCap, HelpCircle, Radar, RefreshCw, Search, Settings, X } from "lucide-react";
 import * as api from "./api";
 import { KIND_LABELS, LEVELS, WORKPLACES, type Alert, type Job, type Source, type Stats } from "./types";
 import { JobCard } from "./components/JobCard";
@@ -25,6 +25,8 @@ export default function App() {
   const [postedWithin, setPostedWithin] = useState<number | null>(null);
   // Minimum salary (nominal, in the posting's currency); null = any.
   const [minSalary, setMinSalary] = useState<number | null>(null);
+  // The filter facets collapse to a single "Filters" pill by default; remembered.
+  const [filtersOpen, setFiltersOpen] = useState(() => localStorage.getItem("jr.filtersOpen") === "1");
   const [jobs, setJobs] = useState<Job[]>([]);
   const [stats, setStats] = useState<Stats>({ totalJobs: 0, companies: 0 });
   const [sources, setSources] = useState<Source[]>([]);
@@ -95,6 +97,10 @@ export default function App() {
     return () => clearInterval(t);
   }, [refreshStats]);
 
+  useEffect(() => {
+    localStorage.setItem("jr.filtersOpen", filtersOpen ? "1" : "0");
+  }, [filtersOpen]);
+
   const onSync = useCallback(async () => {
     setSyncing(true);
     try {
@@ -160,6 +166,16 @@ export default function App() {
     postedWithin !== null ||
     minSalary !== null;
 
+  // Count of active facets, shown as a badge on the collapsed "Filters" pill.
+  const activeFilterCount =
+    selectedKinds.length +
+    workplaces.length +
+    levels.length +
+    (remoteEligible ? 1 : 0) +
+    (relocationOnly ? 1 : 0) +
+    (postedWithin !== null ? 1 : 0) +
+    (minSalary !== null ? 1 : 0);
+
   const toggle = (setter: Dispatch<SetStateAction<string[]>>, k: string) =>
     setter((prev) => (prev.includes(k) ? prev.filter((x) => x !== k) : [...prev, k]));
 
@@ -224,7 +240,21 @@ export default function App() {
               )}
             </div>
 
-            <div className="filter-grid">
+            <div className="filter-bar">
+              <button
+                className={"filter-toggle" + (filtersOpen ? " open" : "")}
+                aria-expanded={filtersOpen}
+                aria-controls="filter-grid"
+                onClick={() => setFiltersOpen((v) => !v)}
+              >
+                <ChevronDown size={15} className="filter-caret" />
+                Filters
+                {activeFilterCount > 0 && <span className="filter-count">{activeFilterCount}</span>}
+              </button>
+            </div>
+
+            {filtersOpen && (
+              <div className="filter-grid" id="filter-grid">
               <span className="filter-label">Workplace</span>
               <div className="chip-row">
                 {WORKPLACES.map((w) => (
@@ -350,7 +380,8 @@ export default function App() {
                   </div>
                 </>
               )}
-            </div>
+              </div>
+            )}
 
             <div className="searchbar-meta">
               <span className="result-count">
