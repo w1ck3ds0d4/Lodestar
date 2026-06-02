@@ -9,7 +9,7 @@ use std::path::Path;
 use crate::model::{Alert, Job, RawJob, Source};
 use crate::util::{
     classify_experience, date_to_epoch_ms, detect_relocation, excluded_remote_regions,
-    infer_workplace, now_ms, remote_region, stable_hash,
+    infer_workplace, now_ms, parse_salary, remote_region, stable_hash,
 };
 
 const DAY_MS: i64 = 86_400_000;
@@ -184,6 +184,11 @@ pub fn init(path: &Path) -> Result<Connection> {
         "CREATE INDEX IF NOT EXISTS idx_jobs_posted_at_ms ON jobs(posted_at_ms)",
         [],
     )?;
+    // Parsed salary (whole annual units, in the stated currency) for filtering.
+    // NULL means "unknown", which the filter keeps rather than hides.
+    ensure_column(&conn, "jobs", "salary_min", "INTEGER")?;
+    ensure_column(&conn, "jobs", "salary_max", "INTEGER")?;
+    ensure_column(&conn, "jobs", "salary_currency", "TEXT")?;
     ensure_column(&conn, "tracked", "next_action", "TEXT")?;
     ensure_column(&conn, "tracked", "prep", "TEXT")?;
     seed_defaults(&conn)?;
@@ -465,6 +470,7 @@ pub fn search_jobs(
     relocation_only: bool,
     remote_eligible: bool,
     posted_within_days: Option<i64>,
+    min_salary: Option<i64>,
     limit: i64,
 ) -> Result<Vec<Job>> {
     let fts = build_fts_query(query);
@@ -503,6 +509,15 @@ pub fn search_jobs(
     if let Some(days) = posted_within_days.filter(|d| *d > 0) {
         sql.push_str(" AND COALESCE(j.posted_at_ms, j.first_seen_at) >= ?");
         params.push(SqlValue::Integer(now - days * DAY_MS));
+    }
+    // Minimum salary: keep jobs whose (parsed) pay meets it. Unknown salary is kept,
+    // not hidden - unknown is not the same as "below".
+    if let Some(min) = min_salary.filter(|m| *m > 0) {
+        sql.push_str(
+            " AND (COALESCE(j.salary_max, j.salary_min) IS NULL \
+               OR COALESCE(j.salary_max, j.salary_min) >= ?)",
+        );
+        params.push(SqlValue::Integer(min));
     }
     // Ranking. Text queries sort by weighted relevance, but with a recency bonus
     // subtracted from the (negative) bm25 score so a fresh role isn't buried under a
@@ -630,15 +645,18 @@ pub fn upsert_jobs(
         let mut stmt = tx.prepare(
             "INSERT INTO jobs (source_id, source_kind, external_id, title, company, location, remote, \
                 workplace, experience_level, employment_type, description, url, salary, posted_at, \
-                relocation, remote_region, content_hash, posted_at_ms, first_seen_at, last_seen_at, removed_at) \
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?19,NULL) \
+                relocation, remote_region, content_hash, posted_at_ms, salary_min, salary_max, \
+                salary_currency, first_seen_at, last_seen_at, removed_at) \
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?22,NULL) \
              ON CONFLICT(source_id, external_id) DO UPDATE SET \
                 title=excluded.title, company=excluded.company, location=excluded.location, remote=excluded.remote, \
                 workplace=excluded.workplace, experience_level=excluded.experience_level, \
                 employment_type=excluded.employment_type, description=excluded.description, url=excluded.url, \
                 salary=excluded.salary, posted_at=excluded.posted_at, relocation=excluded.relocation, \
                 remote_region=excluded.remote_region, content_hash=excluded.content_hash, \
-                posted_at_ms=excluded.posted_at_ms, last_seen_at=excluded.last_seen_at, removed_at=NULL",
+                posted_at_ms=excluded.posted_at_ms, salary_min=excluded.salary_min, \
+                salary_max=excluded.salary_max, salary_currency=excluded.salary_currency, \
+                last_seen_at=excluded.last_seen_at, removed_at=NULL",
         )?;
         for j in jobs {
             let workplace = infer_workplace(j.remote, &j.location, &j.title);
@@ -662,6 +680,11 @@ pub fn upsert_jobs(
                 j.location.to_lowercase()
             ));
             let posted_at_ms = j.posted_at.as_deref().and_then(date_to_epoch_ms);
+            let (salary_min, salary_max, salary_currency) = j
+                .salary
+                .as_deref()
+                .map(parse_salary)
+                .unwrap_or((None, None, None));
             stmt.execute(params![
                 source_id,
                 kind,
@@ -681,6 +704,9 @@ pub fn upsert_jobs(
                 region,
                 hash,
                 posted_at_ms,
+                salary_min,
+                salary_max,
+                salary_currency,
                 now,
             ])?;
         }
