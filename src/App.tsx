@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type Dispatch, type SetState
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { Bell, Bot, ChevronDown, ClipboardList, Eye, EyeOff, GraduationCap, HelpCircle, Radar, RefreshCw, Search, Settings, X } from "lucide-react";
 import * as api from "./api";
-import { KIND_LABELS, LEVELS, WORKPLACES, type Alert, type Job, type Source, type Stats } from "./types";
+import { KIND_LABELS, LANG_LABELS, LEVELS, WORKPLACES, type Alert, type Job, type Source, type Stats } from "./types";
 import { JobCard } from "./components/JobCard";
 import { SourcesPanel } from "./components/SourcesPanel";
 import { AlertsPanel } from "./components/AlertsPanel";
@@ -25,6 +25,8 @@ export default function App() {
   const [postedWithin, setPostedWithin] = useState<number | null>(null);
   // Minimum salary (nominal, in the posting's currency); null = any.
   const [minSalary, setMinSalary] = useState<number | null>(null);
+  // Languages to keep (ISO 639-1); empty = all. Unknown-language jobs are always kept.
+  const [langs, setLangs] = useState<string[]>([]);
   // The filter facets collapse to a single "Filters" pill by default; remembered.
   const [filtersOpen, setFiltersOpen] = useState(() => localStorage.getItem("jr.filtersOpen") === "1");
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -60,6 +62,7 @@ export default function App() {
           remoteEligible,
           postedWithin,
           minSalary,
+          langs,
         ),
       );
     } finally {
@@ -75,6 +78,7 @@ export default function App() {
     remoteEligible,
     postedWithin,
     minSalary,
+    langs,
     workCountry,
   ]);
 
@@ -164,13 +168,15 @@ export default function App() {
     remoteEligible ||
     relocationOnly ||
     postedWithin !== null ||
-    minSalary !== null;
+    minSalary !== null ||
+    langs.length > 0;
 
   // Count of active facets, shown as a badge on the collapsed "Filters" pill.
   const activeFilterCount =
     selectedKinds.length +
     workplaces.length +
     levels.length +
+    langs.length +
     (remoteEligible ? 1 : 0) +
     (relocationOnly ? 1 : 0) +
     (postedWithin !== null ? 1 : 0) +
@@ -364,6 +370,20 @@ export default function App() {
                 ))}
               </div>
 
+              <span className="filter-label">Language</span>
+              <div className="chip-row">
+                {Object.entries(LANG_LABELS).map(([code, label]) => (
+                  <button
+                    key={code}
+                    className={"chip" + (langs.includes(code) ? " active" : "")}
+                    title="Show only these languages; postings whose language can't be detected are kept"
+                    onClick={() => toggle(setLangs, code)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
               {availableKinds.length > 0 && (
                 <>
                   <span className="filter-label">Source</span>
@@ -400,6 +420,7 @@ export default function App() {
                     setRelocationOnly(false);
                     setPostedWithin(null);
                     setMinSalary(null);
+                    setLangs([]);
                   }}
                 >
                   <X size={13} /> Clear all

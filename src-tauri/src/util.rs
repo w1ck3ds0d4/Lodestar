@@ -255,6 +255,55 @@ pub fn parse_salary(s: &str) -> (Option<i64>, Option<i64>, Option<String>) {
     (min, max, Some(currency.to_string()))
 }
 
+/// Detect the posting's language as an ISO 639-1 code ("en", "pt", "de", ...), so the
+/// user can filter out listings in languages they don't read. Runs on the description
+/// (longer = more reliable), falling back to the title; returns None when the text is
+/// too short or detection is unreliable, so "unknown" is never hidden by the filter.
+pub fn detect_lang(title: &str, description: &str) -> Option<String> {
+    let desc = description.trim();
+    let text = if desc.chars().count() >= 40 {
+        desc
+    } else {
+        title.trim()
+    };
+    if text.chars().count() < 20 {
+        return None;
+    }
+    let info = whatlang::detect(text)?;
+    if !info.is_reliable() {
+        return None;
+    }
+    iso639_1(info.lang()).map(str::to_string)
+}
+
+/// Map the languages we care about to ISO 639-1. Unmapped languages return None
+/// (stored as unknown -> always shown), keeping the filter's vocabulary bounded.
+fn iso639_1(lang: whatlang::Lang) -> Option<&'static str> {
+    use whatlang::Lang::*;
+    Some(match lang {
+        Eng => "en",
+        Por => "pt",
+        Spa => "es",
+        Fra => "fr",
+        Deu => "de",
+        Nld => "nl",
+        Ita => "it",
+        Pol => "pl",
+        Swe => "sv",
+        Dan => "da",
+        Fin => "fi",
+        Rus => "ru",
+        Ukr => "uk",
+        Tur => "tr",
+        Ces => "cs",
+        Ron => "ro",
+        Cmn => "zh",
+        Jpn => "ja",
+        Kor => "ko",
+        _ => return None,
+    })
+}
+
 /// Classify the work arrangement as one of "remote" | "hybrid" | "onsite".
 /// Uses the source's remote flag plus keywords in the location/title.
 pub fn infer_workplace(remote: bool, location: &str, title: &str) -> String {
@@ -635,6 +684,24 @@ mod tests {
     fn epoch_to_date_known_dates() {
         assert_eq!(epoch_to_date(0), "1970-01-01");
         assert_eq!(epoch_to_date(1_700_000_000), "2023-11-14");
+    }
+
+    #[test]
+    fn detect_lang_identifies_common_languages() {
+        assert_eq!(
+            detect_lang("Backend Engineer", "We are looking for a senior backend engineer to build scalable services and lead a small team.").as_deref(),
+            Some("en")
+        );
+        assert_eq!(
+            detect_lang("Engenheiro", "Estamos a procura de um engenheiro de software para desenvolver e manter as nossas aplicacoes web.").as_deref(),
+            Some("pt")
+        );
+        assert_eq!(
+            detect_lang("Entwickler", "Wir suchen einen erfahrenen Softwareentwickler fuer die Entwicklung moderner Webanwendungen in unserem Team.").as_deref(),
+            Some("de")
+        );
+        // Too short to trust -> None (so it's never hidden by the filter).
+        assert_eq!(detect_lang("Dev", ""), None);
     }
 
     #[test]

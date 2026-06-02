@@ -19,7 +19,21 @@ export interface Job {
   firstSeenAt: number;
   lastSeenAt: number;
   alsoOn: string[];
+  lang: string | null;
 }
+
+// Languages offered in the search filter (ISO 639-1 -> display name). The detector
+// recognizes more, but these are the ones surfaced as filter chips.
+export const LANG_LABELS: Record<string, string> = {
+  en: "English",
+  pt: "Portuguese",
+  es: "Spanish",
+  fr: "French",
+  de: "German",
+  nl: "Dutch",
+  it: "Italian",
+  pl: "Polish",
+};
 
 export interface Source {
   id: number;
