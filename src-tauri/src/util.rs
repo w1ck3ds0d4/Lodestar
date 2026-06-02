@@ -392,6 +392,13 @@ pub fn detect_relocation(description: &str) -> bool {
 /// location/title/description: "worldwide" | "eu" | "us" | "uk" | "other" | ""
 /// (the last meaning not-remote or no stated restriction). Heuristic - sources
 /// rarely state geo-eligibility cleanly, so this only catches explicit signals.
+///
+/// When several allowed regions are named (e.g. "Remote in Canada or the US") we
+/// tag the BROADEST region we have a user bucket for, preferring eu > us > uk >
+/// other. That keeps a role for users who CAN work it while letting us drop it
+/// for users who cannot (a Malta user keeps only worldwide + unstated). A role
+/// naming only non-bucket countries (Canada-only, India-only, ...) tags "other"
+/// so it is excluded for every concrete country.
 pub fn remote_region(remote: bool, location: &str, title: &str, description: &str) -> &'static str {
     if !remote {
         return "";
@@ -402,51 +409,125 @@ pub fn remote_region(remote: bool, location: &str, title: &str, description: &st
         title.to_lowercase(),
         description.to_lowercase()
     );
+
+    // 1. Worldwide / anywhere always wins: no geo restriction at all.
     if text.contains("worldwide")
         || text.contains("work from anywhere")
         || text.contains("anywhere in the world")
         || text.contains("remote anywhere")
+        || text.contains("anywhere remote")
         || text.contains("global remote")
+        || text.contains("fully remote, anywhere")
+        || text.contains("remote, anywhere")
+        || text.contains("location: anywhere")
+        || text.contains("any country")
+        || text.contains("any location")
+        || text.contains("any timezone")
+        || text.contains("any time zone")
     {
         return "worldwide";
     }
-    if text.contains("remote (eu")
+
+    // 2. Collect every region bucket the posting mentions.
+    let eu = text.contains("remote (eu")
         || text.contains("remote - eu")
+        || text.contains("remote in eu")
+        || text.contains("remote in the eu")
+        || text.contains("remote, eu")
         || text.contains("eu only")
         || text.contains("eu-based")
+        || text.contains("eu remote")
         || text.contains("europe only")
         || text.contains("within europe")
+        || text.contains("remote in europe")
+        || text.contains("remote within europe")
+        || text.contains("anywhere in europe")
+        || text.contains("based in europe")
         || text.contains("eea")
         || text.contains("european union")
-    {
-        return "eu";
-    }
-    if text.contains("us only")
+        || text.contains("european economic area")
+        || text.contains("authorized to work in the eu")
+        || text.contains("authorised to work in the eu");
+
+    // NOTE: no bare "remote us" / "us based" trigger -- they collide with
+    // "remote use ..." / "campus based ...". The dash/paren/"in the" forms below
+    // plus "us only"/"us-based" cover the real phrasings safely.
+    let us = text.contains("us only")
         || text.contains("u.s. only")
         || text.contains("usa only")
         || text.contains("united states only")
         || text.contains("us-based")
+        || text.contains("u.s.-based")
+        || text.contains("based in the us")
+        || text.contains("based in the united states")
         || text.contains("us residents")
+        || text.contains("u.s. residents")
+        || text.contains("must reside in the us")
+        || text.contains("must reside in the united states")
+        || text.contains("remote in the us")
+        || text.contains("remote in the united states")
+        || text.contains("remote (us")
+        || text.contains("remote - us")
+        || text.contains("remote, us")
+        || text.contains("united states")
         || text.contains("authorized to work in the united states")
+        || text.contains("authorized to work in the us")
+        || text.contains("us work authorization")
         || text.contains("us time zone")
+        || text.contains("u.s. time zone")
         || text.contains("est time zone")
-    {
-        return "us";
-    }
-    if text.contains("uk only")
+        || text.contains("pst time zone");
+
+    let uk = text.contains("uk only")
         || text.contains("uk-based")
+        || text.contains("u.k.-based")
         || text.contains("united kingdom only")
+        || text.contains("based in the uk")
+        || text.contains("based in the united kingdom")
         || text.contains("must be based in the uk")
-    {
-        return "uk";
-    }
-    if text.contains("canada only")
+        || text.contains("must reside in the uk")
+        || text.contains("remote in the uk")
+        || text.contains("remote in the united kingdom")
+        || text.contains("remote (uk")
+        || text.contains("remote - uk")
+        || text.contains("uk residents")
+        || text.contains("authorized to work in the uk")
+        || text.contains("authorised to work in the uk")
+        || text.contains("right to work in the uk");
+
+    let other = text.contains("canada only")
+        || text.contains("remote in canada")
+        || text.contains("based in canada")
+        || text.contains("canada-based")
         || text.contains("australia only")
+        || text.contains("remote in australia")
+        || text.contains("australia-based")
         || text.contains("india only")
-    {
-        return "other";
+        || text.contains("remote in india")
+        || text.contains("india-based")
+        || text.contains("based in india")
+        || text.contains("apac only")
+        || text.contains("latam only")
+        || text.contains("latin america only")
+        || text.contains("remote in latam")
+        || text.contains("brazil only")
+        || text.contains("new zealand only")
+        || text.contains("singapore only")
+        || text.contains("philippines only")
+        || text.contains("remote in the philippines");
+
+    // 3. Broadest bucket we have a user for: eu > us > uk > other.
+    if eu {
+        "eu"
+    } else if us {
+        "us"
+    } else if uk {
+        "uk"
+    } else if other {
+        "other"
+    } else {
+        ""
     }
-    ""
 }
 
 /// EU/EEA member country codes treated as "remote-eligible from the EU".
@@ -640,21 +721,78 @@ mod tests {
 
     #[test]
     fn remote_region_detects_explicit_signals() {
-        assert_eq!(remote_region(false, "Remote worldwide", "", ""), ""); // not flagged remote
+        // Not flagged remote -> always "".
+        assert_eq!(remote_region(false, "Remote worldwide", "", ""), "");
+        // Worldwide / anywhere.
         assert_eq!(remote_region(true, "Remote worldwide", "", ""), "worldwide");
+        assert_eq!(
+            remote_region(true, "Work from anywhere", "", ""),
+            "worldwide"
+        );
+        assert_eq!(remote_region(true, "Remote, anywhere", "", ""), "worldwide");
+        // Single-region locks.
         assert_eq!(
             remote_region(true, "", "", "US only, must be authorized"),
             "us"
         );
         assert_eq!(remote_region(true, "Remote - EU", "", ""), "eu");
+        assert_eq!(remote_region(true, "Remote in Europe", "", ""), "eu");
         assert_eq!(remote_region(true, "UK only", "", ""), "uk");
+        assert_eq!(remote_region(true, "Must be based in the UK", "", ""), "uk");
+        // "based in" / "must reside in" / "authorized to work in" phrasings.
+        assert_eq!(
+            remote_region(true, "", "", "You must reside in the United States"),
+            "us"
+        );
+        assert_eq!(
+            remote_region(true, "", "", "Authorized to work in the EU required"),
+            "eu"
+        );
+        assert_eq!(
+            remote_region(true, "Based in the United Kingdom", "", ""),
+            "uk"
+        );
+        // "remote in <region>".
+        assert_eq!(remote_region(true, "Remote in the US", "", ""), "us");
+        assert_eq!(remote_region(true, "Remote in Canada", "", ""), "other");
+        // Non-bucket country-only -> "other".
         assert_eq!(remote_region(true, "Canada only", "", ""), "other");
+        assert_eq!(remote_region(true, "India only", "", ""), "other");
+
+        // *** Reported bug: multi-region role that includes the US -> "us". ***
+        assert_eq!(
+            remote_region(true, "Remote in Canada, or United States", "", ""),
+            "us"
+        );
+        let region = remote_region(true, "Remote in Canada, or United States", "", "");
+        assert!(excluded_remote_regions("MT").contains(&region)); // dropped for Malta
+        assert!(!excluded_remote_regions("US").contains(&region)); // kept for the US
+
+        // Broadest-bucket preference: EU-or-US lands on "eu".
+        assert_eq!(
+            remote_region(true, "Remote in the EU or United States", "", ""),
+            "eu"
+        );
+
+        // Regression: bare "remote us" must NOT match "remote use ...".
+        assert_eq!(
+            remote_region(
+                true,
+                "Remote",
+                "Engineer",
+                "Fully remote use of modern tools"
+            ),
+            ""
+        );
+
+        // No stated restriction stays "" (unstated -> always kept).
         assert_eq!(remote_region(true, "Remote", "Engineer", "Join us"), "");
     }
 
     #[test]
     fn excluded_remote_regions_by_country() {
         assert_eq!(excluded_remote_regions("DE"), vec!["us", "uk", "other"]);
+        assert_eq!(excluded_remote_regions("MT"), vec!["us", "uk", "other"]); // EU member
         assert_eq!(excluded_remote_regions("US"), vec!["eu", "uk", "other"]);
         assert_eq!(excluded_remote_regions("GB"), vec!["eu", "us", "other"]);
         assert_eq!(
