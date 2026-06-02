@@ -396,7 +396,9 @@ pub fn search_jobs(
         }
     }
     sql.push_str(if fts.is_some() {
-        " ORDER BY bm25(jobs_fts)"
+        // Weight columns (title, company, location, description) so a title hit ranks
+        // above a company/location hit, and a description-only hit ranks lowest.
+        " ORDER BY bm25(jobs_fts, 10.0, 2.0, 2.0, 1.0)"
     } else {
         " ORDER BY j.last_seen_at DESC"
     });
