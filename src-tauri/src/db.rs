@@ -350,6 +350,13 @@ fn seed_defaults(conn: &Connection) -> Result<()> {
         ("remoteok", "RemoteOK (remote)", "{}", 1, 21600),
         ("himalayas", "Himalayas (remote)", "{}", 1, 21600),
         (
+            "weworkremotely",
+            "We Work Remotely (remote)",
+            "{}",
+            1,
+            21600,
+        ),
+        (
             "greenhouse",
             "Stripe (Greenhouse)",
             r#"{"company":"stripe"}"#,
@@ -380,6 +387,13 @@ fn seed_defaults(conn: &Connection) -> Result<()> {
         (
             "jsonld",
             "Example careers page (set a URL)",
+            r#"{"url":""}"#,
+            0,
+            21600,
+        ),
+        (
+            "rss",
+            "Example RSS feed (set a URL)",
             r#"{"url":""}"#,
             0,
             21600,

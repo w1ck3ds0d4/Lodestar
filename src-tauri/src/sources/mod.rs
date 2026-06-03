@@ -5,6 +5,7 @@
 pub mod adzuna;
 pub mod arbeitnow;
 pub mod ashby;
+pub mod feed;
 pub mod findwork;
 pub mod greenhouse;
 pub mod himalayas;
@@ -16,9 +17,11 @@ pub mod recruitee;
 pub mod reed;
 pub mod remoteok;
 pub mod remotive;
+pub mod rss;
 pub mod smartrecruiters;
 pub mod themuse;
 pub mod usajobs;
+pub mod weworkremotely;
 pub mod workable;
 
 use anyhow::Result;
@@ -38,6 +41,8 @@ pub async fn fetch(http: &Client, kind: &str, config: &Value) -> Result<Vec<RawJ
         "remotive" => remotive::fetch(http, config).await,
         "jobicy" => jobicy::fetch(http, config).await,
         "himalayas" => himalayas::fetch(http, config).await,
+        "weworkremotely" => weworkremotely::fetch(http, config).await,
+        "rss" => rss::fetch(http, config).await,
         "workable" => workable::fetch(http, config).await,
         "recruitee" => recruitee::fetch(http, config).await,
         "smartrecruiters" => smartrecruiters::fetch(http, config).await,
