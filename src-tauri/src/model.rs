@@ -46,6 +46,10 @@ pub struct Job {
     pub last_seen_at: i64,
     /// Detected posting language as an ISO 639-1 code, or None when unknown.
     pub lang: Option<String>,
+    /// Advisory scam score (0-100). >=40 is "review", >=75 is "likely scam".
+    pub scam_score: i64,
+    /// The scam check ids that fired ("why flagged"), for the UI tooltip.
+    pub scam_flags: Vec<String>,
     /// Other source labels carrying the same role, filled at search time when
     /// duplicate postings across boards are collapsed into this one.
     pub also_on: Vec<String>,

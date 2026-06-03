@@ -8,6 +8,7 @@ mod listen;
 mod local_stt;
 mod model;
 mod phone;
+mod scam;
 mod screen;
 mod sources;
 mod usage;

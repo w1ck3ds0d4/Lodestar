@@ -1,6 +1,24 @@
 import { useMemo, useState } from "react";
-import { Building2, CalendarDays, Check, ExternalLink, Gauge, MapPin, Plus, Wallet } from "lucide-react";
-import { LEVEL_LABELS, REMOTE_REGION_LABELS, WORKPLACE_LABELS, type Job } from "../types";
+import {
+  AlertTriangle,
+  Building2,
+  CalendarDays,
+  Check,
+  ExternalLink,
+  Gauge,
+  MapPin,
+  Plus,
+  Wallet,
+} from "lucide-react";
+import {
+  LEVEL_LABELS,
+  REMOTE_REGION_LABELS,
+  SCAM_FLAG_LABELS,
+  SCAM_LIKELY,
+  SCAM_REVIEW,
+  WORKPLACE_LABELS,
+  type Job,
+} from "../types";
 
 const EXCERPT = 280;
 
@@ -34,6 +52,12 @@ export function JobCard({
   const desc = useMemo(() => htmlToText(job.description || ""), [job.description]);
   const long = desc.length > EXCERPT;
   const shown = open || !long ? desc : `${desc.slice(0, EXCERPT)}…`;
+  // Advisory scam badge: "Likely scam" (red, harm-gated) >=75, else "Review" >=40.
+  const scamTier = job.scamScore >= SCAM_LIKELY ? "likely" : job.scamScore >= SCAM_REVIEW ? "review" : null;
+  const scamWhy =
+    job.scamFlags.length > 0
+      ? `Why: ${job.scamFlags.map((f) => SCAM_FLAG_LABELS[f] ?? f).join("; ")}`
+      : "Flagged for review";
 
   return (
     <article className="card">
@@ -57,6 +81,11 @@ export function JobCard({
         {job.alsoOn.length > 0 && (
           <span className="badge badge-also" title={`Also posted on: ${job.alsoOn.join(", ")}`}>
             +{job.alsoOn.length} {job.alsoOn.length === 1 ? "board" : "boards"}
+          </span>
+        )}
+        {scamTier && (
+          <span className={`badge badge-scam badge-scam-${scamTier}`} title={scamWhy}>
+            <AlertTriangle size={12} /> {scamTier === "likely" ? "Likely scam" : "Review"}
           </span>
         )}
       </div>

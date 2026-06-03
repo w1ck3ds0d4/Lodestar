@@ -28,6 +28,8 @@ export default function App() {
   const [minSalary, setMinSalary] = useState<number | null>(null);
   // Languages to keep (ISO 639-1); empty = all. Unknown-language jobs are always kept.
   const [langs, setLangs] = useState<string[]>([]);
+  // Hide postings flagged "likely scam" (advisory; the badge always shows regardless).
+  const [hideScams, setHideScams] = useState(false);
   // The filter facets collapse to a single "Filters" pill by default; remembered.
   const [filtersOpen, setFiltersOpen] = useState(() => localStorage.getItem("jr.filtersOpen") === "1");
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -71,6 +73,7 @@ export default function App() {
           postedWithin,
           minSalary,
           langs,
+          hideScams,
         ),
       );
     } finally {
@@ -87,6 +90,7 @@ export default function App() {
     postedWithin,
     minSalary,
     langs,
+    hideScams,
     workCountry,
   ]);
 
@@ -187,7 +191,8 @@ export default function App() {
     relocationOnly ||
     postedWithin !== null ||
     minSalary !== null ||
-    langs.length > 0;
+    langs.length > 0 ||
+    hideScams;
 
   // Count of active facets, shown as a badge on the collapsed "Filters" pill.
   const activeFilterCount =
@@ -198,7 +203,8 @@ export default function App() {
     (remoteEligible ? 1 : 0) +
     (relocationOnly ? 1 : 0) +
     (postedWithin !== null ? 1 : 0) +
-    (minSalary !== null ? 1 : 0);
+    (minSalary !== null ? 1 : 0) +
+    (hideScams ? 1 : 0);
 
   const toggle = (setter: Dispatch<SetStateAction<string[]>>, k: string) =>
     setter((prev) => (prev.includes(k) ? prev.filter((x) => x !== k) : [...prev, k]));
@@ -348,6 +354,13 @@ export default function App() {
                 >
                   Pays relocation
                 </button>
+                <button
+                  className={"chip" + (hideScams ? " active" : "")}
+                  title="Hide postings flagged as likely scams (the warning badge still shows on others)"
+                  onClick={() => setHideScams((v) => !v)}
+                >
+                  Hide likely scams
+                </button>
               </div>
 
               <span className="filter-label">Posted</span>
@@ -439,6 +452,7 @@ export default function App() {
                     setPostedWithin(null);
                     setMinSalary(null);
                     setLangs([]);
+                    setHideScams(false);
                   }}
                 >
                   <X size={13} /> Clear all

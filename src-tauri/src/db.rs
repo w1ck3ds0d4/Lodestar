@@ -7,6 +7,7 @@ use serde_json::Value;
 use std::path::Path;
 
 use crate::model::{Alert, Job, RawJob, Source};
+use crate::scam;
 use crate::util::{
     classify_experience, date_to_epoch_ms, detect_lang, detect_relocation, excluded_remote_regions,
     infer_workplace, now_ms, parse_salary, remote_region, stable_hash,
@@ -17,7 +18,7 @@ const DAY_MS: i64 = 86_400_000;
 const JOB_COLS: &str = "j.id, j.source_kind, COALESCE(s.label, j.source_kind) AS source_label, \
     j.external_id, j.title, j.company, j.location, j.remote, j.workplace, j.experience_level, \
     j.employment_type, j.description, j.url, j.salary, j.posted_at, j.relocation, j.remote_region, \
-    j.first_seen_at, j.last_seen_at, j.lang";
+    j.first_seen_at, j.last_seen_at, j.lang, j.scam_score, j.scam_flags";
 
 /// Open the database, apply the schema, and seed default sources on first run.
 pub fn init(path: &Path) -> Result<Connection> {
@@ -191,15 +192,20 @@ pub fn init(path: &Path) -> Result<Connection> {
     ensure_column(&conn, "jobs", "salary_currency", "TEXT")?;
     // Detected posting language (ISO 639-1); NULL = unknown, which the filter keeps.
     ensure_column(&conn, "jobs", "lang", "TEXT")?;
+    // Advisory scam score (0-100) + the fired check ids ("why flagged"). Never hides a
+    // posting on its own; surfaced as a review/likely-scam badge.
+    ensure_column(&conn, "jobs", "scam_score", "INTEGER NOT NULL DEFAULT 0")?;
+    ensure_column(&conn, "jobs", "scam_flags", "TEXT")?;
     ensure_column(&conn, "tracked", "next_action", "TEXT")?;
     ensure_column(&conn, "tracked", "prep", "TEXT")?;
-    // One-off: recompute derived columns (remote_region, posted_at_ms, salary_*, lang)
-    // for rows crawled before those derivations existed, so the search filters apply to
-    // existing jobs immediately instead of only after the next crawl. The version bumps
-    // when a new derived column is added (v2 added `lang`).
-    if get_setting(&conn, "derived_backfill_v2")?.is_none() {
+    // One-off: recompute derived columns (remote_region, posted_at_ms, salary_*, lang,
+    // scam_*) for rows crawled before those derivations existed, so the search filters
+    // and badges apply to existing jobs immediately instead of only after the next
+    // crawl. The version bumps when a new derived column is added (v2 added `lang`, v3
+    // added the scam score).
+    if get_setting(&conn, "derived_backfill_v3")?.is_none() {
         backfill_derived(&conn)?;
-        set_setting(&conn, "derived_backfill_v2", "1")?;
+        set_setting(&conn, "derived_backfill_v3", "1")?;
     }
     seed_defaults(&conn)?;
     Ok(conn)
@@ -208,29 +214,35 @@ pub fn init(path: &Path) -> Result<Connection> {
 /// Recompute derived columns for existing rows using the same logic as `upsert_jobs`.
 /// One-off (gated by a settings flag); a no-op on a fresh database.
 fn backfill_derived(conn: &Connection) -> Result<()> {
-    #[allow(clippy::type_complexity)]
-    let rows: Vec<(
-        i64,
-        i64,
-        String,
-        String,
-        String,
-        Option<String>,
-        Option<String>,
-    )> = {
+    struct Row {
+        id: i64,
+        remote: i64,
+        location: String,
+        title: String,
+        company: String,
+        description: String,
+        url: String,
+        source_kind: String,
+        posted_at: Option<String>,
+        salary: Option<String>,
+    }
+    let rows: Vec<Row> = {
         let mut stmt = conn.prepare(
-            "SELECT id, remote, location, title, description, posted_at, salary FROM jobs",
+            "SELECT id, remote, location, title, company, description, url, source_kind, posted_at, salary FROM jobs",
         )?;
         let mapped = stmt.query_map([], |r| {
-            Ok((
-                r.get::<_, i64>(0)?,
-                r.get::<_, i64>(1)?,
-                r.get::<_, String>(2)?,
-                r.get::<_, String>(3)?,
-                r.get::<_, String>(4)?,
-                r.get::<_, Option<String>>(5)?,
-                r.get::<_, Option<String>>(6)?,
-            ))
+            Ok(Row {
+                id: r.get(0)?,
+                remote: r.get(1)?,
+                location: r.get(2)?,
+                title: r.get(3)?,
+                company: r.get(4)?,
+                description: r.get(5)?,
+                url: r.get(6)?,
+                source_kind: r.get(7)?,
+                posted_at: r.get(8)?,
+                salary: r.get(9)?,
+            })
         })?;
         mapped.collect::<rusqlite::Result<Vec<_>>>()?
     };
@@ -238,17 +250,38 @@ fn backfill_derived(conn: &Connection) -> Result<()> {
     {
         let mut up = tx.prepare(
             "UPDATE jobs SET remote_region=?2, posted_at_ms=?3, salary_min=?4, salary_max=?5, \
-             salary_currency=?6, lang=?7 WHERE id=?1",
+             salary_currency=?6, lang=?7, scam_score=?8, scam_flags=?9 WHERE id=?1",
         )?;
-        for (id, remote, location, title, description, posted_at, salary) in rows {
-            let region = remote_region(remote != 0, &location, &title, &description);
-            let posted_ms = posted_at.as_deref().and_then(date_to_epoch_ms);
-            let (smin, smax, scur) = salary
+        for row in rows {
+            let region =
+                remote_region(row.remote != 0, &row.location, &row.title, &row.description);
+            let posted_ms = row.posted_at.as_deref().and_then(date_to_epoch_ms);
+            let (smin, smax, scur) = row
+                .salary
                 .as_deref()
                 .map(parse_salary)
                 .unwrap_or((None, None, None));
-            let lang = detect_lang(&title, &description);
-            up.execute(params![id, region, posted_ms, smin, smax, scur, lang])?;
+            let lang = detect_lang(&row.title, &row.description);
+            let scam = scam::score(&scam::Posting {
+                title: &row.title,
+                company: &row.company,
+                description: &row.description,
+                salary: row.salary.as_deref(),
+                url: &row.url,
+                source_kind: &row.source_kind,
+                lang: lang.as_deref(),
+            });
+            up.execute(params![
+                row.id,
+                region,
+                posted_ms,
+                smin,
+                smax,
+                scur,
+                lang,
+                scam.score,
+                scam.flags_joined(),
+            ])?;
         }
     }
     tx.commit()?;
@@ -430,6 +463,11 @@ fn row_to_job(r: &rusqlite::Row) -> rusqlite::Result<Job> {
         first_seen_at: r.get(17)?,
         last_seen_at: r.get(18)?,
         lang: r.get(19)?,
+        scam_score: r.get(20)?,
+        scam_flags: r
+            .get::<_, Option<String>>(21)?
+            .map(|s| s.split('|').map(str::to_string).collect())
+            .unwrap_or_default(),
         also_on: Vec::new(),
     })
 }
@@ -548,6 +586,7 @@ pub fn search_jobs(
     posted_within_days: Option<i64>,
     min_salary: Option<i64>,
     langs: &[String],
+    hide_scams: bool,
     limit: i64,
 ) -> Result<Vec<Job>> {
     let fts = build_fts_query(query);
@@ -624,6 +663,11 @@ pub fn search_jobs(
         for l in langs {
             params.push(SqlValue::Text(l.clone()));
         }
+    }
+    // Optional: hide postings flagged "likely scam" (harm-gated, >=75). Advisory by
+    // default - the badge always shows; this only drops the worst when asked.
+    if hide_scams {
+        sql.push_str(&format!(" AND j.scam_score < {}", scam::LIKELY_SCAM));
     }
     // Ranking. Text queries sort by weighted relevance, but with a recency bonus
     // subtracted from the (negative) bm25 score so a fresh role isn't buried under a
@@ -752,8 +796,8 @@ pub fn upsert_jobs(
             "INSERT INTO jobs (source_id, source_kind, external_id, title, company, location, remote, \
                 workplace, experience_level, employment_type, description, url, salary, posted_at, \
                 relocation, remote_region, content_hash, posted_at_ms, salary_min, salary_max, \
-                salary_currency, lang, first_seen_at, last_seen_at, removed_at) \
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?23,NULL) \
+                salary_currency, lang, scam_score, scam_flags, first_seen_at, last_seen_at, removed_at) \
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?25,NULL) \
              ON CONFLICT(source_id, external_id) DO UPDATE SET \
                 title=excluded.title, company=excluded.company, location=excluded.location, remote=excluded.remote, \
                 workplace=excluded.workplace, experience_level=excluded.experience_level, \
@@ -762,7 +806,8 @@ pub fn upsert_jobs(
                 remote_region=excluded.remote_region, content_hash=excluded.content_hash, \
                 posted_at_ms=excluded.posted_at_ms, salary_min=excluded.salary_min, \
                 salary_max=excluded.salary_max, salary_currency=excluded.salary_currency, \
-                lang=excluded.lang, last_seen_at=excluded.last_seen_at, removed_at=NULL",
+                lang=excluded.lang, scam_score=excluded.scam_score, scam_flags=excluded.scam_flags, \
+                last_seen_at=excluded.last_seen_at, removed_at=NULL",
         )?;
         for j in jobs {
             let workplace = infer_workplace(j.remote, &j.location, &j.title);
@@ -792,6 +837,15 @@ pub fn upsert_jobs(
                 .map(parse_salary)
                 .unwrap_or((None, None, None));
             let lang = detect_lang(&j.title, &j.description);
+            let scam = scam::score(&scam::Posting {
+                title: &j.title,
+                company: &j.company,
+                description: &j.description,
+                salary: j.salary.as_deref(),
+                url: &j.url,
+                source_kind: kind,
+                lang: lang.as_deref(),
+            });
             stmt.execute(params![
                 source_id,
                 kind,
@@ -815,6 +869,8 @@ pub fn upsert_jobs(
                 salary_max,
                 salary_currency,
                 lang,
+                scam.score,
+                scam.flags_joined(),
                 now,
             ])?;
         }
@@ -933,6 +989,8 @@ mod tests {
             first_seen_at: 0,
             last_seen_at: 0,
             lang: None,
+            scam_score: 0,
+            scam_flags: Vec::new(),
             also_on: Vec::new(),
         }
     }

@@ -20,7 +20,36 @@ export interface Job {
   lastSeenAt: number;
   alsoOn: string[];
   lang: string | null;
+  // Advisory scam score (0-100): >=40 "review", >=75 "likely scam". Never auto-hides.
+  scamScore: number;
+  // The scam check ids that fired, for the "why flagged" tooltip.
+  scamFlags: string[];
 }
+
+// Scam-score badge tiers (mirror the Rust thresholds in scam.rs).
+export const SCAM_REVIEW = 40;
+export const SCAM_LIKELY = 75;
+
+// Human labels for the scam check ids stored in Job.scamFlags (for the tooltip).
+export const SCAM_FLAG_LABELS: Record<string, string> = {
+  "harm-upfront-payment-fee": "Asks for an upfront payment or fee",
+  "harm-pii-before-hire": "Wants sensitive personal info before hiring",
+  "harm-payment-handling-mule": "Money-mule / payment-handling duties",
+  "harm-fake-check-overpayment": "Send-a-check / overpayment scheme",
+  "harm-task-deposit-crypto": "Deposit-to-unlock task / crypto scheme",
+  "harm-reshipping-parcel": "Reshipping / parcel-handling scheme",
+  "harm-brand-impersonation-freemail": "Big brand contacting via free webmail",
+  "weak-offplatform-messaging": "Pushes contact to Telegram/WhatsApp",
+  "weak-freemail-apply-contact": "Apply by a free webmail address",
+  "weak-unrealistic-pay-period": "Implausibly high short-term pay",
+  "weak-no-experience-high-pay": "No experience needed + outsized pay",
+  "weak-mlm-recruiting-income": "MLM / recruit-for-income language",
+  "weak-thin-vague-description": "Thin or duties-absent description",
+  "weak-generic-placeholder-company": "Missing or placeholder company",
+  "weak-apply-url-suspicious-host": "Shortened / non-standard apply link",
+  "weak-title-shouting-spam": "Shouting / spammy title",
+  "weak-urgency-no-interview": "Instant-hire / no-interview pressure",
+};
 
 // Languages offered in the search filter (ISO 639-1 -> display name). The detector
 // recognizes more, but these are the ones surfaced as filter chips.

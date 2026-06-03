@@ -2014,6 +2014,24 @@ select:focus {
   color: #fbbf24;
 }
 
+/* Advisory scam badges (cursor: help -> the tooltip explains why it fired). */
+.badge-scam {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: help;
+}
+.badge-scam-review {
+  background: rgba(251, 191, 36, 0.18);
+  color: #fbbf24;
+  border: 1px solid rgba(251, 191, 36, 0.35);
+}
+.badge-scam-likely {
+  background: rgba(248, 113, 113, 0.18);
+  color: #fca5a5;
+  border: 1px solid rgba(248, 113, 113, 0.4);
+}
+
 .badge-hybrid {
   background: rgba(251, 191, 36, 0.16);
   color: #fbbf24;

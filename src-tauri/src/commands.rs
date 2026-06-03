@@ -29,6 +29,7 @@ pub fn search_jobs(
     posted_within_days: Option<i64>,
     min_salary: Option<i64>,
     langs: Vec<String>,
+    hide_scams: bool,
     limit: i64,
 ) -> Result<Vec<Job>, String> {
     let conn = state.db.lock().map_err(|_| "db poisoned")?;
@@ -43,6 +44,7 @@ pub fn search_jobs(
         posted_within_days,
         min_salary,
         &langs,
+        hide_scams,
         limit,
     )
     .map_err(|e| e.to_string())

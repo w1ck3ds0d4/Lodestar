@@ -29,6 +29,7 @@ export const searchJobs = (
   postedWithinDays: number | null = null,
   minSalary: number | null = null,
   langs: string[] = [],
+  hideScams = false,
   limit = 200,
 ) =>
   invoke<Job[]>("search_jobs", {
@@ -41,6 +42,7 @@ export const searchJobs = (
     postedWithinDays,
     minSalary,
     langs,
+    hideScams,
     limit,
   });
 
