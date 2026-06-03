@@ -164,6 +164,7 @@ pub fn run() {
             commands::add_alert,
             commands::remove_alert,
             commands::sync_now,
+            commands::run_source,
             commands::list_tracked,
             commands::add_tracked,
             commands::update_tracked,

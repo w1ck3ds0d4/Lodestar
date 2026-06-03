@@ -178,6 +178,16 @@ pub fn sync_now(state: State<'_, AppState>, app: AppHandle) -> Result<(), String
     Ok(())
 }
 
+/// Fetch a single source right now and return its job count, or a (redacted) error.
+/// Used by the Sources panel's "Test" button to verify a source (e.g. a freshly
+/// pasted API key) without waiting for the scheduler or a full sync.
+#[tauri::command]
+pub async fn run_source(state: State<'_, AppState>, id: i64) -> Result<i64, String> {
+    let db = state.db.clone();
+    let http = state.http.clone();
+    crate::ingest::run_one(db, http, id).await.map(|n| n as i64)
+}
+
 // --- Career tracker: applications + programs ---
 
 #[tauri::command]

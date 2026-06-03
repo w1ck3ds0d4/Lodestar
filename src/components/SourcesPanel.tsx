@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Check, Plus, Trash2 } from "lucide-react";
+import { Check, Play, Plus, Trash2 } from "lucide-react";
 import type { Source } from "../types";
 import { CONFIG_FIELDS, KIND_LABELS, SOURCE_KINDS } from "../types";
 import * as api from "../api";
@@ -12,6 +12,9 @@ function SourceRow({ source, onChanged }: { source: Source; onChanged: () => voi
   const [config, setConfig] = useState<Record<string, string>>({ ...source.config });
   const [intervalMin, setIntervalMin] = useState(Math.max(1, Math.round(source.minIntervalSecs / 60)));
   const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  // Inline result of the last "Test" run: count on success, error string on failure.
+  const [testResult, setTestResult] = useState<{ ok: boolean; text: string } | null>(null);
 
   const ok = source.lastStatus?.startsWith("ok");
 
@@ -22,6 +25,23 @@ function SourceRow({ source, onChanged }: { source: Source; onChanged: () => voi
       onChanged();
     } finally {
       setSaving(false);
+    }
+  };
+
+  // Save first (so a freshly typed key/config is used), then fetch this one source now.
+  const test = async () => {
+    setTesting(true);
+    setTestResult(null);
+    try {
+      await api.updateSource(source.id, label, enabled, config, intervalMin * 60);
+      const n = await api.runSource(source.id);
+      setTestResult({ ok: true, text: `${n} job${n === 1 ? "" : "s"}` });
+      onChanged();
+    } catch (e) {
+      setTestResult({ ok: false, text: String(e) });
+      onChanged();
+    } finally {
+      setTesting(false);
     }
   };
 
@@ -69,13 +89,27 @@ function SourceRow({ source, onChanged }: { source: Source; onChanged: () => voi
           />
           <span>min</span>
         </label>
-        {source.lastStatus && (
-          <span className={"src-status " + (ok ? "ok" : "err")} title={source.lastStatus}>
-            {ok ? `${source.lastCount ?? 0} jobs` : source.lastStatus}
+        {testResult ? (
+          <span className={"src-status " + (testResult.ok ? "ok" : "err")} title={testResult.text}>
+            {testResult.text}
           </span>
+        ) : (
+          source.lastStatus && (
+            <span className={"src-status " + (ok ? "ok" : "err")} title={source.lastStatus}>
+              {ok ? `${source.lastCount ?? 0} jobs` : source.lastStatus}
+            </span>
+          )
         )}
         <div className="spacer" />
-        <button className="btn-open" onClick={save} disabled={saving}><Check size={14} /> Save</button>
+        <button
+          className="btn-ghost"
+          onClick={test}
+          disabled={testing || saving}
+          title="Save and fetch this source now"
+        >
+          <Play size={14} /> {testing ? "Testing..." : "Test"}
+        </button>
+        <button className="btn-open" onClick={save} disabled={saving || testing}><Check size={14} /> Save</button>
       </div>
     </div>
   );

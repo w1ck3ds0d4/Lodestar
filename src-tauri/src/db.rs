@@ -712,6 +712,16 @@ pub fn list_sources(conn: &Connection) -> Result<Vec<Source>> {
     Ok(out)
 }
 
+/// A single source by id (for "test this source now").
+pub fn get_source(conn: &Connection, id: i64) -> Result<Option<Source>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, kind, label, config, enabled, min_interval_secs, last_run_at, last_status, last_count \
+         FROM sources WHERE id = ?1",
+    )?;
+    let mut rows = stmt.query_map([id], row_to_source)?;
+    Ok(rows.next().transpose()?)
+}
+
 /// Enabled sources whose polite interval has elapsed (or all enabled, if forced).
 pub fn due_sources(conn: &Connection, force: bool, now: i64) -> Result<Vec<Source>> {
     Ok(list_sources(conn)?

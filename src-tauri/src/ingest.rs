@@ -55,6 +55,45 @@ pub async fn sync_all(db: Arc<Mutex<Connection>>, http: Client, app: AppHandle, 
     run_alerts(&db, &app);
 }
 
+/// Fetch a single source immediately and report the outcome (for the "Test" button in
+/// the Sources panel). Records the same last_status/last_count as the scheduled path, so
+/// the panel updates, and returns the job count on success or a redacted error string.
+/// Secrets in errors are redacted, matching `sync_all`.
+pub async fn run_one(db: Arc<Mutex<Connection>>, http: Client, id: i64) -> Result<usize, String> {
+    let src = {
+        let conn = db.lock().expect("db poisoned");
+        db::get_source(&conn, id)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| "source not found".to_string())?
+    };
+
+    let started = now_ms();
+    let result = crate::sources::fetch(&http, &src.kind, &src.config).await;
+    let finished = now_ms();
+
+    let mut conn = db.lock().expect("db poisoned");
+    match result {
+        Ok(jobs) => {
+            let n = jobs.len();
+            if let Err(e) = db::upsert_jobs(&mut conn, src.id, &src.kind, &jobs, finished) {
+                let msg = crate::util::redact_secrets(&e.to_string());
+                let _ = db::set_source_status(&conn, src.id, now_ms(), &format!("error: {msg}"), 0);
+                return Err(msg);
+            }
+            if n > 0 {
+                let _ = db::mark_stale(&conn, src.id, started, finished);
+            }
+            let _ = db::set_source_status(&conn, src.id, now_ms(), "ok", n as i64);
+            Ok(n)
+        }
+        Err(e) => {
+            let msg = crate::util::redact_secrets(&e.to_string());
+            let _ = db::set_source_status(&conn, src.id, now_ms(), &format!("error: {msg}"), 0);
+            Err(msg)
+        }
+    }
+}
+
 fn run_alerts(db: &Arc<Mutex<Connection>>, app: &AppHandle) {
     let conn = db.lock().expect("db poisoned");
     let alerts = db::list_alerts(&conn).unwrap_or_default();

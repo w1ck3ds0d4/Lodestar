@@ -76,6 +76,10 @@ export const removeAlert = (id: number) => invoke<void>("remove_alert", { id });
 
 export const syncNow = () => invoke<void>("sync_now");
 
+// Fetch a single source right now; resolves to the job count, rejects with a
+// (redacted) error string. Used by the Sources panel "Test" button.
+export const runSource = (id: number) => invoke<number>("run_source", { id });
+
 // --- Tracker ---
 export const listTracked = (kind?: string) => invoke<Tracked[]>("list_tracked", { kind: kind ?? null });
 
