@@ -1,4 +1,4 @@
-//! Generic RSS 2.0 job feed (keyless). Config: `{ "url": "https://.../jobs.rss", "company": "(optional)" }`.
+//! Generic RSS 2.0 / Atom 1.0 job feed (keyless). Config: `{ "url": "https://.../jobs.rss", "company": "(optional)" }`.
 //! The feed URL is user-supplied, so it goes through the same SSRF guard + bounded,
 //! re-checked redirect policy as the careers-page (jsonld) source.
 
@@ -65,6 +65,8 @@ fn map(items: Vec<feed::FeedItem>, company: Option<&str>) -> Vec<RawJob> {
                 .filter(|s| !s.is_empty())
                 .or_else(|| it.extra.get("creator").cloned())
                 .or_else(|| it.extra.get("author").cloned())
+                // Atom nests the author as <author><name>..</name></author>.
+                .or_else(|| it.extra.get("name").cloned())
                 .unwrap_or_default();
             let external_id = if !it.guid.is_empty() {
                 it.guid.clone()

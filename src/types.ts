@@ -315,7 +315,7 @@ export const CONFIG_FIELDS: Record<string, { key: string; label: string; placeho
   ],
   jsonld: [{ key: "url", label: "Careers page URL", placeholder: "https://example.com/careers" }],
   rss: [
-    { key: "url", label: "Feed URL", placeholder: "https://example.com/jobs.rss" },
+    { key: "url", label: "Feed URL (RSS or Atom)", placeholder: "https://example.com/jobs.rss" },
     { key: "company", label: "Company (optional)", placeholder: "overrides the feed author" },
   ],
   weworkremotely: [
