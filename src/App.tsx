@@ -59,6 +59,10 @@ export default function App() {
     err: string;
   } | null>(null);
 
+  // The launch splash (static markup in index.html) is dismissed once the first search
+  // resolves, i.e. the UI is populated and interactive.
+  const [booted, setBooted] = useState(false);
+
   const refreshSources = useCallback(async () => setSources(await api.listSources()), []);
   const refreshAlerts = useCallback(async () => setAlerts(await api.listAlerts()), []);
   const refreshStats = useCallback(async () => setStats(await api.getStats()), []);
@@ -84,6 +88,7 @@ export default function App() {
       );
     } finally {
       setLoading(false);
+      setBooted(true);
     }
     // workCountry is read server-side; included so changing it re-runs the search.
   }, [
@@ -108,6 +113,23 @@ export default function App() {
     void refreshStats();
     void api.workCountry().then(setWorkCountry).catch(() => {});
   }, [refreshSources, refreshAlerts, refreshStats]);
+
+  // Fade out and remove the launch splash once booted; a fallback timer ensures it
+  // never sticks if the first load stalls.
+  useEffect(() => {
+    const hide = () => {
+      const el = document.getElementById("jr-splash");
+      if (!el) return;
+      el.classList.add("jr-hide");
+      window.setTimeout(() => el.remove(), 400);
+    };
+    if (booted) {
+      hide();
+      return;
+    }
+    const t = window.setTimeout(hide, 6000);
+    return () => window.clearTimeout(t);
+  }, [booted]);
 
   // Debounced search whenever the query or filters change.
   useEffect(() => {
