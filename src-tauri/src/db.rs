@@ -389,6 +389,7 @@ fn seed_defaults(conn: &Connection) -> Result<()> {
             1,
             21600,
         ),
+        ("workingnomads", "Working Nomads (remote)", "{}", 1, 21600),
         (
             "greenhouse",
             "Stripe (Greenhouse)",

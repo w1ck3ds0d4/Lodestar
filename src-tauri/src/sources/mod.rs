@@ -23,6 +23,7 @@ pub mod themuse;
 pub mod usajobs;
 pub mod weworkremotely;
 pub mod workable;
+pub mod workingnomads;
 
 use anyhow::Result;
 use reqwest::Client;
@@ -42,6 +43,7 @@ pub async fn fetch(http: &Client, kind: &str, config: &Value) -> Result<Vec<RawJ
         "jobicy" => jobicy::fetch(http, config).await,
         "himalayas" => himalayas::fetch(http, config).await,
         "weworkremotely" => weworkremotely::fetch(http, config).await,
+        "workingnomads" => workingnomads::fetch(http, config).await,
         "rss" => rss::fetch(http, config).await,
         "workable" => workable::fetch(http, config).await,
         "recruitee" => recruitee::fetch(http, config).await,

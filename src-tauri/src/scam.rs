@@ -53,6 +53,7 @@ const AGGREGATOR: &[&str] = &[
     "jsonld",
     // feed sources also truncate / omit company
     "weworkremotely",
+    "workingnomads",
     "rss",
 ];
 
