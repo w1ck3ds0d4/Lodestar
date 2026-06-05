@@ -198,17 +198,25 @@ pub fn init(path: &Path) -> Result<Connection> {
     ensure_column(&conn, "jobs", "scam_flags", "TEXT")?;
     ensure_column(&conn, "tracked", "next_action", "TEXT")?;
     ensure_column(&conn, "tracked", "prep", "TEXT")?;
-    // One-off: recompute derived columns (remote_region, posted_at_ms, salary_*, lang,
-    // scam_*) for rows crawled before those derivations existed, so the search filters
-    // and badges apply to existing jobs immediately instead of only after the next
-    // crawl. The version bumps when a new derived column is added (v2 added `lang`, v3
-    // added the scam score).
-    if get_setting(&conn, "derived_backfill_v3")?.is_none() {
-        backfill_derived(&conn)?;
-        set_setting(&conn, "derived_backfill_v3", "1")?;
-    }
     seed_defaults(&conn)?;
     Ok(conn)
+}
+
+/// One-off: recompute derived columns (remote_region, posted_at_ms, salary_*, lang,
+/// scam_*) for rows crawled before those derivations existed, so the search filters and
+/// badges apply to existing jobs immediately instead of only after the next crawl. The
+/// version bumps when a new derived column is added (v2 added `lang`, v3 added the scam
+/// score). Gated by a settings flag and a no-op on a fresh database.
+///
+/// This iterates every job and runs the full (CPU-heavy) derivation, so it MUST run off
+/// the UI thread - it is invoked from a background task after the window is up, never in
+/// `init` (which runs synchronously during Tauri setup and would freeze the launch).
+pub fn backfill_if_needed(conn: &Connection) -> Result<()> {
+    if get_setting(conn, "derived_backfill_v3")?.is_none() {
+        backfill_derived(conn)?;
+        set_setting(conn, "derived_backfill_v3", "1")?;
+    }
+    Ok(())
 }
 
 /// Recompute derived columns for existing rows using the same logic as `upsert_jobs`.

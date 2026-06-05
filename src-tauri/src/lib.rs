@@ -142,6 +142,18 @@ pub fn run() {
             // Background scheduler: sync due sources, then poll on an interval.
             let app_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
+                // One-off derived-column backfill (re-derives every existing job). This is
+                // CPU-heavy, so run it on a blocking thread - never in setup(), which runs
+                // on the UI thread and would freeze the launch.
+                let bf = db.clone();
+                let _ = tokio::task::spawn_blocking(move || {
+                    if let Ok(conn) = bf.lock() {
+                        if let Err(e) = db::backfill_if_needed(&conn) {
+                            tracing::warn!("derived backfill failed: {e}");
+                        }
+                    }
+                })
+                .await;
                 tokio::time::sleep(Duration::from_secs(2)).await;
                 loop {
                     ingest::sync_all(db.clone(), http.clone(), app_handle.clone(), false).await;

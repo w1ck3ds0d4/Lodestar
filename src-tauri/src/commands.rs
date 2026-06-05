@@ -16,9 +16,12 @@ pub struct Stats {
     pub companies: i64,
 }
 
+// Async so the search (FTS + dedup + resume-match scoring) and any wait on the DB lock
+// run on a worker thread, keeping the UI responsive - especially while the background
+// sync holds the lock. The lock guard is never held across an await.
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
-pub fn search_jobs(
+pub async fn search_jobs(
     state: State<'_, AppState>,
     query: String,
     workplaces: Vec<String>,
@@ -139,8 +142,10 @@ pub fn remove_source(state: State<'_, AppState>, id: i64) -> Result<(), String> 
     db::remove_source(&conn, id).map_err(|e| e.to_string())
 }
 
+// Async so a query (or waiting on the DB lock while the background sync holds it) runs
+// on a worker thread instead of blocking the UI thread.
 #[tauri::command]
-pub fn get_stats(state: State<'_, AppState>) -> Result<Stats, String> {
+pub async fn get_stats(state: State<'_, AppState>) -> Result<Stats, String> {
     let conn = state.db.lock().map_err(|_| "db poisoned")?;
     let (total_jobs, companies) = db::stats(&conn).map_err(|e| e.to_string())?;
     Ok(Stats {
