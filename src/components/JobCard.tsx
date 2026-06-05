@@ -58,6 +58,9 @@ export function JobCard({
     job.scamFlags.length > 0
       ? `Why: ${job.scamFlags.map((f) => SCAM_FLAG_LABELS[f] ?? f).join("; ")}`
       : "Flagged for review";
+  // Resume-match badge (only when a resume is set, i.e. score > 0). Stronger colour
+  // the closer the fit.
+  const matchTier = job.matchScore >= 60 ? "high" : job.matchScore >= 30 ? "mid" : "low";
 
   return (
     <article className="card">
@@ -78,6 +81,14 @@ export function JobCard({
           {job.relocation && <span className="badge badge-reloc">Relocation</span>}
         </h3>
         <span className="badge badge-source">{kindLabel}</span>
+        {job.matchScore > 0 && (
+          <span
+            className={`badge badge-match badge-match-${matchTier}`}
+            title="How much this posting covers your saved resume keywords"
+          >
+            {job.matchScore}% match
+          </span>
+        )}
         {job.alsoOn.length > 0 && (
           <span className="badge badge-also" title={`Also posted on: ${job.alsoOn.join(", ")}`}>
             +{job.alsoOn.length} {job.alsoOn.length === 1 ? "board" : "boards"}

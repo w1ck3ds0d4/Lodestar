@@ -30,6 +30,8 @@ export const searchJobs = (
   minSalary: number | null = null,
   langs: string[] = [],
   hideScams = false,
+  sort: "default" | "match" = "default",
+  minMatch = 0,
   limit = 200,
 ) =>
   invoke<Job[]>("search_jobs", {
@@ -43,6 +45,8 @@ export const searchJobs = (
     minSalary,
     langs,
     hideScams,
+    sort,
+    minMatch,
     limit,
   });
 

@@ -606,10 +606,224 @@ pub fn excluded_remote_regions(country: &str) -> Vec<&'static str> {
         .collect()
 }
 
+/// Very common words that carry no matching signal between a resume and a job.
+const STOPWORDS: &[&str] = &[
+    "the",
+    "and",
+    "for",
+    "you",
+    "your",
+    "our",
+    "with",
+    "this",
+    "that",
+    "from",
+    "are",
+    "will",
+    "have",
+    "has",
+    "had",
+    "but",
+    "not",
+    "all",
+    "any",
+    "can",
+    "out",
+    "who",
+    "what",
+    "when",
+    "where",
+    "how",
+    "why",
+    "use",
+    "used",
+    "using",
+    "into",
+    "over",
+    "such",
+    "than",
+    "then",
+    "they",
+    "them",
+    "their",
+    "his",
+    "her",
+    "its",
+    "was",
+    "were",
+    "been",
+    "being",
+    "about",
+    "also",
+    "more",
+    "most",
+    "some",
+    "other",
+    "etc",
+    "per",
+    "via",
+    "able",
+    "across",
+    "within",
+    "while",
+    "work",
+    "working",
+    "role",
+    "job",
+    "team",
+    "teams",
+    "company",
+    "experience",
+    "experienced",
+    "year",
+    "years",
+    "skills",
+    "skill",
+    "ability",
+    "strong",
+    "good",
+    "great",
+    "well",
+    "new",
+    "must",
+    "should",
+    "would",
+    "could",
+    "may",
+    "we",
+    "us",
+    "an",
+    "as",
+    "at",
+    "be",
+    "by",
+    "do",
+    "if",
+    "in",
+    "is",
+    "it",
+    "of",
+    "on",
+    "or",
+    "to",
+    "up",
+    "a",
+    "i",
+    "&",
+];
+
+/// Tokenize text into lowercase tokens, keeping skill-significant punctuation (so "c#",
+/// "c++", "node.js", ".net" survive) and dropping surrounding punctuation.
+fn tokenize(text: &str) -> Vec<String> {
+    text.split(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '+' | '#' | '.')))
+        .filter_map(|raw| {
+            let t = raw.trim_matches('.').to_lowercase();
+            if t.is_empty() {
+                None
+            } else {
+                Some(t)
+            }
+        })
+        .collect()
+}
+
+/// Extract the distinct, meaningful keyword set from a resume/profile: lowercase
+/// tokens, stopwords and pure numbers and 1-char tokens removed. Empty resume -> empty.
+pub fn resume_keywords(resume: &str) -> std::collections::HashSet<String> {
+    tokenize(resume)
+        .into_iter()
+        .filter(|t| t.len() >= 2 && !STOPWORDS.contains(&t.as_str()))
+        .filter(|t| !t.chars().all(|c| c.is_ascii_digit()))
+        .collect()
+}
+
+/// Score a job (0-100) by how much it overlaps the resume keyword set. Uses an overlap
+/// coefficient over the smaller meaningful set (so a long JD isn't penalized and a short
+/// one isn't inflated), plus a bonus for resume terms that appear in the job title.
+/// Returns 0 when there's no resume. Pure and deterministic.
+pub fn match_score(
+    resume_terms: &std::collections::HashSet<String>,
+    title: &str,
+    description: &str,
+) -> i64 {
+    if resume_terms.is_empty() {
+        return 0;
+    }
+    let title_terms: std::collections::HashSet<String> = tokenize(title).into_iter().collect();
+    let job_terms: std::collections::HashSet<String> = tokenize(description)
+        .into_iter()
+        .chain(title_terms.iter().cloned())
+        .filter(|t| t.len() >= 2 && !STOPWORDS.contains(&t.as_str()))
+        .collect();
+    if job_terms.is_empty() {
+        return 0;
+    }
+    let matched = resume_terms.intersection(&job_terms).count();
+    if matched == 0 {
+        return 0;
+    }
+    // Floor the denominator so a tiny job description can't inflate the coefficient.
+    let denom = resume_terms.len().min(job_terms.len()).max(8);
+    let base = (100.0 * matched as f64 / denom as f64).round() as i64;
+    let title_hits = resume_terms.intersection(&title_terms).count();
+    let title_bonus = (title_hits.min(5) as i64) * 4;
+    (base + title_bonus).clamp(0, 100)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn resume_keywords_drops_stopwords_and_keeps_skills() {
+        let kw =
+            resume_keywords("Experienced with Rust, C#, .NET and Node.js. 5 years on the team.");
+        assert!(kw.contains("rust"));
+        assert!(kw.contains("c#"));
+        assert!(kw.contains("node.js"));
+        // stopwords / pure numbers / 1-char dropped
+        assert!(!kw.contains("the"));
+        assert!(!kw.contains("with"));
+        assert!(!kw.contains("5"));
+        assert!(!kw.contains("years"));
+    }
+
+    #[test]
+    fn match_score_ranks_relevant_higher() {
+        let r = resume_keywords(
+            "Senior Rust backend engineer. Tokio, async, SQLite, distributed systems.",
+        );
+        let strong = match_score(
+            &r,
+            "Rust Backend Engineer",
+            "Build async services in Rust with Tokio and SQLite at scale.",
+        );
+        let weak = match_score(
+            &r,
+            "Marketing Manager",
+            "Lead brand campaigns, social media, and content strategy.",
+        );
+        assert!(
+            strong > weak,
+            "rust job ({strong}) should beat marketing ({weak})"
+        );
+        assert!(strong > 0);
+    }
+
+    #[test]
+    fn match_score_zero_without_resume() {
+        let empty = std::collections::HashSet::new();
+        assert_eq!(match_score(&empty, "Rust Engineer", "Rust Tokio"), 0);
+    }
+
+    #[test]
+    fn match_score_title_hit_adds_bonus() {
+        let r = resume_keywords("kubernetes terraform aws devops");
+        let in_title = match_score(&r, "Kubernetes DevOps Engineer", "Manage infra.");
+        let body_only = match_score(&r, "Engineer", "Manage infra.");
+        assert!(in_title > body_only);
+    }
 
     #[test]
     fn redact_secrets_strips_query_strings() {

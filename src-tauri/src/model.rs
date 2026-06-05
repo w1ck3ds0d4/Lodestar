@@ -50,6 +50,8 @@ pub struct Job {
     pub scam_score: i64,
     /// The scam check ids that fired ("why flagged"), for the UI tooltip.
     pub scam_flags: Vec<String>,
+    /// Fit to the saved resume (0-100), computed at search time. 0 when no resume is set.
+    pub match_score: i64,
     /// Other source labels carrying the same role, filled at search time when
     /// duplicate postings across boards are collapsed into this one.
     pub also_on: Vec<String>,

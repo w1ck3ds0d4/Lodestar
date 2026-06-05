@@ -24,6 +24,8 @@ export interface Job {
   scamScore: number;
   // The scam check ids that fired, for the "why flagged" tooltip.
   scamFlags: string[];
+  // Fit to the saved resume (0-100), computed at search time; 0 when no resume is set.
+  matchScore: number;
 }
 
 // Scam-score badge tiers (mirror the Rust thresholds in scam.rs).

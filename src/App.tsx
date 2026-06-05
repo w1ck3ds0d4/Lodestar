@@ -30,6 +30,10 @@ export default function App() {
   const [langs, setLangs] = useState<string[]>([]);
   // Hide postings flagged "likely scam" (advisory; the badge always shows regardless).
   const [hideScams, setHideScams] = useState(false);
+  // Resume-match controls (no-ops until a resume is saved in the Assistant).
+  const [sortMode, setSortMode] = useState<"default" | "match">("default");
+  // Minimum resume-match % to keep; null = any.
+  const [minMatch, setMinMatch] = useState<number | null>(null);
   // The filter facets collapse to a single "Filters" pill by default; remembered.
   const [filtersOpen, setFiltersOpen] = useState(() => localStorage.getItem("jr.filtersOpen") === "1");
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -74,6 +78,8 @@ export default function App() {
           minSalary,
           langs,
           hideScams,
+          sortMode,
+          minMatch ?? 0,
         ),
       );
     } finally {
@@ -91,6 +97,8 @@ export default function App() {
     minSalary,
     langs,
     hideScams,
+    sortMode,
+    minMatch,
     workCountry,
   ]);
 
@@ -192,7 +200,9 @@ export default function App() {
     postedWithin !== null ||
     minSalary !== null ||
     langs.length > 0 ||
-    hideScams;
+    hideScams ||
+    sortMode === "match" ||
+    minMatch !== null;
 
   // Count of active facets, shown as a badge on the collapsed "Filters" pill.
   const activeFilterCount =
@@ -204,7 +214,9 @@ export default function App() {
     (relocationOnly ? 1 : 0) +
     (postedWithin !== null ? 1 : 0) +
     (minSalary !== null ? 1 : 0) +
-    (hideScams ? 1 : 0);
+    (hideScams ? 1 : 0) +
+    (sortMode === "match" ? 1 : 0) +
+    (minMatch !== null ? 1 : 0);
 
   const toggle = (setter: Dispatch<SetStateAction<string[]>>, k: string) =>
     setter((prev) => (prev.includes(k) ? prev.filter((x) => x !== k) : [...prev, k]));
@@ -401,6 +413,32 @@ export default function App() {
                 ))}
               </div>
 
+              <span className="filter-label">Resume match</span>
+              <div className="chip-row">
+                <button
+                  className={"chip" + (sortMode === "match" ? " active" : "")}
+                  title="Sort by fit to your saved resume (set one in the Assistant first)"
+                  onClick={() => setSortMode((m) => (m === "match" ? "default" : "match"))}
+                >
+                  Best match
+                </button>
+                {[
+                  { label: "Any", v: null },
+                  { label: "25%+", v: 25 },
+                  { label: "50%+", v: 50 },
+                  { label: "75%+", v: 75 },
+                ].map((o) => (
+                  <button
+                    key={o.label}
+                    className={"chip" + (minMatch === o.v ? " active" : "")}
+                    title="Keep only jobs that cover at least this share of your resume keywords"
+                    onClick={() => setMinMatch(o.v)}
+                  >
+                    {o.label}
+                  </button>
+                ))}
+              </div>
+
               <span className="filter-label">Language</span>
               <div className="chip-row">
                 {Object.entries(LANG_LABELS).map(([code, label]) => (
@@ -453,6 +491,8 @@ export default function App() {
                     setMinSalary(null);
                     setLangs([]);
                     setHideScams(false);
+                    setSortMode("default");
+                    setMinMatch(null);
                   }}
                 >
                   <X size={13} /> Clear all

@@ -468,6 +468,8 @@ fn row_to_job(r: &rusqlite::Row) -> rusqlite::Result<Job> {
             .get::<_, Option<String>>(21)?
             .map(|s| s.split('|').map(str::to_string).collect())
             .unwrap_or_default(),
+        // Filled in by search_jobs against the saved resume; 0 elsewhere.
+        match_score: 0,
         also_on: Vec::new(),
     })
 }
@@ -587,6 +589,11 @@ pub fn search_jobs(
     min_salary: Option<i64>,
     langs: &[String],
     hide_scams: bool,
+    // "match" re-ranks results by fit to the saved resume; anything else keeps the
+    // default relevance/recency order.
+    sort: &str,
+    // Drop jobs whose resume-match is below this (0 = no filter; ignored without a resume).
+    min_match: i64,
     limit: i64,
 ) -> Result<Vec<Job>> {
     let fts = build_fts_query(query);
@@ -685,8 +692,16 @@ pub fn search_jobs(
     } else {
         sql.push_str(" ORDER BY COALESCE(j.posted_at_ms, j.first_seen_at) DESC");
     }
+    // When sorting by resume match, pull a wider candidate pool from SQL (still bounded)
+    // so the re-rank can surface good matches that aren't in the freshest `limit` rows.
+    let by_match = sort == "match";
+    let sql_limit = if by_match {
+        (limit * 4).min(800)
+    } else {
+        limit
+    };
     sql.push_str(" LIMIT ?");
-    params.push(SqlValue::Integer(limit));
+    params.push(SqlValue::Integer(sql_limit));
 
     let mut stmt = conn.prepare(&sql)?;
     let rows = stmt.query_map(params_from_iter(params.iter()), row_to_job)?;
@@ -696,7 +711,25 @@ pub fn search_jobs(
     }
     // Collapse the same role appearing on multiple boards (read-time only; storage
     // and stale-sweeping stay per source/external_id).
-    Ok(dedupe_jobs(out))
+    let mut out = dedupe_jobs(out);
+
+    // Resume-match scoring (computed against the *current* saved resume, so it never
+    // needs a re-crawl). No resume => every score is 0 and the match filter/sort no-op.
+    let resume = get_setting(conn, "context_resume")?.unwrap_or_default();
+    let resume_terms = crate::util::resume_keywords(&resume);
+    if !resume_terms.is_empty() {
+        for j in out.iter_mut() {
+            j.match_score = crate::util::match_score(&resume_terms, &j.title, &j.description);
+        }
+        if min_match > 0 {
+            out.retain(|j| j.match_score >= min_match);
+        }
+        if by_match {
+            out.sort_by_key(|j| std::cmp::Reverse(j.match_score));
+        }
+    }
+    out.truncate(limit as usize);
+    Ok(out)
 }
 
 pub fn list_sources(conn: &Connection) -> Result<Vec<Source>> {
@@ -1001,6 +1034,7 @@ mod tests {
             lang: None,
             scam_score: 0,
             scam_flags: Vec::new(),
+            match_score: 0,
             also_on: Vec::new(),
         }
     }

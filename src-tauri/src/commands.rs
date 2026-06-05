@@ -30,6 +30,8 @@ pub fn search_jobs(
     min_salary: Option<i64>,
     langs: Vec<String>,
     hide_scams: bool,
+    sort: String,
+    min_match: i64,
     limit: i64,
 ) -> Result<Vec<Job>, String> {
     let conn = state.db.lock().map_err(|_| "db poisoned")?;
@@ -45,6 +47,8 @@ pub fn search_jobs(
         min_salary,
         &langs,
         hide_scams,
+        &sort,
+        min_match,
         limit,
     )
     .map_err(|e| e.to_string())
