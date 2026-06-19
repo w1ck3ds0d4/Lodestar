@@ -1,4 +1,4 @@
-import { Channel, invoke } from "@tauri-apps/api/core";
+import { Channel, invoke as tauriInvoke } from "@tauri-apps/api/core";
 import type {
   Alert,
   AssistantSettings,
@@ -18,6 +18,57 @@ import type {
   Story,
   Tracked,
 } from "./types";
+
+// --- Browser-preview fallback -------------------------------------------------
+// Outside Tauri (the Vite dev server in a plain browser, e.g. the Claude Code
+// preview) there is no Rust backend, so a real `invoke` would hang and the app
+// would stick on the launch splash. This shim returns type-shaped empty defaults
+// so the UI boots and renders its empty states for styling work. It is inert in
+// the desktop app, where `__TAURI_INTERNALS__` is present.
+const HAS_TAURI = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+
+const PREVIEW_STUBS: Record<string, unknown> = {
+  search_jobs: [],
+  work_country: "",
+  list_sources: [],
+  list_alerts: [],
+  get_stats: { totalJobs: 0, companies: 0 },
+  list_tracked: [],
+  list_skills: [],
+  list_stories: [],
+  list_cards: [],
+  list_sessions: [],
+  list_ollama_models: [],
+  list_audio_devices: { inputs: [], outputs: [] },
+  list_monitors: [],
+  get_assistant_settings: {
+    // Preview shows the full Assistant UI (the real app gates this on a saved key).
+    hasKey: true,
+    hasSttKey: false,
+    sttEngine: "deepgram",
+    sttLanguage: "multi",
+    sttDiarize: false,
+    captureSource: "system",
+    model: "claude-sonnet-4-6",
+    inputDevice: "",
+    outputDevice: "",
+    answerEngine: "claude",
+    answerStyle: "auto",
+    ollamaUrl: "http://127.0.0.1:11434",
+    ollamaModel: "",
+    contextRole: "",
+    contextCompany: "",
+    contextResume: "",
+    contextNotes: "",
+  },
+  get_usage: { since: null, claudeItems: [], deepgramSeconds: 0, claudeCredit: 0, deepgramCredit: 0 },
+  deepgram_balance: { amount: 0, units: "USD", project: "" },
+};
+
+function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  if (HAS_TAURI) return tauriInvoke<T>(cmd, args);
+  return Promise.resolve((cmd in PREVIEW_STUBS ? PREVIEW_STUBS[cmd] : undefined) as T);
+}
 
 export const searchJobs = (
   query: string,

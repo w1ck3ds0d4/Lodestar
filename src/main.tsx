@@ -8,7 +8,14 @@ import "./styles.css";
 
 // Capture overlay windows reuse this same bundle; the window label selects the view:
 // `cap-bar` -> the control bar, `cap-<kind>` -> a panel, anything else -> the full app.
-const label = getCurrentWindow().label;
+// In a plain browser (the Vite dev preview) there is no Tauri runtime, so
+// getCurrentWindow() throws; fall back to the main-window view so the app mounts.
+let label = "";
+try {
+  label = getCurrentWindow().label;
+} catch {
+  /* no Tauri runtime (browser preview): treat as the main window */
+}
 const isCapture = label.startsWith("cap-");
 
 // The launch splash (in index.html) is only meaningful for the main window's first
