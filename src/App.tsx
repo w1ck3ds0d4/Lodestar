@@ -251,26 +251,24 @@ export default function App() {
           <span>JobRadar</span>
         </div>
         <nav className="nav">
-          <button className={"nav-btn" + (view === "search" ? " active" : "")} onClick={() => setView("search")}>
-            <Search size={15} /> Search
+          <button className={"nav-btn" + (view === "search" ? " active" : "")} onClick={() => setView("search")} title="Search">
+            <Search size={15} /> <span className="nav-label">Search</span>
           </button>
-          <button className={"nav-btn" + (view === "tracker" ? " active" : "")} onClick={() => setView("tracker")}>
-            <ClipboardList size={15} /> Tracker
+          <button className={"nav-btn" + (view === "tracker" ? " active" : "")} onClick={() => setView("tracker")} title="Tracker">
+            <ClipboardList size={15} /> <span className="nav-label">Tracker</span>
           </button>
-          <button className={"nav-btn" + (view === "study" ? " active" : "")} onClick={() => setView("study")}>
-            <GraduationCap size={15} /> Study
+          <button className={"nav-btn" + (view === "study" ? " active" : "")} onClick={() => setView("study")} title="Study">
+            <GraduationCap size={15} /> <span className="nav-label">Study</span>
           </button>
           <button
             className={"nav-btn" + (view === "assistant" ? " active" : "")}
             onClick={() => setView("assistant")}
+            title="Assistant"
           >
-            <Bot size={15} /> Assistant
+            <Bot size={15} /> <span className="nav-label">Assistant</span>
           </button>
         </nav>
-        <div className="spacer" />
-        <div className="stat-pill">
-          {stats.totalJobs.toLocaleString()} jobs · {stats.companies.toLocaleString()} companies
-        </div>
+        <div className="topbar-actions">
         <button
           className={"icon-btn" + (capHidden ? " active" : "")}
           title={capHidden ? "Hidden from screen capture - click to show in shares" : "Visible to screen capture - click to hide"}
@@ -281,9 +279,16 @@ export default function App() {
         <button className="icon-btn" title="Getting started" onClick={() => setShowIntro(true)}><HelpCircle size={18} /></button>
         <button className="icon-btn" title="Alerts" onClick={() => setPanel("alerts")}><Bell size={18} /></button>
         <button className="icon-btn" title="Sources" onClick={() => setPanel("sources")}><Settings size={18} /></button>
-        <button className="btn-sync" onClick={onSync} disabled={syncing}>
-          <RefreshCw size={16} className={syncing ? "spin" : ""} /> {syncing ? "Syncing…" : "Sync now"}
+        <button
+          className="btn-sync"
+          onClick={onSync}
+          disabled={syncing}
+          title={syncing ? "Syncing…" : "Sync now"}
+        >
+          <RefreshCw size={16} className={syncing ? "spin" : ""} />
+          <span className="btn-label">{syncing ? "Syncing…" : "Sync now"}</span>
         </button>
+        </div>
       </header>
 
       {view === "search" ? (
@@ -520,6 +525,10 @@ export default function App() {
                   <X size={13} /> Clear all
                 </button>
               )}
+              <span className="corpus-stat">
+                {stats.totalJobs.toLocaleString()} jobs · {stats.companies.toLocaleString()} companies in
+                your radar
+              </span>
             </div>
           </div>
 

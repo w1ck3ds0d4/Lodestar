@@ -12,9 +12,14 @@ import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   Bot,
+  Briefcase,
+  Building2,
   ClipboardPaste,
   Crop,
   Ear,
+  FileText,
+  Gauge,
+  History,
   KeyRound,
   LayoutDashboard,
   MessageSquare,
@@ -1340,7 +1345,7 @@ export function AssistantView() {
           {screenError && <div className="assistant-error">{screenError}</div>}
 
           <details className="acc" open>
-            <summary>Setup</summary>
+            <summary><SlidersHorizontal size={15} /> Setup</summary>
             <div className={"acc-body" + (listening ? " is-listening" : "")}>
 
             <div className="setup-row">
@@ -1540,7 +1545,7 @@ export function AssistantView() {
           </details>
 
           <details className="acc">
-            <summary>Overlay</summary>
+            <summary><Monitor size={15} /> Overlay</summary>
             <div className="acc-body">
             <div className="overlay-row">
               <span className="setup-label">Opacity</span>
@@ -1573,7 +1578,7 @@ export function AssistantView() {
           </details>
 
           <details className="acc">
-            <summary>Phone control</summary>
+            <summary><Smartphone size={15} /> Phone control</summary>
             <div className="acc-body">
               {!phone ? (
                 <>
@@ -1614,7 +1619,7 @@ export function AssistantView() {
           </details>
 
           <details className="acc">
-            <summary>Interview context</summary>
+            <summary><Briefcase size={15} /> Interview context</summary>
             <div className="acc-body">
             <p className="muted sm">Fed to the assistant so answers fit you and the role.</p>
             <div className="setup-field">
@@ -1663,21 +1668,21 @@ export function AssistantView() {
           </details>
 
           <details className="acc">
-            <summary>Your stories</summary>
+            <summary><MessageSquare size={15} /> Your stories</summary>
             <div className="acc-body">
               <StoriesPanel />
             </div>
           </details>
 
           <details className="acc">
-            <summary>Past sessions</summary>
+            <summary><History size={15} /> Past sessions</summary>
             <div className="acc-body">
               <SessionsPanel reload={sessionsReload} />
             </div>
           </details>
 
           <details className="acc">
-            <summary>Company information</summary>
+            <summary><Building2 size={15} /> Company information</summary>
             <div className="acc-body">
             <p className="muted sm">
               Add the company you're interviewing at - answers become company-aware, and you can generate a
@@ -1706,7 +1711,7 @@ export function AssistantView() {
           </details>
 
           <details className="acc">
-            <summary>Application kit</summary>
+            <summary><FileText size={15} /> Application kit</summary>
             <div className="acc-body">
               <ApplicationKit transcript={transcriptText(segments)} />
             </div>
@@ -1718,7 +1723,7 @@ export function AssistantView() {
               if ((e.target as HTMLDetailsElement).open) void refreshUsage();
             }}
           >
-            <summary>Usage &amp; cost</summary>
+            <summary><Gauge size={15} /> Usage &amp; cost</summary>
             <div className="acc-body">
               {/* Claude: token-based spend estimate, optional credit -> remaining. */}
               <div className="usage-row">

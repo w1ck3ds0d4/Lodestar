@@ -135,10 +135,22 @@ select:focus {
 .topbar {
   display: flex;
   align-items: center;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 10px 12px;
   padding: 12px 18px;
   background: linear-gradient(180deg, var(--bg-2), var(--bg));
   border-bottom: 1px solid var(--border);
+}
+
+/* Right-side cluster (stats + tools + sync). Pushed right on wide screens;
+   wraps to its own right-aligned row when the bar runs out of width, so the
+   Sync button can never get clipped off the edge. */
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-left: auto;
 }
 
 .brand {
@@ -327,6 +339,32 @@ select:focus {
   font-size: 15px;
 }
 
+/* Setup drawer's title bar: compact, full-bleed across the panel. Scoped to
+   .col-settings so it beats the generic .drawer-head rules (and the close-button
+   size) without affecting the other modal drawers that share the class. The
+   negative margins cancel the .col-settings 16px padding so it spans edge to
+   edge; sticky (top:-16px offsets that padding) keeps it pinned while scrolling. */
+.col-settings .drawer-head {
+  position: sticky;
+  top: -16px;
+  z-index: 3;
+  margin: -16px -16px 12px;
+  padding: 7px 10px 7px 14px;
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+  font-size: 12px;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.col-settings .drawer-head .icon-btn {
+  width: 26px;
+  height: 26px;
+  min-width: 26px;
+  min-height: 26px;
+}
+
 @media (max-width: 1500px) {
   .assistant-tabs {
     display: flex;
@@ -345,25 +383,31 @@ select:focus {
   .assistant-body.pane-answers > .col-code {
     display: flex;
   }
-  /* Setup is an off-canvas left drawer that slides in over the live view. */
+  /* Setup is a full-height left drawer that slides in / out over the whole app,
+     anchored just below the top bar. It stays mounted (off-canvas when closed)
+     so both directions animate. */
   .assistant-body > .col-settings {
     display: flex;
-    position: absolute;
-    inset: 0 auto 0 0;
-    width: min(360px, 86%);
+    position: fixed;
+    top: 59px;
+    left: 0;
+    bottom: 0;
+    width: min(380px, 92%);
     height: auto;
-    transform: translateX(-106%);
-    transition: transform 0.18s ease;
-    z-index: 30;
+    border-radius: 0;
+    transform: translateX(-104%);
+    transition: transform 0.26s cubic-bezier(0.22, 1, 0.36, 1);
+    will-change: transform;
+    z-index: 200;
     box-shadow: var(--shadow-lg);
   }
   .assistant-body.settings-open > .col-settings {
     transform: translateX(0);
   }
   .settings-backdrop {
-    position: absolute;
-    inset: 0;
-    z-index: 25;
+    position: fixed;
+    inset: 59px 0 0 0;
+    z-index: 199;
     background: rgba(5, 9, 18, 0.5);
   }
   .drawer-head {
@@ -699,6 +743,11 @@ select:focus {
 }
 .acc > summary:hover {
   color: var(--text);
+}
+/* Section icons: accent-colored anchors so the Setup list scans at a glance. */
+.acc > summary > svg {
+  color: var(--accent-2);
+  flex-shrink: 0;
 }
 .acc-body {
   display: flex;
@@ -1896,6 +1945,14 @@ select:focus {
   font-weight: 500;
 }
 
+/* Global corpus count, moved out of the top bar into the results meta row. */
+.corpus-stat {
+  color: var(--muted);
+  font-size: 12.5px;
+  margin-left: auto;
+  white-space: nowrap;
+}
+
 .empty {
   color: var(--muted);
   text-align: center;
@@ -2265,6 +2322,24 @@ select:focus {
   margin-left: 6px;
 }
 
+/* Narrow windows: collapse the primary nav to icons so the whole top bar stays
+   on one clean row instead of wrapping. Labels return on wider windows.
+   Scoped to .topbar so it wins over the base .nav-btn padding regardless of
+   source order. */
+@media (max-width: 880px) {
+  .topbar .nav-label,
+  .topbar .btn-label {
+    display: none;
+  }
+  .topbar .nav-btn {
+    padding: 7px 9px;
+  }
+  /* Sync collapses to a square icon button (keeps its green accent). */
+  .topbar .btn-sync {
+    padding: 8px 11px;
+  }
+}
+
 .nav-btn {
   display: inline-flex;
   align-items: center;
@@ -2538,6 +2613,16 @@ textarea:focus {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+/* The custom-program add row wraps so the Add button is never clipped at
+   narrow widths; inputs shrink instead of overflowing past the edge. */
+.add-program .add-row {
+  flex-wrap: wrap;
+}
+.add-program .add-row input {
+  min-width: 0;
+  flex: 1 1 150px;
 }
 
 .catalog {
