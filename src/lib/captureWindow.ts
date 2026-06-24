@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { emit, type UnlistenFn } from "@tauri-apps/api/event";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { currentMonitor, getCurrentWindow } from "@tauri-apps/api/window";
 import { PhysicalPosition, PhysicalSize } from "@tauri-apps/api/dpi";
 import type { CaptureCommand } from "../types";
 
@@ -16,15 +16,36 @@ export function usePersistedBounds() {
     const acc: { x?: number; y?: number; w?: number; h?: number } = {};
     try {
       Object.assign(acc, JSON.parse(localStorage.getItem(key) || "{}"));
-      if (typeof acc.w === "number" && typeof acc.h === "number") {
-        void win.setSize(new PhysicalSize(acc.w, acc.h));
-      }
-      if (typeof acc.x === "number" && typeof acc.y === "number") {
-        void win.setPosition(new PhysicalPosition(acc.x, acc.y));
-      }
     } catch {
       /* ignore malformed bounds */
     }
+
+    // Restore the saved size always, but the saved POSITION only when it lands on the
+    // monitor this panel was just opened on. The backend places the overlay on the
+    // display the user chose; without this guard a position saved in a previous session
+    // on another display would immediately yank the panel back to that screen (the
+    // "opens on display 2 then jumps to display 1" bug).
+    void (async () => {
+      try {
+        if (typeof acc.w === "number" && typeof acc.h === "number") {
+          await win.setSize(new PhysicalSize(acc.w, acc.h));
+        }
+        if (typeof acc.x === "number" && typeof acc.y === "number") {
+          const mon = await currentMonitor();
+          const onChosenMonitor =
+            !!mon &&
+            acc.x >= mon.position.x &&
+            acc.x < mon.position.x + mon.size.width &&
+            acc.y >= mon.position.y &&
+            acc.y < mon.position.y + mon.size.height;
+          if (onChosenMonitor) {
+            await win.setPosition(new PhysicalPosition(acc.x, acc.y));
+          }
+        }
+      } catch {
+        /* ignore restore errors */
+      }
+    })();
 
     let t: number | undefined;
     const save = (patch: Partial<typeof acc>) => {
