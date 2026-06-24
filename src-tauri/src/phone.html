@@ -38,6 +38,9 @@
       .seg.you { margin-left: auto; text-align: right; }
       .seg.you .txt { background: rgba(16,185,129,.12); border-color: var(--accent); }
       .controls { display: flex; gap: 8px; padding: 10px 14px; border-top: 1px solid var(--border); background: var(--panel); }
+      .caprow { display: flex; gap: 8px; padding: 10px 14px 0; }
+      .caprow button { flex: 1; }
+      button.on { border-color: var(--accent); color: var(--accent2); background: rgba(16,185,129,.14); }
       .controls input { flex: 1; min-width: 0; background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 10px; padding: 9px 11px; }
       .center { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100dvh; gap: 14px; padding: 24px; }
       .center input { width: 200px; text-align: center; font-size: 22px; letter-spacing: 4px; background: var(--panel); border: 1px solid var(--border); color: var(--text); border-radius: 12px; padding: 12px; }
@@ -62,6 +65,7 @@
         <span class="dot" id="dot"></span>
         <span class="brand">JobRadar</span>
         <span class="spacer"></span>
+        <button id="capture">Capture</button>
         <button class="primary" id="listen">Listen</button>
       </div>
       <div class="tabs">
@@ -70,6 +74,11 @@
       </div>
       <div class="scroll" id="answers"><div class="empty">No answers yet.</div></div>
       <div class="scroll hidden" id="dialog"><div class="empty">No conversation yet.</div></div>
+      <div class="caprow">
+        <button id="watch" title="Watch the screen and auto-answer questions on it">Watch</button>
+        <button id="panels" title="Show or hide the floating overlay panels">Show/Hide</button>
+        <button id="shot" title="Make the overlay panels show up in screenshots and screen shares so you can capture them">Screenshot</button>
+      </div>
       <div class="controls">
         <button id="screen" title="Answer the screen">Screen</button>
         <input id="ask" placeholder="Ask a question…" />
@@ -115,6 +124,10 @@
       function cmd(obj) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj)); }
       $("listen").onclick = function () { cmd({ cmd: "listen" }); };
       $("screen").onclick = function () { cmd({ cmd: "answer_screen" }); };
+      $("capture").onclick = function () { cmd({ cmd: "capture" }); };
+      $("watch").onclick = function () { cmd({ cmd: "watch" }); };
+      $("panels").onclick = function () { cmd({ cmd: "panels" }); };
+      $("shot").onclick = function () { cmd({ cmd: "protect" }); };
       $("send").onclick = function () {
         var v = $("ask").value.trim();
         if (v) { cmd({ cmd: "ask", text: v }); $("ask").value = ""; }
@@ -137,6 +150,13 @@
             $("dot").classList.toggle("on", !!msg.listening);
             $("listen").classList.toggle("on", !!msg.listening);
             $("listen").textContent = msg.listening ? "Stop" : "Listen";
+            $("capture").classList.toggle("on", !!msg.capture);
+            $("capture").textContent = msg.capture ? "Exit" : "Capture";
+            $("watch").classList.toggle("on", !!msg.watching);
+            // protect === false means the panels are visible to screen capture (you can
+            // screenshot them); highlight the button so it's clear they're exposed.
+            $("shot").classList.toggle("on", msg.protect === false);
+            $("shot").textContent = msg.protect === false ? "Screenshot on" : "Screenshot";
             renderAnswers(msg.answers);
             renderDialog(msg.segments);
           }

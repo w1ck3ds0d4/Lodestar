@@ -1394,17 +1394,27 @@ pub async fn answer_screen(
     let cap = crate::screen::capture(monitor).map_err(|e| e.to_string())?;
 
     {
-        let mut last = state
-            .screen_hash
-            .lock()
-            .map_err(|_| "screen hash poisoned")?;
-        if !force && *last == Some(cap.hash) {
-            return Ok(ScreenAnswer {
-                changed: false,
-                answer: String::new(),
-            });
+        // Skip when the screen is perceptually the same as the last ANSWERED one. The
+        // hash is a dHash, compared by Hamming distance (differing bits): a moved cursor
+        // or a ticking clock barely shifts it, while a new exercise flips many bits. This
+        // is read-only - the baseline is advanced later, only after a real answer, so a
+        // transient/NONE frame can never become the baseline and swallow the next real
+        // question. The lock is dropped before the vision call below.
+        const SCREEN_HASH_THRESHOLD: u32 = 4;
+        if !force {
+            let last = state
+                .screen_hash
+                .lock()
+                .map_err(|_| "screen hash poisoned")?;
+            if let Some(prev) = *last {
+                if (prev ^ cap.hash).count_ones() <= SCREEN_HASH_THRESHOLD {
+                    return Ok(ScreenAnswer {
+                        changed: false,
+                        answer: String::new(),
+                    });
+                }
+            }
         }
-        *last = Some(cap.hash);
     }
 
     let (engine, profile) = {
@@ -1423,6 +1433,19 @@ pub async fn answer_screen(
     )
     .await
     .map_err(|e| e.to_string())?;
+
+    // Advance the dedup baseline only for a real, answerable screen on the watcher path:
+    // never for a forced one-off (so a manual answer can't perturb the watcher) and never
+    // for a NONE / empty result (so a between-questions frame can't poison the baseline).
+    let real = {
+        let a = answer.trim();
+        !a.is_empty() && !a.eq_ignore_ascii_case("NONE")
+    };
+    if real && !force {
+        if let Ok(mut last) = state.screen_hash.lock() {
+            *last = Some(cap.hash);
+        }
+    }
     Ok(ScreenAnswer {
         changed: true,
         answer,
@@ -1886,19 +1909,34 @@ pub fn stop_listening(state: State<'_, AppState>) -> Result<(), String> {
 /// the app freezes. Running async lets the runtime dispatch creation to the main
 /// loop without blocking it.
 #[tauri::command]
-pub async fn open_capture_panels(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
-    // Honor the saved "hide panels from screen capture" preference (default: on).
+pub async fn open_capture_panels(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    monitor: usize,
+) -> Result<(), String> {
+    // Honor the saved "hide panels from screen capture" preference (default: on), and
+    // remember the chosen monitor so a later protection toggle reopens on the same one.
     let protected = {
         let conn = state.db.lock().map_err(|_| "db poisoned")?;
+        let _ = db::set_setting(&conn, "capture_monitor", &monitor.to_string());
         capture_protect_setting(&conn)
     };
-    crate::capture::open_panels(&app, protected)
+    // Open the overlay on the chosen monitor; fall back to a sane primary-ish box.
+    let bounds = crate::screen::bounds_logical(monitor).unwrap_or((0.0, 0.0, 1280.0, 800.0));
+    crate::capture::open_panels(&app, protected, bounds)
 }
 
 /// Close all capture panels.
 #[tauri::command]
 pub fn close_capture_panels(app: AppHandle) {
     crate::capture::close_panels(&app);
+}
+
+/// Set the translucency (0.0..=1.0) of the capture overlay (bar + panels) together.
+#[tauri::command]
+pub fn set_capture_opacity(app: AppHandle, opacity: f64) -> Result<(), String> {
+    crate::capture::set_panels_opacity(&app, opacity);
+    Ok(())
 }
 
 /// Read the "capture panels are hidden from screen capture" preference (default true).
@@ -1915,17 +1953,33 @@ fn capture_protect_setting(conn: &rusqlite::Connection) -> bool {
 /// makes them appear in screenshots and shares so the user can capture the panels
 /// themselves. Persisted and applied live to any open panels.
 #[tauri::command]
-pub fn set_capture_protection(
+pub async fn set_capture_protection(
     app: AppHandle,
     state: State<'_, AppState>,
     protected: bool,
 ) -> Result<(), String> {
-    {
+    let monitor = {
         let conn = state.db.lock().map_err(|_| "db poisoned")?;
         db::set_setting(&conn, "capture_protect", if protected { "true" } else { "false" })
             .map_err(|e| e.to_string())?;
+        db::get_setting(&conn, "capture_monitor")
+            .ok()
+            .flatten()
+            .and_then(|s| s.parse::<usize>().ok())
+            .unwrap_or(0)
+    };
+    // Apply the new protection live by recreating the open panels (toggling it on a live
+    // window does not lift the Windows capture exclusion). Destroy them, let the event
+    // loop process the close, then reopen on the same monitor and restore the layout.
+    // Async so window creation can pump the main loop (a sync command would deadlock).
+    let geo = crate::capture::snapshot_and_destroy(&app);
+    if geo.is_empty() {
+        return Ok(()); // panels not open; the saved setting applies on the next open
     }
-    crate::capture::set_panels_protected(&app, protected);
+    tokio::time::sleep(std::time::Duration::from_millis(140)).await;
+    let bounds = crate::screen::bounds_logical(monitor).unwrap_or((0.0, 0.0, 1280.0, 800.0));
+    crate::capture::open_panels(&app, protected, bounds)?;
+    crate::capture::restore_geometry(&app, geo);
     Ok(())
 }
 

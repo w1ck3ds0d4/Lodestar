@@ -2900,31 +2900,45 @@ textarea:focus {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 10px;
+  padding: 8px;
 }
 .cap-empty {
   color: var(--muted);
   text-align: center;
-  margin-top: 36%;
-  font-size: 13px;
+  margin: 28px auto 0;
+  font-size: 12.5px;
 }
 /* Answers */
 .cap-qa {
   border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 8px 10px;
-  margin-bottom: 8px;
+  border-radius: 9px;
+  padding: 7px 9px;
+  margin-bottom: 6px;
   background: var(--bg-2);
 }
 .cap-qa .cap-q {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 11.5px;
   margin-bottom: 4px;
 }
 .cap-qa .cap-a {
   white-space: pre-wrap;
   word-break: break-word;
-  font-size: 13.5px;
+  font-size: 13px;
+}
+/* Markdown answer inside a panel: a touch denser than the desktop pane. */
+.cap-qa .assistant-answer {
+  font-size: 13px;
+  line-height: 1.45;
+}
+.cap-qa .assistant-answer > :first-child {
+  margin-top: 0;
+}
+.cap-qa .assistant-answer > :last-child {
+  margin-bottom: 0;
+}
+.cap-qa .assistant-answer pre {
+  font-size: 12px;
 }
 /* Transcript */
 .cap-seg {
@@ -2960,6 +2974,22 @@ textarea:focus {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+.cap-opacity {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.cap-opacity input[type="range"] {
+  flex: 1;
+  min-width: 0;
+  accent-color: var(--accent);
+}
+.cap-opacity-val {
+  min-width: 36px;
+  text-align: right;
 }
 .cap-btns {
   display: flex;

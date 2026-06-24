@@ -171,13 +171,26 @@ export interface CaptureAnswer {
 export interface CaptureState {
   listening: boolean;
   watching: boolean;
+  // Whether the panels are hidden from screen capture (false = visible/screenshot-able).
+  protect?: boolean;
   segments: CaptureSegment[];
   answers: CaptureAnswer[];
 }
 // A command sent from an overlay window (panel or control bar) to the main window.
 export interface CaptureCommand {
-  cmd: "listen" | "watch" | "snip" | "ask" | "stop" | "sync" | "answer_screen";
+  cmd:
+    | "listen"
+    | "watch"
+    | "snip"
+    | "ask"
+    | "stop"
+    | "sync"
+    | "answer_screen"
+    | "protect"
+    | "read_page"
+    | "opacity";
   text?: string;
+  value?: number; // for "opacity" (0..1)
 }
 
 export const APP_STATUSES = ["saved", "applied", "screen", "interview", "offer", "accepted", "rejected"] as const;

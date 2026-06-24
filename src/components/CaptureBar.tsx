@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { Camera, Ear, Eye, EyeOff, Square, X } from "lucide-react";
+import { Camera, Ear, Eye, EyeOff, ScreenShare, ScreenShareOff, Square, X } from "lucide-react";
 import * as api from "../api";
 import type { CaptureState } from "../types";
 import { sendCaptureCommand as send, usePersistedBounds } from "../lib/captureWindow";
@@ -47,9 +47,20 @@ export function CaptureBar() {
       <button
         className="cap-bar-btn"
         onClick={togglePanels}
-        title={panelsShown ? "Hide panels" : "Show panels"}
+        title={panelsShown ? "Hide panels (from you too)" : "Show panels"}
       >
         {panelsShown ? <EyeOff size={15} /> : <Eye size={15} />}
+      </button>
+      <button
+        className={"cap-bar-btn" + (st.protect === false ? " on" : "")}
+        onClick={() => send({ cmd: "protect" })}
+        title={
+          st.protect === false
+            ? "Panels are visible to screenshots / screen share - click to hide them from capture"
+            : "Show panels in screenshots / screen share (so you can capture them)"
+        }
+      >
+        {st.protect === false ? <ScreenShare size={15} /> : <ScreenShareOff size={15} />}
       </button>
       <span className="cap-bar-sep" />
       <button className="cap-bar-btn danger" onClick={() => send({ cmd: "stop" })} title="Exit capture mode">

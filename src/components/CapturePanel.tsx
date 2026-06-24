@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { Crop, Ear, MessageSquare, ScanSearch, Send, Sparkles, Square, X } from "lucide-react";
+import { Camera, ClipboardPaste, Crop, Ear, MessageSquare, ScanSearch, Send, Sparkles, Square, X } from "lucide-react";
 import type { CaptureState } from "../types";
+import { Answer } from "./MarkdownAnswer";
 import { sendCaptureCommand as send, usePersistedBounds } from "../lib/captureWindow";
 
 export type PanelKind = "answers" | "transcript" | "controls";
@@ -18,6 +19,8 @@ const startResize = () => void getCurrentWindow().startResizeDragging("SouthEast
 export function CapturePanel({ kind }: { kind: PanelKind }) {
   const [st, setSt] = useState<CaptureState>(EMPTY);
   const [draft, setDraft] = useState("");
+  // Overlay translucency, applied to every capture window together (Controls panel only).
+  const [opacity, setOpacity] = useState(1);
   const bodyRef = useRef<HTMLDivElement>(null);
   usePersistedBounds();
 
@@ -73,7 +76,11 @@ export function CapturePanel({ kind }: { kind: PanelKind }) {
             st.answers.map((a, i) => (
               <div key={i} className="cap-qa">
                 <div className="cap-q">{a.q}</div>
-                <div className="cap-a">{a.pending && !a.a ? "…" : a.a}</div>
+                {a.pending && !a.a ? (
+                  <div className="cap-a muted">Thinking...</div>
+                ) : (
+                  <Answer text={a.a} />
+                )}
               </div>
             ))
           ))}
@@ -109,6 +116,39 @@ export function CapturePanel({ kind }: { kind: PanelKind }) {
                 <Crop size={14} /> Snip
               </button>
             </div>
+            <div className="cap-btns">
+              <button
+                className="cap-btn"
+                onClick={() => send({ cmd: "answer_screen" })}
+                title="Answer whatever question/problem is on the screen right now"
+              >
+                <Camera size={14} /> Answer screen
+              </button>
+              <button
+                className="cap-btn"
+                onClick={() => send({ cmd: "read_page" })}
+                title="Read the page you copied (Ctrl+A then Ctrl+C in the exercise) as context - captures the whole page, including off-screen text"
+              >
+                <ClipboardPaste size={14} /> Read page
+              </button>
+            </div>
+            <label className="cap-opacity">
+              <span>Opacity</span>
+              <input
+                type="range"
+                min={0.3}
+                max={1}
+                step={0.05}
+                value={opacity}
+                title="Dim the whole overlay so it sits discreetly over your call"
+                onChange={(e) => {
+                  const v = Number(e.target.value);
+                  setOpacity(v);
+                  send({ cmd: "opacity", value: v });
+                }}
+              />
+              <span className="cap-opacity-val">{Math.round(opacity * 100)}%</span>
+            </label>
             <div className="cap-ask">
               <input
                 value={draft}

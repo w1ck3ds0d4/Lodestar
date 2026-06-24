@@ -281,8 +281,12 @@ export const stopPhoneServer = () => invoke<void>("stop_phone_server");
 export const phoneBroadcast = (payload: string) => invoke<void>("phone_broadcast", { payload });
 
 // --- Capture mode (floating overlay panels) ---
-export const openCapturePanels = () => invoke<void>("open_capture_panels");
+export const openCapturePanels = (monitor: number) =>
+  invoke<void>("open_capture_panels", { monitor });
 export const closeCapturePanels = () => invoke<void>("close_capture_panels");
+// Translucency (0..1) of the whole capture overlay (bar + panels) together.
+export const setCaptureOpacity = (opacity: number) =>
+  invoke<void>("set_capture_opacity", { opacity });
 // Whether the capture panels are hidden from screen capture/sharing. Pass false to make
 // them appear in screenshots/shares (so you can capture the panels); true re-hides them.
 export const setCaptureProtection = (protected_: boolean) =>

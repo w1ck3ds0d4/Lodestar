@@ -34,11 +34,6 @@ import {
   Upload,
   X,
 } from "lucide-react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import remarkMath from "remark-math";
-import rehypeKatex from "rehype-katex";
-import "katex/dist/katex.min.css";
 import * as api from "../api";
 import {
   ANSWER_STYLES,
@@ -57,6 +52,7 @@ import {
 } from "../types";
 import { extractResumeText } from "../lib/extractText";
 import { ApplicationKit } from "./ApplicationKit";
+import { Answer } from "./MarkdownAnswer";
 import { SessionsPanel } from "./SessionsPanel";
 import { StoriesPanel } from "./StoriesPanel";
 
@@ -90,27 +86,6 @@ function chipClass(speaker: string): string {
   for (const c of speaker) h = (h * 31 + c.charCodeAt(0)) >>> 0;
   return "seg-chip--c" + (h % 5);
 }
-
-// Memoized: markdown + KaTeX parsing is expensive, so while an answer streams in
-// only the card whose `text` actually changed re-parses, not every answer on the
-// board on every token.
-// rehype-katex must not throw: answers stream in token by token, so the markdown is
-// briefly malformed (an unclosed `$$`, a half-typed macro). With throwOnError the
-// parse error would bubble up as a render crash and blank the whole app; instead we
-// render the offending bit in red and keep going - the next token usually fixes it.
-const KATEX_OPTS = { throwOnError: false, errorColor: "#e06c75" } as const;
-const Answer = memo(function Answer({ text }: { text: string }) {
-  return (
-    <div className="assistant-answer">
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm, remarkMath]}
-        rehypePlugins={[[rehypeKatex, KATEX_OPTS]]}
-      >
-        {text}
-      </ReactMarkdown>
-    </div>
-  );
-});
 
 // True if an answer contains a fenced code block or LaTeX math.
 function hasCodeOrMath(a: string): boolean {
@@ -342,6 +317,9 @@ export function AssistantView() {
   // Capture mode: floating overlay panels driven by this window.
   const [captureOn, setCaptureOn] = useState(false);
   const [captureErr, setCaptureErr] = useState("");
+  // Guards start/stop so the desktop button, a capture-panel command, and the phone
+  // can't race and desync `captureOn` from the actual panel windows.
+  const captureBusy = useRef(false);
   // Whether the capture panels are hidden from screen capture (default true). Turn off
   // to screenshot the panels / show them in a share.
   const [captureProtect, setCaptureProtect] = useState(true);
@@ -525,6 +503,9 @@ export function AssistantView() {
         const ctx = convo ? convo.slice(-1500) : null;
         const res = await api.answerScreen(screenMonitor, force, ctx);
         const a = res.answer.trim();
+        // The backend already suppresses a perceptually-unchanged screen (res.changed),
+        // so don't also dedup on answer TEXT here - two different questions can share a
+        // terse answer ("True", "O(n)"), and that would wrongly swallow the second.
         if (res.changed && a && a.toUpperCase() !== "NONE") {
           setQa((prev) => [{ id: ++idRef.current, q: "From your screen", a, pending: false }, ...prev]);
         }
@@ -585,7 +566,10 @@ export function AssistantView() {
   // Auto-watch: poll the chosen screen while the toggle is on.
   useEffect(() => {
     if (!watchingScreen) return;
-    void runScreen(false);
+    // Re-arming should answer whatever is on screen right now, even if it matches the
+    // last session's screen. Force the first tick so it bypasses the backend dedup;
+    // subsequent ticks poll normally.
+    void runScreen(true);
     const t = setInterval(() => void runScreen(false), 6000);
     return () => clearInterval(t);
   }, [watchingScreen, runScreen]);
@@ -1057,9 +1041,34 @@ export function AssistantView() {
   // render so the once-registered listener always invokes the latest handlers.
   const phoneCmdRef = useRef<(c: { cmd?: string; text?: string }) => void>(() => {});
   phoneCmdRef.current = (c) => {
-    if (c.cmd === "listen") void toggleListen();
-    else if (c.cmd === "answer_screen") void runScreen(true);
-    else if (c.cmd === "ask" && c.text) void ask(c.text, transcriptText(segments));
+    switch (c.cmd) {
+      case "listen":
+        void toggleListen();
+        break;
+      case "answer_screen":
+        void runScreen(true);
+        break;
+      case "ask":
+        if (c.text) void ask(c.text, transcriptText(segments));
+        break;
+      // Capture-mode control, so the whole flow can be driven from the phone.
+      case "capture":
+        captureOn ? void stopCapture() : void startCapture();
+        break;
+      case "panels":
+        // Only meaningful once panels exist; a no-op otherwise.
+        if (captureOn) void api.toggleCapturePanels().catch(() => {});
+        break;
+      case "watch":
+        setWatchingScreen((v) => !v);
+        break;
+      case "protect":
+        // Gate on captureOn so a stray phone tap can't flip the persisted
+        // screen-capture-protection default while no panels are open (which would make
+        // the next capture session open exposed to a screen share).
+        if (captureOn) void changeCaptureProtect(!captureProtect);
+        break;
+    }
   };
 
   // --- Capture mode -----------------------------------------------------------
@@ -1075,28 +1084,39 @@ export function AssistantView() {
     return {
       listening,
       watching: watchingScreen,
+      protect: captureProtect,
       segments: segs,
       answers: qa.map((e) => ({ q: e.q, a: e.a, pending: e.pending })),
     };
-  }, [listening, watchingScreen, segments, live, qa]);
+  }, [listening, watchingScreen, captureProtect, segments, live, qa]);
   const pushCaptureState = useCallback(() => void emit("capture-state", captureState()), [captureState]);
 
   const startCapture = async () => {
+    if (captureBusy.current) return;
+    captureBusy.current = true;
     setCaptureErr("");
     try {
-      await api.openCapturePanels();
+      await api.openCapturePanels(screenMonitor); // open on the chosen display
       setCaptureOn(true);
-      if (!listening) void toggleListen(); // capture mode starts listening
+      // Don't auto-start listening - open quietly and let the user press Listen (on the
+      // control bar or the Controls panel) when ready.
     } catch (e) {
       setCaptureErr(String(e));
+    } finally {
+      captureBusy.current = false;
     }
   };
   const stopCapture = async () => {
-    setCaptureOn(false);
+    if (captureBusy.current) return;
+    captureBusy.current = true;
     try {
       await api.closeCapturePanels();
     } catch {
       /* ignore */
+    } finally {
+      // Flip the flag after the close resolves so it tracks the real window state.
+      setCaptureOn(false);
+      captureBusy.current = false;
     }
   };
 
@@ -1117,8 +1137,17 @@ export function AssistantView() {
       case "answer_screen":
         void runScreen(true);
         break;
+      case "read_page":
+        void readPage();
+        break;
+      case "opacity":
+        if (typeof c.value === "number") void api.setCaptureOpacity(c.value).catch(() => {});
+        break;
       case "ask":
         if (c.text) void ask(c.text, transcriptText(segments));
+        break;
+      case "protect":
+        void changeCaptureProtect(!captureProtect);
         break;
       case "stop":
         void stopCapture();
@@ -1160,10 +1189,13 @@ export function AssistantView() {
     return JSON.stringify({
       type: "state",
       listening,
+      watching: watchingScreen,
+      capture: captureOn,
+      protect: captureProtect,
       segments: segs,
       answers: qa.map((e) => ({ q: e.q, a: e.a, pending: e.pending })),
     });
-  }, [listening, segments, live, qa]);
+  }, [listening, watchingScreen, captureOn, captureProtect, segments, live, qa]);
 
   // Push state to phones on change (debounced) plus a heartbeat so a phone that
   // connects mid-session catches up within a couple of seconds.
