@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { Camera, ClipboardPaste, Crop, Ear, MessageSquare, ScanSearch, Send, Sparkles, Square, X } from "lucide-react";
+import { LogicalSize, type PhysicalSize } from "@tauri-apps/api/dpi";
+import { Camera, ChevronDown, ClipboardPaste, Crop, Ear, MessageSquare, Minus, ScanSearch, Send, Sparkles, Square, X } from "lucide-react";
 import type { CaptureState } from "../types";
 import { Answer } from "./MarkdownAnswer";
 import { sendCaptureCommand as send, usePersistedBounds } from "../lib/captureWindow";
@@ -21,8 +22,39 @@ export function CapturePanel({ kind }: { kind: PanelKind }) {
   const [draft, setDraft] = useState("");
   // Overlay translucency, applied to every capture window together (Controls panel only).
   const [opacity, setOpacity] = useState(1);
+  // Collapsed = shrunk to a small icon button; click the chevron to expand again.
+  const [collapsed, setCollapsed] = useState(false);
+  const collapsedRef = useRef(false);
+  const expandedSize = useRef<PhysicalSize | null>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
-  usePersistedBounds();
+  usePersistedBounds(collapsedRef);
+
+  // Collapse the panel to a small icon (remembering its size) or expand it back.
+  const toggleCollapsed = async () => {
+    const win = getCurrentWindow();
+    if (!collapsed) {
+      try {
+        expandedSize.current = await win.innerSize();
+      } catch {
+        /* ignore */
+      }
+      collapsedRef.current = true;
+      setCollapsed(true);
+      try {
+        await win.setSize(new LogicalSize(116, 44));
+      } catch {
+        /* ignore */
+      }
+    } else {
+      collapsedRef.current = false;
+      setCollapsed(false);
+      try {
+        if (expandedSize.current) await win.setSize(expandedSize.current);
+      } catch {
+        /* ignore */
+      }
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -57,17 +89,31 @@ export function CapturePanel({ kind }: { kind: PanelKind }) {
   };
 
   return (
-    <div className={"cap-panel cap-" + kind}>
+    <div className={"cap-panel cap-" + kind + (collapsed ? " collapsed" : "")}>
       <div className="cap-head" data-tauri-drag-region>
-        <span className="cap-title">
-          <meta.Icon size={13} /> {meta.title}
+        <span className="cap-title" title={collapsed ? meta.title : undefined}>
+          <meta.Icon size={13} />
+          {!collapsed && meta.title}
         </span>
-        <span className={"cap-dot" + (st.listening ? " on" : "")} title={st.listening ? "Listening" : "Idle"} />
-        <button className="cap-x" title="Exit capture mode" onClick={() => send({ cmd: "stop" })}>
-          <X size={14} />
+        {!collapsed && (
+          <span className={"cap-dot" + (st.listening ? " on" : "")} title={st.listening ? "Listening" : "Idle"} />
+        )}
+        <button
+          className="cap-x cap-min"
+          title={collapsed ? "Expand panel" : "Collapse to an icon"}
+          onClick={() => void toggleCollapsed()}
+        >
+          {collapsed ? <ChevronDown size={14} /> : <Minus size={14} />}
         </button>
+        {!collapsed && (
+          <button className="cap-x" title="Exit capture mode" onClick={() => send({ cmd: "stop" })}>
+            <X size={14} />
+          </button>
+        )}
       </div>
 
+      {!collapsed && (
+      <>
       <div className="cap-body" ref={bodyRef}>
         {kind === "answers" &&
           (st.answers.length === 0 ? (
@@ -167,6 +213,8 @@ export function CapturePanel({ kind }: { kind: PanelKind }) {
       </div>
 
       <div className="cap-grip" onMouseDown={startResize} title="Drag to resize" />
+      </>
+      )}
     </div>
   );
 }

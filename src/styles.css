@@ -2896,6 +2896,16 @@ textarea:focus {
   border-color: var(--danger);
   color: var(--danger);
 }
+/* The collapse/expand toggle is not destructive, so it gets the accent hover. */
+.cap-min:hover {
+  border-color: var(--accent);
+  color: var(--accent-2);
+}
+/* Collapsed panel: shrunk to a small icon button (header only). */
+.cap-panel.collapsed .cap-head {
+  border-bottom: none;
+  justify-content: center;
+}
 .cap-body {
   flex: 1;
   min-height: 0;

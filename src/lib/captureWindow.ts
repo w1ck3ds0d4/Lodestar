@@ -9,7 +9,9 @@ export const sendCaptureCommand = (c: CaptureCommand) => void emit("capture-comm
 
 // Remember an overlay window's bounds (per label) so the interview layout persists
 // across sessions. Restores on open, then saves move/resize changes (debounced).
-export function usePersistedBounds() {
+// `collapsedRef` (optional): while it reads true, resize events are NOT persisted, so
+// collapsing a panel to a tiny icon does not overwrite its real expanded size.
+export function usePersistedBounds(collapsedRef?: { current: boolean }) {
   useEffect(() => {
     const win = getCurrentWindow();
     const key = "cap.bounds." + win.label;
@@ -57,7 +59,12 @@ export function usePersistedBounds() {
     const uns: UnlistenFn[] = [];
     const add = (p: Promise<UnlistenFn>) => void p.then((u) => (cancelled ? u() : uns.push(u)));
     add(win.onMoved(({ payload }) => save({ x: payload.x, y: payload.y })));
-    add(win.onResized(({ payload }) => save({ w: payload.width, h: payload.height })));
+    add(
+      win.onResized(({ payload }) => {
+        if (collapsedRef?.current) return; // don't persist the collapsed (icon) size
+        save({ w: payload.width, h: payload.height });
+      }),
+    );
     return () => {
       cancelled = true;
       window.clearTimeout(t);
