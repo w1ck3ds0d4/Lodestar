@@ -69,19 +69,22 @@ pub fn capture(index: usize) -> Result<Capture> {
     Ok(Capture { png, hash })
 }
 
-/// Logical-pixel bounds (x, y, width, height) of monitor `index`, for positioning the
-/// capture overlay onto the chosen display. xcap reports physical pixels; we divide by
-/// the monitor's scale factor because Tauri window positions are in logical pixels.
-pub fn bounds_logical(index: usize) -> Result<(f64, f64, f64, f64)> {
+/// Physical-pixel bounds of monitor `index` plus its scale factor:
+/// `(x, y, width, height, scale)`. The capture overlay is positioned in PHYSICAL
+/// coordinates (the global virtual-desktop space, which is what xcap reports and what
+/// Tauri's `Position::Physical` uses) so it lands on the chosen display regardless of
+/// per-monitor DPI - logical positioning was converted with the primary monitor's scale
+/// and so landed on the wrong screen in a mixed-DPI / multi-monitor setup.
+pub fn bounds_physical(index: usize) -> Result<(f64, f64, f64, f64, f64)> {
     let monitors = Monitor::all().map_err(|e| anyhow!("Could not list monitors: {e}"))?;
     let m = monitors
         .get(index)
         .ok_or_else(|| anyhow!("That monitor is no longer connected."))?;
-    let s = (m.scale_factor() as f64).max(0.1);
     Ok((
-        m.x() as f64 / s,
-        m.y() as f64 / s,
-        m.width() as f64 / s,
-        m.height() as f64 / s,
+        m.x() as f64,
+        m.y() as f64,
+        m.width() as f64,
+        m.height() as f64,
+        (m.scale_factor() as f64).max(0.1),
     ))
 }

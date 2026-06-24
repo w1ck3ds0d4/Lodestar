@@ -104,23 +104,35 @@ pub fn restore_geometry(app: &AppHandle, geo: Vec<PanelGeom>) {
 /// `bounds` is the chosen monitor's logical (x, y, width, height): every window is
 /// placed relative to it, so the overlay opens on the display the user picked rather
 /// than always on the primary one.
-pub fn open_panels(app: &AppHandle, protected: bool, bounds: (f64, f64, f64, f64)) -> Result<(), String> {
-    let (ox, oy, ow, oh) = bounds;
-    // Keep a window's top-left corner inside the chosen monitor. The default panel
-    // layout is sized for ~1280x800; on a smaller or high-DPI (logically smaller)
-    // display the lower/right panels would otherwise open off-screen. Clamp to the
-    // monitor box, preferring the top-left when a window is larger than the display.
-    let place = |start: f64, len: f64, origin: f64, span: f64| {
-        (origin + start).min(origin + (span - len).max(0.0)).max(origin)
+/// `mon` is the chosen monitor's PHYSICAL bounds plus scale: (x, y, width, height,
+/// scale). Each window is built (briefly on the primary) then moved to its physical
+/// spot on the chosen monitor via `Position::Physical`, which is unambiguous across
+/// displays of different DPI - unlike logical positioning, which Tauri converts with
+/// the primary monitor's scale and so placed the overlay on the wrong screen.
+pub fn open_panels(app: &AppHandle, protected: bool, mon: (f64, f64, f64, f64, f64)) -> Result<(), String> {
+    let (mx, my, mw, mh, scale) = mon;
+    // Physical top-left for a window of LOGICAL size (lw,lh) at LOGICAL offset (lx,ly)
+    // within the monitor, clamped to the monitor's physical box (so nothing opens
+    // off-screen on a smaller display).
+    let place = |lx: f64, ly: f64, lw: f64, lh: f64| -> tauri::PhysicalPosition<i32> {
+        let (pw, ph) = (lw * scale, lh * scale);
+        let px = (mx + lx * scale).min(mx + (mw - pw).max(0.0)).max(mx);
+        let py = (my + ly * scale).min(my + (mh - ph).max(0.0)).max(my);
+        tauri::PhysicalPosition { x: px.round() as i32, y: py.round() as i32 }
+    };
+    let move_to = |label: &str, pos: tauri::PhysicalPosition<i32>| {
+        if let Some(win) = app.get_webview_window(label) {
+            let _ = win.set_position(tauri::Position::Physical(pos));
+        }
     };
     // Control bar: centered horizontally near the top of the chosen monitor.
+    let bar_lx = (mw / scale - BAR_W) / 2.0;
     if let Some(win) = app.get_webview_window(BAR) {
         let _ = win.show();
         let _ = win.set_focus();
     } else {
-        let center_x = place((ow - BAR_W) / 2.0, BAR_W, ox, ow);
-        let bar_y = place(8.0, BAR_H, oy, oh);
-        build_overlay(app, BAR, BAR_W, BAR_H, center_x, bar_y, false, protected)?;
+        build_overlay(app, BAR, BAR_W, BAR_H, bar_lx, 8.0, false, protected)?;
+        move_to(BAR, place(bar_lx, 8.0, BAR_W, BAR_H));
     }
 
     for &(label, _title, x, y, w, h) in PANELS {
@@ -129,9 +141,8 @@ pub fn open_panels(app: &AppHandle, protected: bool, bounds: (f64, f64, f64, f64
             let _ = win.set_focus();
             continue;
         }
-        let px = place(x, w, ox, ow);
-        let py = place(y, h, oy, oh);
-        build_overlay(app, label, w, h, px, py, true, protected)?;
+        build_overlay(app, label, w, h, x, y, true, protected)?;
+        move_to(label, place(x, y, w, h));
     }
     Ok(())
 }
