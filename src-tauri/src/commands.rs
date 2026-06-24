@@ -1921,8 +1921,8 @@ pub async fn open_capture_panels(
         let _ = db::set_setting(&conn, "capture_monitor", &monitor.to_string());
         capture_protect_setting(&conn)
     };
-    // Open the overlay on the chosen monitor; fall back to a sane primary-ish box.
-    let bounds = crate::screen::bounds_physical(monitor).unwrap_or((0.0, 0.0, 1280.0, 800.0, 1.0));
+    // Resolve the chosen monitor to Tauri's coordinate space and open the overlay there.
+    let bounds = crate::capture::monitor_bounds(&app, monitor);
     crate::capture::open_panels(&app, protected, bounds)
 }
 
@@ -1977,7 +1977,7 @@ pub async fn set_capture_protection(
         return Ok(()); // panels not open; the saved setting applies on the next open
     }
     tokio::time::sleep(std::time::Duration::from_millis(140)).await;
-    let bounds = crate::screen::bounds_physical(monitor).unwrap_or((0.0, 0.0, 1280.0, 800.0, 1.0));
+    let bounds = crate::capture::monitor_bounds(&app, monitor);
     crate::capture::open_panels(&app, protected, bounds)?;
     crate::capture::restore_geometry(&app, geo);
     Ok(())

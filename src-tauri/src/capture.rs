@@ -51,6 +51,9 @@ fn build_overlay(
         .skip_taskbar(true)
         .content_protected(protected)
         .resizable(resizable)
+        // Build hidden so the caller can place it on the chosen monitor before it shows
+        // (otherwise it flashes at the builder position on the primary display first).
+        .visible(false)
         .build()
         .map_err(|e| format!("could not open the {label} window: {e}"))?;
     Ok(())
@@ -99,16 +102,42 @@ pub fn restore_geometry(app: &AppHandle, geo: Vec<PanelGeom>) {
     }
 }
 
-/// Open (or re-focus) the control bar and overlay panels. Idempotent. `protected`
-/// sets whether the windows are hidden from screen capture (the saved default is true).
-/// `bounds` is the chosen monitor's logical (x, y, width, height): every window is
-/// placed relative to it, so the overlay opens on the display the user picked rather
-/// than always on the primary one.
-/// `mon` is the chosen monitor's PHYSICAL bounds plus scale: (x, y, width, height,
-/// scale). Each window is built (briefly on the primary) then moved to its physical
-/// spot on the chosen monitor via `Position::Physical`, which is unambiguous across
-/// displays of different DPI - unlike logical positioning, which Tauri converts with
-/// the primary monitor's scale and so placed the overlay on the wrong screen.
+/// Resolve the chosen capture monitor to Tauri's own monitor coordinates. The picker
+/// index is xcap's, so read that monitor's physical SIZE from xcap, then find Tauri's
+/// matching monitor and return ITS (x, y, width, height, scale). Tauri monitor positions
+/// are in the same space `set_position(Physical)` uses; xcap's positions are in the
+/// virtual-screen space and don't line up on a mixed-DPI desktop, which is why a position
+/// taken straight from xcap put the overlay on the wrong display.
+pub fn monitor_bounds(app: &AppHandle, index: usize) -> (f64, f64, f64, f64, f64) {
+    let xcap = crate::screen::bounds_physical(index).ok();
+    if let Some((_, _, w, h, _)) = xcap {
+        if let Some(b) = tauri_bounds(app, w as u32, h as u32) {
+            return b;
+        }
+    }
+    xcap.unwrap_or((0.0, 0.0, 1280.0, 800.0, 1.0))
+}
+
+/// Tauri's monitor whose physical size matches `(w, h)` -> its (x, y, width, height,
+/// scale). Falls back to the first monitor.
+fn tauri_bounds(app: &AppHandle, w: u32, h: u32) -> Option<(f64, f64, f64, f64, f64)> {
+    let win = app
+        .get_webview_window("main")
+        .or_else(|| app.webview_windows().into_values().next())?;
+    let mons = win.available_monitors().ok()?;
+    let m = mons
+        .iter()
+        .find(|m| m.size().width == w && m.size().height == h)
+        .or_else(|| mons.first())?;
+    let (p, sz) = (m.position(), m.size());
+    Some((p.x as f64, p.y as f64, sz.width as f64, sz.height as f64, m.scale_factor()))
+}
+
+/// Open (or re-focus) the control bar and overlay panels. Idempotent. `protected` sets
+/// whether the windows are hidden from screen capture (saved default true). `mon` is the
+/// chosen monitor's physical bounds + scale in Tauri's coordinate space (see
+/// [`monitor_bounds`]). New windows are built hidden, positioned on that monitor via
+/// `Position::Physical`, then shown - so they never flash on, or stick to, the wrong one.
 pub fn open_panels(app: &AppHandle, protected: bool, mon: (f64, f64, f64, f64, f64)) -> Result<(), String> {
     let (mx, my, mw, mh, scale) = mon;
     // Physical top-left for a window of LOGICAL size (lw,lh) at LOGICAL offset (lx,ly)
@@ -120,9 +149,12 @@ pub fn open_panels(app: &AppHandle, protected: bool, mon: (f64, f64, f64, f64, f
         let py = (my + ly * scale).min(my + (mh - ph).max(0.0)).max(my);
         tauri::PhysicalPosition { x: px.round() as i32, y: py.round() as i32 }
     };
-    let move_to = |label: &str, pos: tauri::PhysicalPosition<i32>| {
+    // Place a freshly-built (hidden) window on the chosen monitor, then reveal it.
+    let setup = |label: &str, pos: tauri::PhysicalPosition<i32>| {
         if let Some(win) = app.get_webview_window(label) {
             let _ = win.set_position(tauri::Position::Physical(pos));
+            let _ = win.show();
+            let _ = win.set_focus();
         }
     };
     // Control bar: centered horizontally near the top of the chosen monitor.
@@ -132,7 +164,7 @@ pub fn open_panels(app: &AppHandle, protected: bool, mon: (f64, f64, f64, f64, f
         let _ = win.set_focus();
     } else {
         build_overlay(app, BAR, BAR_W, BAR_H, bar_lx, 8.0, false, protected)?;
-        move_to(BAR, place(bar_lx, 8.0, BAR_W, BAR_H));
+        setup(BAR, place(bar_lx, 8.0, BAR_W, BAR_H));
     }
 
     for &(label, _title, x, y, w, h) in PANELS {
@@ -142,7 +174,7 @@ pub fn open_panels(app: &AppHandle, protected: bool, mon: (f64, f64, f64, f64, f
             continue;
         }
         build_overlay(app, label, w, h, x, y, true, protected)?;
-        move_to(label, place(x, y, w, h));
+        setup(label, place(x, y, w, h));
     }
     Ok(())
 }
