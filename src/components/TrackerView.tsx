@@ -77,7 +77,7 @@ export function TrackerView({ onOpen }: { onOpen: (url: string) => void }) {
       if (!col.length) continue;
       lines.push(`## ${APP_STATUS_LABELS[st]} (${col.length})`, "");
       for (const a of col) {
-        let line = `- **${a.title}**${a.org ? ` — ${a.org}` : ""}`;
+        let line = `- **${a.title}**${a.org ? ` - ${a.org}` : ""}`;
         if (a.deadline) line += ` · due ${a.deadline}`;
         if (a.nextAction) line += ` · next: ${a.nextAction}`;
         if (a.url) line += ` · <${a.url}>`;
