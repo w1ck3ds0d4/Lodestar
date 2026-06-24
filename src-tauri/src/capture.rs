@@ -27,7 +27,9 @@ const PANELS: &[(&str, &str, f64, f64, f64, f64)] = &[
 ];
 
 /// Shared window flags for every capture overlay: borderless, always-on-top, hidden
-/// from the taskbar, and excluded from screen capture/sharing.
+/// from the taskbar, and (when `protected`) excluded from screen capture/sharing.
+/// `protected` is normally true so the panels stay invisible to a shared/recorded
+/// screen; the user can turn it off to screenshot the panels themselves.
 fn build_overlay(
     app: &AppHandle,
     label: &str,
@@ -36,6 +38,7 @@ fn build_overlay(
     x: f64,
     y: f64,
     resizable: bool,
+    protected: bool,
 ) -> Result<(), String> {
     WebviewWindowBuilder::new(app, label, WebviewUrl::App("index.html".into()))
         .title(label)
@@ -44,15 +47,27 @@ fn build_overlay(
         .decorations(false)
         .always_on_top(true)
         .skip_taskbar(true)
-        .content_protected(true)
+        .content_protected(protected)
         .resizable(resizable)
         .build()
         .map_err(|e| format!("could not open the {label} window: {e}"))?;
     Ok(())
 }
 
-/// Open (or re-focus) the control bar and overlay panels. Idempotent.
-pub fn open_panels(app: &AppHandle) -> Result<(), String> {
+/// Toggle screen-capture protection on every open capture window (bar + panels) at
+/// runtime. With `protected` false the panels become visible to screenshots and screen
+/// shares; with it true they are hidden again. Best-effort per window.
+pub fn set_panels_protected(app: &AppHandle, protected: bool) {
+    for label in std::iter::once(BAR).chain(PANELS.iter().map(|p| p.0)) {
+        if let Some(win) = app.get_webview_window(label) {
+            let _ = win.set_content_protected(protected);
+        }
+    }
+}
+
+/// Open (or re-focus) the control bar and overlay panels. Idempotent. `protected`
+/// sets whether the windows are hidden from screen capture (the saved default is true).
+pub fn open_panels(app: &AppHandle, protected: bool) -> Result<(), String> {
     // Control bar: centered horizontally near the top of the primary monitor.
     if let Some(win) = app.get_webview_window(BAR) {
         let _ = win.show();
@@ -63,7 +78,7 @@ pub fn open_panels(app: &AppHandle) -> Result<(), String> {
             .and_then(|w| w.primary_monitor().ok().flatten())
             .map(|m| (((m.size().width as f64 / m.scale_factor()) - BAR_W) / 2.0).max(0.0))
             .unwrap_or(540.0);
-        build_overlay(app, BAR, BAR_W, BAR_H, center_x, 8.0, false)?;
+        build_overlay(app, BAR, BAR_W, BAR_H, center_x, 8.0, false, protected)?;
     }
 
     for &(label, _title, x, y, w, h) in PANELS {
@@ -72,7 +87,7 @@ pub fn open_panels(app: &AppHandle) -> Result<(), String> {
             let _ = win.set_focus();
             continue;
         }
-        build_overlay(app, label, w, h, x, y, true)?;
+        build_overlay(app, label, w, h, x, y, true, protected)?;
     }
     Ok(())
 }

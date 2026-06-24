@@ -390,6 +390,7 @@ export interface AssistantSettings {
   contextCompany: string;
   contextResume: string;
   contextNotes: string;
+  captureProtect: boolean; // capture panels hidden from screen capture (default true)
 }
 
 export interface AudioDevices {
@@ -467,6 +468,10 @@ export interface UsageReport {
   deepgramSeconds: number;
   claudeCredit: number; // user-entered top-up, USD (0 if unset)
   deepgramCredit: number;
+  // Manual "actual spent" corrections, USD. When set, the UI shows these instead of the
+  // estimate so the figures can be synced to the provider console. null = use estimate.
+  claudeSpentOverride: number | null;
+  deepgramSpentOverride: number | null;
 }
 
 export interface DeepgramBalance {

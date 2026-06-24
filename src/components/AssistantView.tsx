@@ -1,4 +1,5 @@
 import {
+  memo,
   useCallback,
   useEffect,
   useMemo,
@@ -90,15 +91,26 @@ function chipClass(speaker: string): string {
   return "seg-chip--c" + (h % 5);
 }
 
-function Answer({ text }: { text: string }) {
+// Memoized: markdown + KaTeX parsing is expensive, so while an answer streams in
+// only the card whose `text` actually changed re-parses, not every answer on the
+// board on every token.
+// rehype-katex must not throw: answers stream in token by token, so the markdown is
+// briefly malformed (an unclosed `$$`, a half-typed macro). With throwOnError the
+// parse error would bubble up as a render crash and blank the whole app; instead we
+// render the offending bit in red and keep going - the next token usually fixes it.
+const KATEX_OPTS = { throwOnError: false, errorColor: "#e06c75" } as const;
+const Answer = memo(function Answer({ text }: { text: string }) {
   return (
     <div className="assistant-answer">
-      <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm, remarkMath]}
+        rehypePlugins={[[rehypeKatex, KATEX_OPTS]]}
+      >
         {text}
       </ReactMarkdown>
     </div>
   );
-}
+});
 
 // True if an answer contains a fenced code block or LaTeX math.
 function hasCodeOrMath(a: string): boolean {
@@ -217,7 +229,7 @@ function SnipOverlay({
   );
 }
 
-function QaCard({ e }: { e: QA }) {
+const QaCard = memo(function QaCard({ e }: { e: QA }) {
   return (
     <div className="qa">
       <div className="qa-q">{e.q}</div>
@@ -230,7 +242,7 @@ function QaCard({ e }: { e: QA }) {
       )}
     </div>
   );
-}
+});
 
 export function AssistantView() {
   const [loaded, setLoaded] = useState(false);
@@ -274,7 +286,13 @@ export function AssistantView() {
   // that keeps being replaced as Deepgram refines it. The two are shown together as a
   // single growing line; on speech-final the whole thing commits into `segments`.
   // liveRef is the synchronous source of truth; `live` mirrors it for rendering.
-  const emptyLive = () => ({ you: { fin: "", int: "" }, them: { fin: "", int: "" } });
+  // `spk` retains the diarized speaker label ("Speaker N") from the worded spans of the
+  // open utterance, so a trailing empty speech-final endpoint (which carries only the
+  // generic role label) can't overwrite it when the bubble commits.
+  const emptyLive = () => ({
+    you: { fin: "", int: "", spk: "" },
+    them: { fin: "", int: "", spk: "" },
+  });
   const liveRef = useRef(emptyLive());
   const [live, setLive] = useState(emptyLive());
   const [listenError, setListenError] = useState("");
@@ -306,6 +324,8 @@ export function AssistantView() {
   const [usage, setUsage] = useState<UsageReport | null>(null);
   const [claudeCreditInput, setClaudeCreditInput] = useState("");
   const [dgCreditInput, setDgCreditInput] = useState("");
+  const [claudeSpentInput, setClaudeSpentInput] = useState("");
+  const [dgSpentInput, setDgSpentInput] = useState("");
   const [dgBalance, setDgBalance] = useState<DeepgramBalance | null>(null);
   const [dgError, setDgError] = useState("");
   const [dgLoading, setDgLoading] = useState(false);
@@ -322,10 +342,18 @@ export function AssistantView() {
   // Capture mode: floating overlay panels driven by this window.
   const [captureOn, setCaptureOn] = useState(false);
   const [captureErr, setCaptureErr] = useState("");
+  // Whether the capture panels are hidden from screen capture (default true). Turn off
+  // to screenshot the panels / show them in a share.
+  const [captureProtect, setCaptureProtect] = useState(true);
 
   const idRef = useRef(0);
   const segIdRef = useRef(0);
   const answeredIdx = useRef(0);
+  // The dialog scroll container, kept pinned to the newest line as the conversation
+  // grows (a normal top-to-bottom chat). `stickToBottom` turns off while the user
+  // scrolls up to read back, so we never yank them away from what they're reading.
+  const dialogListRef = useRef<HTMLDivElement>(null);
+  const stickToBottom = useRef(true);
   // Synchronous mirror of the dialog so the screen watcher can read the current
   // conversation as context without re-creating runScreen (which would reset the
   // watch interval on every new line).
@@ -349,6 +377,13 @@ export function AssistantView() {
   useEffect(() => {
     qaRef.current = qa;
   }, [qa]);
+
+  // Follow the conversation: scroll the dialog to the newest line whenever a segment
+  // commits or the live tail grows - unless the user has scrolled up to read back.
+  useEffect(() => {
+    const el = dialogListRef.current;
+    if (el && stickToBottom.current) el.scrollTop = el.scrollHeight;
+  }, [segments, live, listening]);
 
   // Append a captured chunk (clipboard or focused-window text) to the assistant's
   // context, de-duplicating repeats and capping the total so it stays affordable.
@@ -423,6 +458,7 @@ export function AssistantView() {
       setSttLanguage(s.sttLanguage || "multi");
       setSttDiarize(s.sttDiarize);
       setCaptureSource(s.captureSource);
+      setCaptureProtect(s.captureProtect);
       setInputDevice(s.inputDevice);
       setOutputDevice(s.outputDevice);
       setModel(s.model);
@@ -618,12 +654,22 @@ export function AssistantView() {
           }
           // Final span: append to the finalized text and clear the tail. Only on a
           // speech-final (the speaker paused) do we commit the whole utterance.
-          if (text.trim()) slot.fin = slot.fin ? slot.fin + " " + text.trim() : text.trim();
+          if (text.trim()) {
+            slot.fin = slot.fin ? slot.fin + " " + text.trim() : text.trim();
+            slot.spk = speaker; // remember the diarized label from the span that had words
+          }
           slot.int = "";
           if (speechFinal) {
             const acc = slot.fin.trim();
-            if (acc) setSegments((s) => [...s, { id: ++segIdRef.current, role, speaker, text: acc }]);
+            // Commit under the retained speaker; fall back to the event's label only if
+            // no worded span set one (so an empty endpoint never downgrades Speaker N).
+            if (acc)
+              setSegments((s) => [
+                ...s,
+                { id: ++segIdRef.current, role, speaker: slot.spk || speaker, text: acc },
+              ]);
             slot.fin = "";
+            slot.spk = "";
           }
           sync();
         },
@@ -640,9 +686,10 @@ export function AssistantView() {
           const slot = liveRef.current[role];
           const acc = (slot.fin + " " + slot.int).trim();
           if (acc) {
+            const speaker = slot.spk || (role === "them" ? "Them" : "You");
             setSegments((s) => [
               ...s,
-              { id: ++segIdRef.current, role, speaker: role === "them" ? "Them" : "You", text: acc },
+              { id: ++segIdRef.current, role, speaker, text: acc },
             ]);
           }
         });
@@ -684,6 +731,16 @@ export function AssistantView() {
   // Keyed on segment count so newly attributed lines (you/them/Speaker N) are handled.
   useEffect(() => {
     if (!autoAnswer || !listening) return;
+    const pending = segments.slice(answeredIdx.current);
+    if (pending.length === 0) return;
+    // Over-answer safe: only fire when the unanswered tail CONTAINS a them turn. Pure
+    // you-turn tails are guaranteed "NONE", so skipping them cuts wasted round-trips at
+    // zero recall cost. We check "contains" (not "last segment is them") so a you reply
+    // landing right after a them question still leaves that question pending to answer.
+    if (!pending.some((s) => s.role === "them")) return;
+    // Debounce ~400ms so a burst of speech-final segments coalesces into one call
+    // instead of firing (and often retracting a NONE) on every interim finalization.
+    const fire = () => {
     const newSegs = segments.slice(answeredIdx.current);
     if (newSegs.length === 0) return;
     const latest = transcriptText(newSegs).trim();
@@ -732,6 +789,9 @@ export function AssistantView() {
         /* ignore transient auto-answer errors so the loop keeps going */
       }
     })();
+    };
+    const t = setTimeout(fire, 400);
+    return () => clearTimeout(t);
   }, [segments, autoAnswer, listening, transcriptText]);
 
   const saveKey = async () => {
@@ -789,6 +849,14 @@ export function AssistantView() {
     await api.setCaptureSource(s);
   };
 
+  // Toggle whether the floating capture panels are hidden from screen capture. Applies
+  // live to any open panels, so the user can flip it on to screenshot them and back off
+  // before sharing their screen.
+  const changeCaptureProtect = async (on: boolean) => {
+    setCaptureProtect(on);
+    await api.setCaptureProtection(on).catch(() => {});
+  };
+
   const changeLanguage = async (lang: string) => {
     setSttLanguage(lang);
     await api.setSttLanguage(lang);
@@ -807,6 +875,8 @@ export function AssistantView() {
         setUsage(u);
         setClaudeCreditInput(u.claudeCredit ? String(u.claudeCredit) : "");
         setDgCreditInput(u.deepgramCredit ? String(u.deepgramCredit) : "");
+        setClaudeSpentInput(u.claudeSpentOverride != null ? String(u.claudeSpentOverride) : "");
+        setDgSpentInput(u.deepgramSpentOverride != null ? String(u.deepgramSpentOverride) : "");
       })
       .catch(() => {});
     if (!hasSttKey) {
@@ -837,10 +907,27 @@ export function AssistantView() {
     setUsage(await api.getUsage());
   };
 
+  // Set the manual "actual spent" override so the local estimate can be corrected to
+  // match the provider console. An empty field clears the override (back to the
+  // estimate); a typed negative or unparseable value is ignored, not treated as a clear.
+  const saveSpent = async (provider: "claude" | "deepgram", raw: string) => {
+    if (raw.trim() === "") {
+      await api.setUsageSpent(provider, -1); // empty -> clear override
+    } else {
+      const n = Number.parseFloat(raw);
+      if (Number.isNaN(n) || n < 0) return; // reject negative / unparseable
+      await api.setUsageSpent(provider, n);
+    }
+    setUsage(await api.getUsage());
+  };
+
   const claudeCost = (usage?.claudeItems ?? []).reduce((s, it) => s + estimateCost(it), 0);
   const claudeTokens = (usage?.claudeItems ?? []).reduce((s, it) => s + it.input + it.output, 0);
   const dgMinutes = (usage?.deepgramSeconds ?? 0) / 60;
   const dgCost = dgMinutes * DEEPGRAM_PER_MIN;
+  // Effective spend shown to the user: the manual override when set, else the estimate.
+  const claudeUsed = usage?.claudeSpentOverride ?? claudeCost;
+  const dgUsed = usage?.deepgramSpentOverride ?? dgCost;
   const modelLabel = (id: string) => ASSISTANT_MODELS.find((m) => m.id === id)?.label ?? id;
 
   const changeOutputDevice = async (name: string) => {
@@ -863,6 +950,7 @@ export function AssistantView() {
     setListenError("");
     liveRef.current = emptyLive();
     setLive(emptyLive());
+    stickToBottom.current = true; // re-pin so a new session follows the newest line
     try {
       await api.startListening();
       setListening(true);
@@ -876,6 +964,7 @@ export function AssistantView() {
     liveRef.current = emptyLive();
     setLive(emptyLive());
     answeredIdx.current = 0;
+    stickToBottom.current = true; // a fresh dialog should follow the newest line again
   };
 
   // Build the saved-session text (transcript + answered Q&A, oldest first).
@@ -1105,7 +1194,12 @@ export function AssistantView() {
   useEffect(() => () => void api.closeCapturePanels().catch(() => {}), []);
 
   const needsDeepgramKey = sttEngine === "deepgram" && !hasSttKey;
-  const cmGroups = useMemo(() => snippetGroups(qa), [qa]);
+  // snippetGroups skips pending cards, so its output only changes when an answer
+  // finishes - key the memo on the pending-state vector + count instead of `qa`,
+  // so we don't re-scan every answer's regex on every streamed token.
+  const cmKey = qa.map((e) => (e.pending ? "1" : "0")).join("") + "|" + qa.length;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const cmGroups = useMemo(() => snippetGroups(qa), [cmKey]);
   const dialogUnread = Math.max(0, segments.length - seenDialog);
   const answersUnread = Math.max(0, qa.length - seenAnswers);
   const badge = (n: number) => (n > 9 ? "9+" : String(n));
@@ -1257,11 +1351,27 @@ export function AssistantView() {
 
           {captureErr && <div className="assistant-error">{captureErr}</div>}
           {captureOn && (
-            <div className="muted sm">
-              A control bar sits at the top of your screen (listen, screenshot, show/hide). Panels are
-              floating and always-on-top - drag them anywhere. Press <span className="kbd">Alt+Shift+C</span>{" "}
-              to hide or show the panels instantly.
-            </div>
+            <>
+              <div className="muted sm">
+                A control bar sits at the top of your screen (listen, screenshot, show/hide). Panels are
+                floating and always-on-top - drag them anywhere. Press <span className="kbd">Alt+Shift+C</span>{" "}
+                to hide or show the panels instantly.
+              </div>
+              <label className="auto-toggle muted sm">
+                <input
+                  type="checkbox"
+                  checked={!captureProtect}
+                  onChange={(e) => void changeCaptureProtect(!e.target.checked)}
+                />
+                Show panels in screenshots / screen share
+              </label>
+              {!captureProtect && (
+                <div className="assistant-warn sm">
+                  Panels are now visible to screen capture, so you can screenshot them - but anyone you
+                  share your screen with will see them too. Turn this off again before the interview.
+                </div>
+              )}
+            </>
           )}
           {listenError && <div className="assistant-error">{listenError}</div>}
 
@@ -1455,7 +1565,7 @@ export function AssistantView() {
                 <div className="setup-row">
                   <label
                     className="switch"
-                    title="Separate the other side into Speaker 1/2/... Leave off for 1-on-1 calls - it tends to mislabel one person as several."
+                    title="Splits only the other side (your system/loopback audio) into Speaker 1/2/... for calls with several people on the far end. It can't tell you apart from them - that's set by the capture source (your mic is always 'You'). Leave off for 1-on-1 calls; it tends to mislabel one person as several."
                   >
                     <input
                       type="checkbox"
@@ -1466,6 +1576,14 @@ export function AssistantView() {
                     Separate speakers
                   </label>
                 </div>
+                {sttDiarize && (
+                  <div className="setup-row diarize-hint muted sm">
+                    Only splits the other side into Speaker 1/2 (for 3+ people). You vs. them is set
+                    by the capture source - your mic is always &quot;You&quot;. If your own voice also
+                    shows up here as a speaker, it's leaking into the system audio: use headphones (so
+                    it isn't re-captured) and turn off any mic monitoring / &quot;Stereo Mix&quot;.
+                  </div>
+                )}
               </>
             )}
 
@@ -1730,8 +1848,8 @@ export function AssistantView() {
                 <span className="usage-name">Claude</span>
                 <span className="usage-val">
                   {usage && usage.claudeCredit > 0
-                    ? `$${Math.max(0, usage.claudeCredit - claudeCost).toFixed(2)} left`
-                    : `$${claudeCost.toFixed(2)} used`}
+                    ? `$${Math.max(0, usage.claudeCredit - claudeUsed).toFixed(2)} left`
+                    : `$${claudeUsed.toFixed(2)} used`}
                 </span>
               </div>
               <div className="muted sm">
@@ -1756,6 +1874,19 @@ export function AssistantView() {
                   value={claudeCreditInput}
                   onChange={(e) => setClaudeCreditInput(e.target.value)}
                   onBlur={() => void saveCredit("claude", claudeCreditInput)}
+                />
+              </label>
+              <label className="usage-credit">
+                <span className="setup-label">Actual spent ($)</span>
+                <input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  placeholder="sync to console"
+                  title="Override the estimate with the real spend from your Anthropic console. Leave blank to use the estimate."
+                  value={claudeSpentInput}
+                  onChange={(e) => setClaudeSpentInput(e.target.value)}
+                  onBlur={() => void saveSpent("claude", claudeSpentInput)}
                 />
               </label>
               <div className="usage-actions">
@@ -1785,8 +1916,8 @@ export function AssistantView() {
                     : dgBalance
                       ? `$${dgBalance.amount.toFixed(2)} left`
                       : usage && usage.deepgramCredit > 0
-                        ? `$${Math.max(0, usage.deepgramCredit - dgCost).toFixed(2)} left`
-                        : `$${dgCost.toFixed(2)} used`}
+                        ? `$${Math.max(0, usage.deepgramCredit - dgUsed).toFixed(2)} left`
+                        : `$${dgUsed.toFixed(2)} used`}
                 </span>
               </div>
               {dgBalance ? (
@@ -1798,18 +1929,33 @@ export function AssistantView() {
                 </div>
               )}
               {!dgBalance && (
-                <label className="usage-credit">
-                  <span className="setup-label">Credit added ($)</span>
-                  <input
-                    type="number"
-                    min={0}
-                    step="0.01"
-                    placeholder="e.g. 25"
-                    value={dgCreditInput}
-                    onChange={(e) => setDgCreditInput(e.target.value)}
-                    onBlur={() => void saveCredit("deepgram", dgCreditInput)}
-                  />
-                </label>
+                <>
+                  <label className="usage-credit">
+                    <span className="setup-label">Credit added ($)</span>
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      placeholder="e.g. 25"
+                      value={dgCreditInput}
+                      onChange={(e) => setDgCreditInput(e.target.value)}
+                      onBlur={() => void saveCredit("deepgram", dgCreditInput)}
+                    />
+                  </label>
+                  <label className="usage-credit">
+                    <span className="setup-label">Actual spent ($)</span>
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      placeholder="sync to console"
+                      title="Override the estimate with the real spend from your Deepgram console. Leave blank to use the estimate."
+                      value={dgSpentInput}
+                      onChange={(e) => setDgSpentInput(e.target.value)}
+                      onBlur={() => void saveSpent("deepgram", dgSpentInput)}
+                    />
+                  </label>
+                </>
               )}
               <div className="usage-actions">
                 <button className="link-btn" onClick={() => void refreshUsage()} disabled={dgLoading}>
@@ -1858,7 +2004,15 @@ export function AssistantView() {
               </span>
             </div>
             {listening || segments.length > 0 ? (
-              <div className="dialog-list" aria-live="polite">
+              <div
+                className="dialog-list"
+                aria-live="polite"
+                ref={dialogListRef}
+                onScroll={() => {
+                  const el = dialogListRef.current;
+                  if (el) stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+                }}
+              >
                 {segments.map((s) => (
                   <div key={s.id} className={"seg-msg seg-" + s.role}>
                     {s.role === "them" && (

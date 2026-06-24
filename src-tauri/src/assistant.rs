@@ -85,7 +85,7 @@ async fn complete(
     user_text: String,
     on_token: Option<&(dyn Fn(&str) + Send + Sync)>,
 ) -> Result<String> {
-    complete_content(http, api_key, model, system, json!(user_text), on_token).await
+    complete_content(http, api_key, model, system, json!(user_text), 4096, true, on_token).await
 }
 
 /// Like [`complete`] but takes the user message `content` directly, so callers can
@@ -96,12 +96,14 @@ async fn complete_content(
     model: &str,
     system: &str,
     content: Value,
+    max_tokens: u32,
+    allow_thinking: bool,
     on_token: Option<&(dyn Fn(&str) + Send + Sync)>,
 ) -> Result<String> {
     let stream = on_token.is_some();
     let mut body = json!({
         "model": model,
-        "max_tokens": 4096,
+        "max_tokens": max_tokens,
         "stream": stream,
         "system": [{
             "type": "text",
@@ -110,10 +112,14 @@ async fn complete_content(
         }],
         "messages": [{ "role": "user", "content": content }],
     });
-    if supports_adaptive_thinking(model) {
-        // Adaptive thinking improves math/reasoning correctness; give it room.
+    // Adaptive thinking improves math/reasoning correctness, but visible text only
+    // streams AFTER the reasoning block - so the live path (auto_answer) opts out
+    // for a snappier time-to-first-token. Thinking needs output headroom.
+    if allow_thinking && supports_adaptive_thinking(model) {
         body["thinking"] = json!({ "type": "adaptive" });
-        body["max_tokens"] = json!(8192);
+        if max_tokens < 8192 {
+            body["max_tokens"] = json!(8192);
+        }
     }
 
     let resp = http
@@ -672,13 +678,31 @@ pub async fn auto_answer(
     style: &str,
     on_token: Option<&(dyn Fn(&str) + Send + Sync)>,
 ) -> Result<String> {
+    // Bound the context so prefill / time-to-first-token / cost stay flat over a
+    // long call instead of growing with the whole transcript. Keep the tail on a
+    // char boundary (the transcript can be in any language).
+    let transcript = {
+        const MAX_CTX_BYTES: usize = 4000;
+        if transcript.len() > MAX_CTX_BYTES {
+            let mut start = transcript.len() - MAX_CTX_BYTES;
+            while start < transcript.len() && !transcript.is_char_boundary(start) {
+                start += 1;
+            }
+            &transcript[start..]
+        } else {
+            transcript
+        }
+    };
     let user_text =
         format!("Earlier transcript (context):\n{transcript}\n\nNew text to consider:\n{latest}");
     let mut system = with_profile(AUTO_PROMPT, profile);
     system.push_str(style_directive(style));
     match engine {
         Engine::Claude { api_key, model } => {
-            complete(http, api_key, model, &system, user_text, on_token).await
+            // Live path: skip adaptive thinking (faster first token) and bound the
+            // output budget - these are concise mid-call answers or "NONE".
+            complete_content(http, api_key, model, &system, json!(user_text), 2048, false, on_token)
+                .await
         }
         Engine::Ollama { url, model } => {
             ollama_chat(http, url, model, &system, user_text, None, on_token).await
@@ -721,7 +745,7 @@ async fn vision(
                 },
                 { "type": "text", "text": user_prompt }
             ]);
-            complete_content(http, api_key, model, &system, content, None).await
+            complete_content(http, api_key, model, &system, content, 4096, true, None).await
         }
         Engine::Ollama { url, model } => {
             ollama_chat(

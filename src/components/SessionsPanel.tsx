@@ -1,14 +1,17 @@
 import { useCallback, useEffect, useState } from "react";
-import { Sparkles, Trash2 } from "lucide-react";
+import { Download, FolderOpen, Sparkles, Trash2 } from "lucide-react";
+import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import * as api from "../api";
 import type { Session } from "../types";
 
-// Saved interview sessions: review past transcripts/answers and run an AI coach pass
-// that surfaces weak areas and what to study next.
+// Saved interview sessions: review past transcripts/answers, run an AI coach pass that
+// surfaces weak areas and what to study next, and export them to Markdown files (they
+// otherwise live only in the local database).
 export function SessionsPanel({ reload }: { reload: number }) {
   const [sessions, setSessions] = useState<Session[]>([]);
+  const [exportMsg, setExportMsg] = useState("");
   const load = useCallback(async () => {
     try {
       setSessions(await api.listSessions());
@@ -20,6 +23,17 @@ export function SessionsPanel({ reload }: { reload: number }) {
     void load();
   }, [load, reload]);
 
+  const exportAll = async () => {
+    setExportMsg("Exporting...");
+    try {
+      const { dir, count } = await api.exportAllSessions();
+      setExportMsg(`Exported ${count} session${count === 1 ? "" : "s"} to ${dir}`);
+      void revealItemInDir(dir).catch(() => {});
+    } catch (e) {
+      setExportMsg(String(e));
+    }
+  };
+
   if (sessions.length === 0) {
     return (
       <p className="muted sm">
@@ -30,6 +44,12 @@ export function SessionsPanel({ reload }: { reload: number }) {
   }
   return (
     <div className="sessions">
+      <div className="sessions-toolbar">
+        <button className="link-btn" onClick={() => void exportAll()} title="Save every session as a Markdown file in Downloads/JobRadar">
+          <Download size={14} /> Export all to files
+        </button>
+      </div>
+      {exportMsg && <div className="muted sm session-exported">{exportMsg}</div>}
       {sessions.map((s) => (
         <SessionCard key={s.id} session={s} onChanged={load} />
       ))}
@@ -41,6 +61,7 @@ function SessionCard({ session, onChanged }: { session: Session; onChanged: () =
   const [review, setReview] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  const [exported, setExported] = useState("");
 
   const runReview = async () => {
     setBusy(true);
@@ -51,6 +72,16 @@ function SessionCard({ session, onChanged }: { session: Session; onChanged: () =
       setErr(String(e));
     } finally {
       setBusy(false);
+    }
+  };
+  const exportOne = async () => {
+    setErr("");
+    try {
+      const path = await api.exportSession(session.id);
+      setExported(path);
+      void revealItemInDir(path).catch(() => {});
+    } catch (e) {
+      setErr(String(e));
     }
   };
   const del = async () => {
@@ -82,10 +113,21 @@ function SessionCard({ session, onChanged }: { session: Session; onChanged: () =
           <button className="btn-sync" onClick={() => void runReview()} disabled={busy}>
             <Sparkles size={15} /> {busy ? "Reviewing..." : "Review & coach"}
           </button>
+          <button className="btn-ghost sm" title="Export this session to a Markdown file" onClick={() => void exportOne()}>
+            <Download size={14} /> Export
+          </button>
           <button className="icon-btn danger sm" title="Delete session" onClick={() => void del()}>
             <Trash2 size={14} />
           </button>
         </div>
+        {exported && (
+          <div className="muted sm session-exported">
+            Saved to <code>{exported}</code>{" "}
+            <button className="link-btn" onClick={() => void revealItemInDir(exported).catch(() => {})}>
+              <FolderOpen size={12} /> Show
+            </button>
+          </div>
+        )}
         {err && <div className="assistant-error">{err}</div>}
         {review && (
           <div className="assistant-answer">

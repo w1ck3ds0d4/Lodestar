@@ -2,7 +2,7 @@
 
 use serde::Serialize;
 use serde_json::Value;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 
 use crate::db;
 use crate::model::{Alert, Card, Job, Session, Skill, Source, Story, Tracked};
@@ -533,6 +533,116 @@ pub fn remove_session(state: State<'_, AppState>, id: i64) -> Result<(), String>
     crate::career::remove_session(&conn, id).map_err(|e| e.to_string())
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportResult {
+    pub dir: String,
+    pub count: usize,
+}
+
+/// Export one saved session's transcript + answers as a Markdown file in the user's
+/// Downloads/JobRadar folder. Returns the full path written, so the UI can show it and
+/// offer to reveal it. (Sessions otherwise live only in the local database.)
+#[tauri::command]
+pub fn export_session(app: AppHandle, state: State<'_, AppState>, id: i64) -> Result<String, String> {
+    let (title, transcript, answers) = {
+        let conn = state.db.lock().map_err(|_| "db poisoned")?;
+        conn.query_row(
+            "SELECT title, transcript, answers FROM sessions WHERE id = ?1",
+            [id],
+            |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                ))
+            },
+        )
+        .map_err(|e| format!("Could not read the session: {e}"))?
+    };
+    write_session_md(&app, id, &title, &transcript, &answers)
+}
+
+/// Export every saved session to its own Markdown file in Downloads/JobRadar. Returns
+/// the folder and how many were written.
+#[tauri::command]
+pub fn export_all_sessions(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<ExportResult, String> {
+    let sessions = {
+        let conn = state.db.lock().map_err(|_| "db poisoned")?;
+        crate::career::list_sessions(&conn).map_err(|e| e.to_string())?
+    };
+    for s in &sessions {
+        write_session_md(&app, s.id, &s.title, &s.transcript, &s.answers)?;
+    }
+    Ok(ExportResult {
+        dir: export_dir(&app)?.to_string_lossy().to_string(),
+        count: sessions.len(),
+    })
+}
+
+/// Export destination: <Downloads>/JobRadar (falling back to Documents, then app data),
+/// created if missing.
+fn export_dir(app: &AppHandle) -> Result<std::path::PathBuf, String> {
+    let base = app
+        .path()
+        .download_dir()
+        .or_else(|_| app.path().document_dir())
+        .or_else(|_| app.path().app_data_dir())
+        .map_err(|e| e.to_string())?;
+    let dir = base.join("JobRadar");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    Ok(dir)
+}
+
+/// Write one session as a Markdown file in the export dir; returns the full path.
+fn write_session_md(
+    app: &AppHandle,
+    id: i64,
+    title: &str,
+    transcript: &str,
+    answers: &str,
+) -> Result<String, String> {
+    let mut md = format!("# {}\n\n", title.trim());
+    if !transcript.trim().is_empty() {
+        md.push_str("## Transcript\n\n");
+        md.push_str(transcript.trim());
+        md.push_str("\n\n");
+    }
+    if !answers.trim().is_empty() {
+        md.push_str("## Answers\n\n");
+        md.push_str(answers.trim());
+        md.push('\n');
+    }
+    // Suffix the id so same-titled (e.g. two auto-saved) sessions never collide.
+    let path = export_dir(app)?.join(format!("{} ({}).md", sanitize_filename(title), id));
+    std::fs::write(&path, md).map_err(|e| e.to_string())?;
+    Ok(path.to_string_lossy().to_string())
+}
+
+/// Make a session title safe to use as a filename: keep alphanumerics plus a few safe
+/// punctuation chars, replace the rest with '_', strip trailing dots, and cap length.
+fn sanitize_filename(title: &str) -> String {
+    let cleaned: String = title
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() || matches!(c, ' ' | '-' | '_' | '.' | ',') {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let cleaned: String = cleaned.trim().trim_end_matches('.').trim().chars().take(80).collect();
+    if cleaned.is_empty() {
+        "session".to_string()
+    } else {
+        cleaned
+    }
+}
+
 /// Review a saved session: strengths, weak areas, and a prioritized study list.
 #[tauri::command]
 pub async fn session_review(
@@ -632,7 +742,9 @@ pub fn set_screen_privacy(window: tauri::WebviewWindow, enabled: bool) -> Result
 
 // --- Assistant (Claude / Ollama) ---
 
-const DEFAULT_MODEL: &str = "claude-opus-4-8";
+// Sonnet is the live-assistant default: much lower time-to-first-token than Opus
+// and strong enough for mid-call Q&A. Opus stays selectable in Settings.
+const DEFAULT_MODEL: &str = "claude-sonnet-4-6";
 const DEFAULT_OLLAMA_URL: &str = "http://localhost:11434";
 const DEFAULT_OLLAMA_MODEL: &str = "llama3.1";
 
@@ -677,6 +789,186 @@ fn answer_style(conn: &rusqlite::Connection) -> String {
 
 /// Build the user's interview/study profile (role, resume, notes) from settings, so
 /// answers can be tailored. `None` when nothing is set.
+/// Mine short keyterm-prompting terms (proper nouns, company/role, ALLCAPS acronyms)
+/// from the interview context so nova-3 recognises them. The pure core
+/// ([`keyterms_from_sources`]) is unit-tested without a live key. Empty vec = no keyterms
+/// attached. The count + token budget stay well under Deepgram's ~500-token/request cap.
+fn interview_keyterms(conn: &rusqlite::Connection) -> Vec<String> {
+    let get = |k: &str| db::get_setting(conn, k).ok().flatten().unwrap_or_default();
+    // (text, allow_single_titlecase): long free-text fields are scanned only for
+    // acronyms and multi-word proper phrases - a lone capitalised word there is usually
+    // a sentence start (noise). Short, high-signal fields also yield single TitleCase words.
+    let mut sources: Vec<(String, bool)> = vec![
+        (get("context_role"), true),
+        (get("context_company"), true),
+        (get("context_resume"), false),
+        (get("context_notes"), false),
+    ];
+    // Verbatim high-signal phrases: the role line and the deliberately-chosen story tags.
+    let mut verbatim: Vec<String> = Vec::new();
+    let role = get("context_role");
+    let role = role.trim();
+    if !role.is_empty() && role.split_whitespace().count() <= 6 {
+        verbatim.push(role.to_string());
+    }
+    if let Ok(stories) = crate::career::list_stories(conn) {
+        for s in &stories {
+            sources.push((s.title.clone(), true));
+            for tag in s.tags.split(',') {
+                let tag = tag.trim();
+                if !tag.is_empty() && tag.split_whitespace().count() <= 4 {
+                    verbatim.push(tag.to_string());
+                }
+            }
+        }
+    }
+    keyterms_from_sources(&sources, &verbatim)
+}
+
+/// Pure core of [`interview_keyterms`]: dedupe (case-insensitive) + length/stopword
+/// filter + budget-cap the mined terms so a long resume cannot blow Deepgram's cap.
+fn keyterms_from_sources(sources: &[(String, bool)], verbatim: &[String]) -> Vec<String> {
+    let mut terms: Vec<String> = Vec::new();
+    {
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut emit = |raw: &str| {
+            let t = raw.trim().trim_matches(|c: char| !c.is_alphanumeric());
+            if t.chars().count() < 2 || t.len() > 40 || is_keyterm_stopword(t) {
+                return;
+            }
+            if seen.insert(t.to_lowercase()) {
+                terms.push(t.to_string());
+            }
+        };
+        for v in verbatim {
+            emit(v);
+        }
+        for (text, allow_single) in sources {
+            scan_keyterms(text, *allow_single, &mut emit);
+        }
+    }
+    // Cap by term count AND an estimated token budget (whitespace words) so a long
+    // resume + many stories cannot exceed Deepgram's ~500-token/request keyterm limit.
+    let mut out: Vec<String> = Vec::new();
+    let mut budget = 0usize;
+    for t in terms {
+        let words = t.split_whitespace().count().max(1);
+        if out.len() >= 48 || budget + words > 80 {
+            break;
+        }
+        budget += words;
+        out.push(t);
+    }
+    out
+}
+
+/// Scan text for acronyms (ALLCAPS) and proper-noun phrases (runs of TitleCase words),
+/// emitting each candidate. Single TitleCase words are emitted only when `allow_single`
+/// (short, high-signal fields), since in free text they are mostly sentence starts.
+fn scan_keyterms(text: &str, allow_single: bool, emit: &mut dyn FnMut(&str)) {
+    let is_word = |c: char| c.is_alphanumeric() || matches!(c, '+' | '#' | '.');
+    let mut words: Vec<&str> = Vec::new();
+    let mut start: Option<usize> = None;
+    for (i, c) in text.char_indices() {
+        if is_word(c) {
+            if start.is_none() {
+                start = Some(i);
+            }
+        } else if let Some(s) = start.take() {
+            words.push(&text[s..i]);
+        }
+    }
+    if let Some(s) = start {
+        words.push(&text[s..]);
+    }
+
+    let is_titlecase = |w: &str| {
+        let mut cs = w.chars();
+        matches!(cs.next(), Some(c) if c.is_uppercase()) && w.chars().any(|c| c.is_lowercase())
+    };
+    let is_acronym = |w: &str| {
+        let n = w.chars().count();
+        (2..=8).contains(&n)
+            && w.chars().all(|c| c.is_uppercase() || c.is_ascii_digit())
+            && w.chars().any(|c| c.is_alphabetic())
+    };
+
+    let mut i = 0;
+    while i < words.len() {
+        let w = words[i];
+        if is_acronym(w) {
+            emit(w);
+            i += 1;
+        } else if is_titlecase(w) {
+            let mut j = i + 1;
+            while j < words.len() && is_titlecase(words[j]) {
+                j += 1;
+            }
+            if j - i >= 2 {
+                // Multi-word proper phrase (cap to the first 4 words).
+                let end = (i + 4).min(j);
+                let phrase = words[i..end].join(" ");
+                emit(&phrase);
+            } else if allow_single {
+                emit(w);
+            }
+            i = j;
+        } else {
+            i += 1;
+        }
+    }
+}
+
+fn is_keyterm_stopword(t: &str) -> bool {
+    const STOP: &[&str] = &[
+        "the", "and", "for", "with", "you", "your", "our", "their", "this", "that", "from",
+        "into", "have", "has", "was", "were", "will", "would", "should", "could", "about",
+        "over", "under", "team", "role", "company", "resume", "notes", "experience",
+        "interview", "candidate", "monday", "tuesday", "wednesday", "thursday", "friday",
+        "saturday", "sunday", "january", "february", "march", "april", "june", "july",
+        "august", "september", "october", "november", "december",
+    ];
+    STOP.contains(&t.to_lowercase().as_str())
+}
+
+#[cfg(test)]
+mod keyterm_tests {
+    use super::keyterms_from_sources;
+
+    #[test]
+    fn mines_acronyms_and_phrases_and_dedupes() {
+        let sources = vec![
+            ("Senior Platform Engineer at Acme Corp".to_string(), true),
+            (
+                "We use AWS and Kubernetes. The team ships fast. AWS again.".to_string(),
+                false,
+            ),
+        ];
+        let verbatim = vec!["Senior Platform Engineer".to_string(), "rust".to_string()];
+        let terms = keyterms_from_sources(&sources, &verbatim);
+        let lower: Vec<String> = terms.iter().map(|t| t.to_lowercase()).collect();
+        // Verbatim role phrase kept; acronym mined and deduped despite appearing twice.
+        assert!(lower.iter().any(|t| t == "senior platform engineer"));
+        assert_eq!(lower.iter().filter(|t| *t == "aws").count(), 1);
+        // Multi-word proper phrase from a high-signal field.
+        assert!(lower.iter().any(|t| t == "acme corp"));
+        // A lone TitleCase word in a long free-text field is treated as noise (skipped).
+        assert!(!lower.iter().any(|t| t == "kubernetes"));
+        assert!(!lower.iter().any(|t| t == "the"));
+    }
+
+    #[test]
+    fn respects_budget_cap() {
+        let big = (0..200)
+            .map(|i| format!("AB{i}"))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let terms = keyterms_from_sources(&[(big, false)], &[]);
+        assert!(!terms.is_empty());
+        assert!(terms.len() <= 48, "expected <=48, got {}", terms.len());
+    }
+}
+
 fn interview_profile(conn: &rusqlite::Connection) -> Option<String> {
     let get = |k: &str| {
         db::get_setting(conn, k)
@@ -744,6 +1036,8 @@ pub struct AssistantSettings {
     pub context_company: String,
     pub context_resume: String,
     pub context_notes: String,
+    /// Whether the capture overlay panels are hidden from screen capture (default true).
+    pub capture_protect: bool,
 }
 
 #[tauri::command]
@@ -808,6 +1102,7 @@ pub fn get_assistant_settings(state: State<'_, AppState>) -> Result<AssistantSet
         context_company: get("context_company")?,
         context_resume: get("context_resume")?,
         context_notes: get("context_notes")?,
+        capture_protect: capture_protect_setting(&conn),
     })
 }
 
@@ -1263,6 +1558,20 @@ pub struct UsageReport {
     /// remaining figure for keys whose balance the API won't return.
     pub claude_credit: f64,
     pub deepgram_credit: f64,
+    /// Manual "actual spent" corrections, in USD. The local figure is only an estimate
+    /// (tokens x list price / minutes x rate); when set, the UI shows this instead so
+    /// the user can sync it to what their provider console actually reports. `None` =
+    /// no override, use the estimate.
+    pub claude_spent_override: Option<f64>,
+    pub deepgram_spent_override: Option<f64>,
+}
+
+/// Read a setting as an optional f64 (absent / unparseable -> None).
+fn read_opt_f64(conn: &rusqlite::Connection, key: &str) -> Option<f64> {
+    db::get_setting(conn, key)
+        .ok()
+        .flatten()
+        .and_then(|s| s.parse::<f64>().ok())
 }
 
 fn read_f64(conn: &rusqlite::Connection, key: &str) -> f64 {
@@ -1303,6 +1612,8 @@ pub fn get_usage(state: State<'_, AppState>) -> Result<UsageReport, String> {
         deepgram_seconds: read_f64(&conn, "deepgram_seconds"),
         claude_credit: read_f64(&conn, "claude_credit"),
         deepgram_credit: read_f64(&conn, "deepgram_credit"),
+        claude_spent_override: read_opt_f64(&conn, "claude_spent_override"),
+        deepgram_spent_override: read_opt_f64(&conn, "deepgram_spent_override"),
     })
 }
 
@@ -1327,14 +1638,39 @@ pub fn set_usage_credit(
     }
 }
 
-/// Reset the usage tally (Claude tokens + Deepgram seconds + start time). The entered
-/// top-up credits are kept.
+/// Override the "actual spent" figure for a provider, in USD, so the user can correct
+/// the local estimate to match what their console reports. `provider` is "claude" or
+/// "deepgram"; a negative `amount` clears the override (back to the estimate). Zero is
+/// a valid override (the user really has spent nothing).
+#[tauri::command]
+pub fn set_usage_spent(
+    state: State<'_, AppState>,
+    provider: String,
+    amount: f64,
+) -> Result<(), String> {
+    let key = match provider.as_str() {
+        "claude" => "claude_spent_override",
+        "deepgram" => "deepgram_spent_override",
+        _ => return Err("Unknown provider.".into()),
+    };
+    let conn = state.db.lock().map_err(|_| "db poisoned")?;
+    if amount >= 0.0 {
+        db::set_setting(&conn, key, &amount.to_string()).map_err(|e| e.to_string())
+    } else {
+        db::delete_setting(&conn, key).map_err(|e| e.to_string())
+    }
+}
+
+/// Reset the usage tally (Claude tokens + Deepgram seconds + start time + any manual
+/// spent overrides). The entered top-up credits are kept.
 #[tauri::command]
 pub fn reset_usage(state: State<'_, AppState>) -> Result<(), String> {
     let conn = state.db.lock().map_err(|_| "db poisoned")?;
     db::delete_setting(&conn, "claude_usage").map_err(|e| e.to_string())?;
     db::delete_setting(&conn, "deepgram_seconds").map_err(|e| e.to_string())?;
     db::delete_setting(&conn, "usage_since").map_err(|e| e.to_string())?;
+    db::delete_setting(&conn, "claude_spent_override").map_err(|e| e.to_string())?;
+    db::delete_setting(&conn, "deepgram_spent_override").map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -1478,7 +1814,7 @@ pub fn start_listening(state: State<'_, AppState>, app: AppHandle) -> Result<(),
         let key = key.filter(|k| !k.trim().is_empty()).ok_or(
             "No Deepgram API key set. Add it in the Assistant tab, or switch the engine to Local.",
         )?;
-        let (language, diarize) = {
+        let (language, diarize, keyterms) = {
             let conn = state.db.lock().map_err(|_| "db poisoned")?;
             let language = db::get_setting(&conn, "stt_language")
                 .map_err(|e| e.to_string())?
@@ -1488,12 +1824,17 @@ pub fn start_listening(state: State<'_, AppState>, app: AppHandle) -> Result<(),
                 .map_err(|e| e.to_string())?
                 .map(|v| v == "true")
                 .unwrap_or(false);
-            (language, diarize)
+            // Mine proper nouns / company / role / acronyms from the same interview
+            // context the prompt uses, to keyterm-prompt nova-3 (attached only when a
+            // specific language is selected; see EngineConfig::Deepgram::keyterms).
+            let keyterms = interview_keyterms(&conn);
+            (language, diarize, keyterms)
         };
         crate::listen::EngineConfig::Deepgram {
             key,
             language,
             diarize,
+            keyterms,
         }
     };
 
@@ -1545,14 +1886,47 @@ pub fn stop_listening(state: State<'_, AppState>) -> Result<(), String> {
 /// the app freezes. Running async lets the runtime dispatch creation to the main
 /// loop without blocking it.
 #[tauri::command]
-pub async fn open_capture_panels(app: AppHandle) -> Result<(), String> {
-    crate::capture::open_panels(&app)
+pub async fn open_capture_panels(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    // Honor the saved "hide panels from screen capture" preference (default: on).
+    let protected = {
+        let conn = state.db.lock().map_err(|_| "db poisoned")?;
+        capture_protect_setting(&conn)
+    };
+    crate::capture::open_panels(&app, protected)
 }
 
 /// Close all capture panels.
 #[tauri::command]
 pub fn close_capture_panels(app: AppHandle) {
     crate::capture::close_panels(&app);
+}
+
+/// Read the "capture panels are hidden from screen capture" preference (default true).
+fn capture_protect_setting(conn: &rusqlite::Connection) -> bool {
+    db::get_setting(conn, "capture_protect")
+        .ok()
+        .flatten()
+        .map(|v| v != "false")
+        .unwrap_or(true)
+}
+
+/// Toggle whether the capture overlay panels are hidden from screen capture/sharing.
+/// `protected` true (default) keeps them invisible to a shared/recorded screen; false
+/// makes them appear in screenshots and shares so the user can capture the panels
+/// themselves. Persisted and applied live to any open panels.
+#[tauri::command]
+pub fn set_capture_protection(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    protected: bool,
+) -> Result<(), String> {
+    {
+        let conn = state.db.lock().map_err(|_| "db poisoned")?;
+        db::set_setting(&conn, "capture_protect", if protected { "true" } else { "false" })
+            .map_err(|e| e.to_string())?;
+    }
+    crate::capture::set_panels_protected(&app, protected);
+    Ok(())
 }
 
 /// Show/hide the capture panels (the control bar stays). Returns the new visibility.

@@ -415,7 +415,9 @@ select:focus {
   }
 }
 
-/* Dialog column: speaker-attributed chat, newest on top via column-reverse. */
+/* Dialog column: speaker-attributed chat. Normal top-to-bottom order (oldest first,
+   newest at the bottom) - the view auto-scrolls to follow the newest line (see
+   AssistantView), which reads like any chat instead of growing upward. */
 .dialog-head {
   display: flex;
   align-items: center;
@@ -429,10 +431,25 @@ select:focus {
   min-height: 0;
   overflow-y: auto;
   display: flex;
-  flex-direction: column-reverse;
+  flex-direction: column;
   gap: 8px;
   padding: 10px 2px;
 }
+/* Fallback shown when a view crashes at render time (caught by ErrorBoundary). */
+.error-boundary {
+  margin: auto;
+  max-width: 460px;
+  padding: 32px 24px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+.error-boundary h3 {
+  margin: 0;
+}
+
 .dialog-empty,
 .pane-empty {
   color: var(--muted);
@@ -988,6 +1005,17 @@ select:focus {
   align-items: center;
   gap: 10px;
 }
+.sessions-toolbar {
+  display: flex;
+  justify-content: flex-end;
+}
+.session-exported {
+  margin-top: 6px;
+  word-break: break-all;
+}
+.session-exported code {
+  word-break: break-all;
+}
 
 /* Mock interview */
 .mock {
@@ -1416,6 +1444,15 @@ select:focus {
   border-radius: 8px;
   padding: 10px 12px;
 }
+/* A cautionary note (less severe than an error) - e.g. panels now visible to capture. */
+.assistant-warn {
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.55);
+  color: #f59e0b;
+  border-radius: 8px;
+  padding: 8px 12px;
+  line-height: 1.45;
+}
 .assistant-keyrow {
   display: inline-flex;
   align-items: center;
@@ -1558,6 +1595,12 @@ select:focus {
   grid-template-columns: 120px 1fr;
   align-items: center;
   gap: 12px;
+}
+/* A full-width explanatory note that spans both columns of a setup row. */
+.setup-row.diarize-hint {
+  display: block;
+  line-height: 1.45;
+  margin-top: -2px;
 }
 .setup-label {
   color: var(--muted);

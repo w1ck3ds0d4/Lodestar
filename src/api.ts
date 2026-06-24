@@ -60,8 +60,17 @@ const PREVIEW_STUBS: Record<string, unknown> = {
     contextCompany: "",
     contextResume: "",
     contextNotes: "",
+    captureProtect: true,
   },
-  get_usage: { since: null, claudeItems: [], deepgramSeconds: 0, claudeCredit: 0, deepgramCredit: 0 },
+  get_usage: {
+    since: null,
+    claudeItems: [],
+    deepgramSeconds: 0,
+    claudeCredit: 0,
+    deepgramCredit: 0,
+    claudeSpentOverride: null,
+    deepgramSpentOverride: null,
+  },
   deepgram_balance: { amount: 0, units: "USD", project: "" },
 };
 
@@ -205,6 +214,12 @@ export const saveSession = (title: string, transcript: string, answers: string) 
 export const removeSession = (id: number) => invoke<void>("remove_session", { id });
 export const sessionReview = (transcript: string, answers: string) =>
   invoke<string>("session_review", { transcript, answers });
+// Export a session's transcript + answers to a Markdown file (Downloads/JobRadar);
+// resolves to the file path written.
+export const exportSession = (id: number) => invoke<string>("export_session", { id });
+// Export every saved session; resolves to { dir, count }.
+export const exportAllSessions = () =>
+  invoke<{ dir: string; count: number }>("export_all_sessions");
 
 // --- Screen privacy (exclude window from screen capture / sharing) ---
 export const setScreenPrivacy = (enabled: boolean) => invoke<void>("set_screen_privacy", { enabled });
@@ -242,6 +257,10 @@ export const getUsage = () => invoke<UsageReport>("get_usage");
 export const resetUsage = () => invoke<void>("reset_usage");
 export const setUsageCredit = (provider: "claude" | "deepgram", amount: number) =>
   invoke<void>("set_usage_credit", { provider, amount });
+// Override the "actual spent" figure to match the provider console; a negative amount
+// clears the override (back to the local estimate).
+export const setUsageSpent = (provider: "claude" | "deepgram", amount: number) =>
+  invoke<void>("set_usage_spent", { provider, amount });
 export const deepgramBalance = () => invoke<DeepgramBalance>("deepgram_balance");
 
 // --- Live listening (system-audio capture -> Deepgram) ---
@@ -264,6 +283,10 @@ export const phoneBroadcast = (payload: string) => invoke<void>("phone_broadcast
 // --- Capture mode (floating overlay panels) ---
 export const openCapturePanels = () => invoke<void>("open_capture_panels");
 export const closeCapturePanels = () => invoke<void>("close_capture_panels");
+// Whether the capture panels are hidden from screen capture/sharing. Pass false to make
+// them appear in screenshots/shares (so you can capture the panels); true re-hides them.
+export const setCaptureProtection = (protected_: boolean) =>
+  invoke<void>("set_capture_protection", { protected: protected_ });
 // Show/hide the panels (control bar stays); resolves to the new visibility.
 export const toggleCapturePanels = () => invoke<boolean>("toggle_capture_panels");
 

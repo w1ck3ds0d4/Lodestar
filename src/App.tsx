@@ -10,6 +10,7 @@ import { AlertsPanel } from "./components/AlertsPanel";
 import { TrackerView } from "./components/TrackerView";
 import { StudyView } from "./components/StudyView";
 import { AssistantView } from "./components/AssistantView";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { GettingStarted } from "./components/GettingStarted";
 
 type View = "search" | "tracker" | "study" | "assistant";
@@ -558,12 +559,20 @@ export default function App() {
         </>
       ) : (
         <main className="results">
+          {/* A distinct key per view forces a fresh boundary on each tab switch, so a
+              crash captured in one view never carries over to poison another. */}
           {view === "tracker" ? (
-            <TrackerView onOpen={onOpen} />
+            <ErrorBoundary key="tracker" label="Tracker">
+              <TrackerView onOpen={onOpen} />
+            </ErrorBoundary>
           ) : view === "study" ? (
-            <StudyView />
+            <ErrorBoundary key="study" label="Study view">
+              <StudyView />
+            </ErrorBoundary>
           ) : (
-            <AssistantView />
+            <ErrorBoundary key="assistant" label="Assistant">
+              <AssistantView />
+            </ErrorBoundary>
           )}
         </main>
       )}

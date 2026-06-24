@@ -50,6 +50,11 @@ pub enum EngineConfig {
         key: String,
         language: String,
         diarize: bool,
+        /// nova-3 keyterm-prompting terms (proper nouns, company/role, acronyms) mined
+        /// from the interview context. Empty = none. Only attached to the request when a
+        /// specific language is selected (NOT language=multi), since multi+keyterm has
+        /// been less reliable on Deepgram's side; see connect_and_stream.
+        keyterms: Vec<String>,
     },
     Local {
         models_dir: PathBuf,
@@ -271,8 +276,9 @@ pub fn run(
             key,
             language,
             diarize,
+            keyterms,
         } => {
-            run_deepgram(app, &key, &language, diarize, &sources, &flag);
+            run_deepgram(app, &key, &language, diarize, &keyterms, &sources, &flag);
         }
         EngineConfig::Local { .. } => {
             let local = local.expect("local engine initialized above");
@@ -292,6 +298,7 @@ fn run_deepgram(
     key: &str,
     language: &str,
     diarize: bool,
+    keyterms: &[String],
     sources: &[Source],
     flag: &Arc<AtomicBool>,
 ) {
@@ -315,9 +322,12 @@ fn run_deepgram(
             let app = app.clone();
             let key = key.to_string();
             let language = language.to_string();
+            let keyterms = keyterms.to_vec();
             let flag = flag.clone();
             async move {
-                if let Err(e) = stream_source(&app, &key, &language, diarize, &meta, &flag).await {
+                if let Err(e) =
+                    stream_source(&app, &key, &language, diarize, &keyterms, &meta, &flag).await
+                {
                     let _ = app.emit("listen-error", e.to_string());
                 }
             }
@@ -344,10 +354,11 @@ async fn stream_source(
     key: &str,
     language: &str,
     diarize_enabled: bool,
+    keyterms: &[String],
     meta: &SrcMeta,
     flag: &Arc<AtomicBool>,
 ) -> Result<()> {
-    connect_and_stream(app, key, language, diarize_enabled, meta, flag).await?;
+    connect_and_stream(app, key, language, diarize_enabled, keyterms, meta, flag).await?;
 
     let mut failures = 0u32;
     while flag.load(Ordering::SeqCst) {
@@ -365,7 +376,7 @@ async fn stream_source(
         if !flag.load(Ordering::SeqCst) {
             break;
         }
-        match connect_and_stream(app, key, language, diarize_enabled, meta, flag).await {
+        match connect_and_stream(app, key, language, diarize_enabled, keyterms, meta, flag).await {
             Ok(()) => failures = 0,
             Err(e) => {
                 if !flag.load(Ordering::SeqCst) {
@@ -392,6 +403,7 @@ async fn connect_and_stream(
     key: &str,
     language: &str,
     diarize_enabled: bool,
+    keyterms: &[String],
     meta: &SrcMeta,
     flag: &Arc<AtomicBool>,
 ) -> Result<()> {
@@ -405,11 +417,32 @@ async fn connect_and_stream(
     // endpointing=500: wait ~0.5s of silence before ending an utterance, so brief
     // mid-sentence pauses in fast speech don't split a phrase into separate bubbles.
     let mut url = format!(
-        "wss://api.deepgram.com/v1/listen?model=nova-2&encoding=linear16&sample_rate={TARGET_RATE}\
-         &channels=1&punctuate=true&interim_results=true&endpointing=500&language={lang}"
+        "wss://api.deepgram.com/v1/listen?model=nova-3&encoding=linear16&sample_rate={TARGET_RATE}\
+         &channels=1&punctuate=true&smart_format=true&interim_results=true&endpointing=500&language={lang}"
     );
     if diarize {
         url.push_str("&diarize=true");
+    }
+    // nova-3 keyterm prompting: repeat `&keyterm=<term>` per term (this is the nova-3
+    // param; nova-2 used `keywords`). Deepgram caps the set at ~500 tokens/request, so
+    // interview_keyterms already bounds the count + token budget. Only attach when a
+    // specific language is selected: keyterm + language=multi has been less reliable, and
+    // a rejected request would break transcription entirely, so the default multi path
+    // stays byte-identical until it is smoke-tested live (then this gate can be dropped).
+    if lang != "multi" {
+        for term in keyterms {
+            let encoded: String = term
+                .bytes()
+                .map(|b| match b {
+                    b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                        (b as char).to_string()
+                    }
+                    _ => format!("%{b:02X}"),
+                })
+                .collect();
+            url.push_str("&keyterm=");
+            url.push_str(&encoded);
+        }
     }
 
     let mut request = url
@@ -429,7 +462,16 @@ async fn connect_and_stream(
     // Clear any "Reconnecting..." status once the (re)connection is live.
     status(app, "Listening");
 
-    let role: &str = if diarize { "them" } else { "you" };
+    // Role is the audio SOURCE, never whether we diarize: the microphone is always
+    // "you", system/loopback (the call's other side) is always "them". Diarization
+    // only sub-labels the "them" side into Speaker 1/2 - it must not flip a source's
+    // side, or the other party gets mislabeled as you (and auto-answer, which only
+    // answers the other party, then never fires on their questions).
+    let role: &str = if meta.kind == SrcKind::System {
+        "them"
+    } else {
+        "you"
+    };
 
     // Sender: drain the capture buffer ~8x/sec and ship it as raw linear16. Keep the
     // socket warm with KeepAlive during silence; on stop, send CloseStream so Deepgram
@@ -549,54 +591,43 @@ fn emit_results(app: &AppHandle, text: &str, diarize: bool, role: &str) {
         return;
     }
 
-    // Final span. With diarization on, split it by speaker and commit each piece
-    // immediately (speechFinal) so distinct speakers never merge into one bubble.
-    if diarize {
-        if let Some(words) = alt["words"].as_array().filter(|w| !w.is_empty()) {
-            let emit_seg = |spk: i64, buf: &str| {
-                if !buf.trim().is_empty() {
-                    let _ = app.emit(
-                        "transcript",
-                        json!({
-                            "role": "them",
-                            "speaker": format!("Speaker {}", spk + 1),
-                            "text": buf.trim(),
-                            "final": true,
-                            "speechFinal": true,
-                        }),
-                    );
-                }
-            };
-            let mut cur: Option<i64> = None;
-            let mut buf = String::new();
-            for w in words {
-                let spk = w["speaker"].as_i64().unwrap_or(0);
-                let word = w["punctuated_word"]
-                    .as_str()
-                    .or_else(|| w["word"].as_str())
-                    .unwrap_or("");
-                if cur != Some(spk) {
-                    if let Some(prev) = cur {
-                        emit_seg(prev, &buf);
-                    }
-                    cur = Some(spk);
-                    buf.clear();
-                }
-                buf.push_str(word);
-                buf.push(' ');
-            }
-            if let Some(prev) = cur {
-                emit_seg(prev, &buf);
-            }
-            return;
-        }
-    }
-
-    // No diarization: extend the live line, and let `speechFinal` decide when to commit.
+    // Final span. Extend the live line and let `speechFinal` (the speaker actually
+    // paused) decide when to commit it - the same accumulating path the mic side
+    // uses. Deepgram marks many spans `is_final` mid-utterance as it locks in words;
+    // committing on every one of those chopped a single sentence into a new bubble
+    // each time. With diarization on we label the whole span by its DOMINANT speaker
+    // rather than emitting a fresh bubble per word-run, which used to split one
+    // person into several "Speaker N" on a 1-on-1 call.
+    let speaker = if diarize {
+        dominant_speaker(alt).unwrap_or_else(|| role_speaker.to_string())
+    } else {
+        role_speaker.to_string()
+    };
     let _ = app.emit(
         "transcript",
-        json!({ "role": role, "speaker": role_speaker, "text": transcript, "final": true, "speechFinal": speech_final }),
+        json!({ "role": role, "speaker": speaker, "text": transcript, "final": true, "speechFinal": speech_final }),
     );
+}
+
+/// With diarization on, a final span carries a per-word `speaker` id. Pick the speaker
+/// that owns the most words in the span, so the whole utterance commits under one
+/// stable "Speaker N" label instead of being split into a separate bubble per word-run
+/// (which mislabeled a single person as several speakers). Returns `None` when there
+/// are no word-level speaker ids to read.
+fn dominant_speaker(alt: &Value) -> Option<String> {
+    let words = alt["words"].as_array().filter(|w| !w.is_empty())?;
+    let mut counts: std::collections::HashMap<i64, usize> = std::collections::HashMap::new();
+    for w in words {
+        let spk = w["speaker"].as_i64().unwrap_or(0);
+        *counts.entry(spk).or_insert(0) += 1;
+    }
+    // Break ties on the lowest speaker id so a balanced span yields a stable label
+    // (HashMap iteration order is randomized, so `max_by_key` on the count alone could
+    // flip between equally-frequent speakers from one span to the next).
+    counts
+        .into_iter()
+        .max_by_key(|&(spk, n)| (n, std::cmp::Reverse(spk)))
+        .map(|(spk, _)| format!("Speaker {}", spk + 1))
 }
 
 /// Local Whisper driver: peek the buffers ~5x/sec for a live input-level meter, and
@@ -714,16 +745,73 @@ fn resample(mono: &[f32], src_rate: u32, dst_rate: u32) -> Vec<f32> {
     if src_rate == dst_rate || mono.is_empty() {
         return mono.to_vec();
     }
+    // Anti-alias only when reducing the rate (the usual 48k/44.1k -> 16k case): content
+    // above the destination Nyquist (dst_rate/2) would otherwise fold back into the
+    // speech band as aliasing, smearing sibilants/fricatives and degrading STT. Linear
+    // interpolation alone does not remove it, so low-pass first, then interpolate.
+    let prefiltered: Vec<f32> = if dst_rate < src_rate {
+        // Cutoff a touch below Nyquist (0.45 * dst_rate) to leave a transition band.
+        lowpass_fir(mono, 0.45 * dst_rate as f32 / src_rate as f32)
+    } else {
+        mono.to_vec()
+    };
+    let src = &prefiltered;
     let ratio = dst_rate as f32 / src_rate as f32;
-    let out_len = (mono.len() as f32 * ratio) as usize;
+    let out_len = (src.len() as f32 * ratio) as usize;
     let mut out = Vec::with_capacity(out_len);
     for i in 0..out_len {
         let pos = i as f32 / ratio;
         let idx = pos as usize;
         let frac = pos - idx as f32;
-        let a = mono.get(idx).copied().unwrap_or(0.0);
-        let b = mono.get(idx + 1).copied().unwrap_or(a);
+        let a = src.get(idx).copied().unwrap_or(0.0);
+        let b = src.get(idx + 1).copied().unwrap_or(a);
         out.push(a + (b - a) * frac);
+    }
+    out
+}
+
+/// Hann-windowed-sinc low-pass FIR. `cutoff` is the normalized cutoff (cycles/sample,
+/// 0..0.5) relative to the INPUT rate. A 31-tap kernel is plenty for an 8 kHz cutoff at
+/// 48 kHz and stays cheap enough to run on every ~120ms capture frame. No carry-over
+/// state between calls, so each chunk has a tiny zero-padded edge transient; negligible
+/// for STT.
+fn lowpass_fir(input: &[f32], cutoff: f32) -> Vec<f32> {
+    const HALF: i32 = 15; // 31 taps total
+    let fc = cutoff.clamp(0.0, 0.5);
+    let mut kernel = [0f32; (HALF * 2 + 1) as usize];
+    let mut sum = 0f32;
+    for (k, tap) in kernel.iter_mut().enumerate() {
+        let n = k as i32 - HALF;
+        // Ideal sinc low-pass.
+        let sinc = if n == 0 {
+            2.0 * fc
+        } else {
+            let x = std::f32::consts::PI * n as f32;
+            (2.0 * fc * x).sin() / x
+        };
+        // Hann window.
+        let w = 0.5 - 0.5 * (2.0 * std::f32::consts::PI * (k as f32) / ((HALF * 2) as f32)).cos();
+        let v = sinc * w;
+        *tap = v;
+        sum += v;
+    }
+    // Normalize to unity DC gain.
+    if sum != 0.0 {
+        for tap in kernel.iter_mut() {
+            *tap /= sum;
+        }
+    }
+    let n = input.len();
+    let mut out = vec![0f32; n];
+    for (i, slot) in out.iter_mut().enumerate() {
+        let mut acc = 0f32;
+        for (k, &tap) in kernel.iter().enumerate() {
+            let j = i as i32 + k as i32 - HALF;
+            if j >= 0 && (j as usize) < n {
+                acc += tap * input[j as usize];
+            }
+        }
+        *slot = acc;
     }
     out
 }
