@@ -336,3 +336,4 @@ export const explainRegion = (pngBase64: string) => invoke<string>("explain_regi
 // --- Overlay window controls (translucency + always-on-top; Windows-backed) ---
 export const setWindowOpacity = (opacity: number) => invoke<void>("set_window_opacity", { opacity });
 export const setWindowAlwaysOnTop = (onTop: boolean) => invoke<void>("set_window_always_on_top", { onTop });
+export const setWindowSkipTaskbar = (skip: boolean) => invoke<void>("set_window_skip_taskbar", { skip });

@@ -26,6 +26,16 @@ pub fn set_window_always_on_top(window: tauri::WebviewWindow, on_top: bool) -> R
         .map_err(|e| format!("set_always_on_top: {e}"))
 }
 
+/// Remove (or restore) the window's taskbar button so the app can sit discreetly with no
+/// icon on the taskbar. Cross-platform via Tauri. With no taskbar button, Alt+Shift+H still
+/// shows/hides the window, so it can always be brought back.
+#[tauri::command]
+pub fn set_window_skip_taskbar(window: tauri::WebviewWindow, skip: bool) -> Result<(), String> {
+    window
+        .set_skip_taskbar(skip)
+        .map_err(|e| format!("set_skip_taskbar: {e}"))
+}
+
 #[cfg(windows)]
 fn set_opacity_impl(window: &tauri::WebviewWindow, alpha: u8) -> Result<(), String> {
     use windows::Win32::Foundation::{COLORREF, HWND};

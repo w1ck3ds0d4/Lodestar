@@ -306,6 +306,7 @@ pub fn run() {
             commands::set_capture_protection,
             window_fx::set_window_opacity,
             window_fx::set_window_always_on_top,
+            window_fx::set_window_skip_taskbar,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

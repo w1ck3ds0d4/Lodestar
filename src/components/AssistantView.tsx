@@ -308,6 +308,11 @@ export function AssistantView() {
 
   const [opacity, setOpacity] = useState(1);
   const [onTop, setOnTop] = useState(false);
+  // Hide the app's taskbar button (discreet mode). Persisted so it survives a restart;
+  // Alt+Shift+H still shows/hides the window, so it can always be brought back.
+  const [skipTaskbar, setSkipTaskbar] = useState(
+    () => typeof localStorage !== "undefined" && localStorage.getItem("jr.skipTaskbar") === "1",
+  );
 
   const [contextRole, setContextRole] = useState("");
   const [contextCompany, setContextCompany] = useState("");
@@ -429,6 +434,15 @@ export function AssistantView() {
   useEffect(() => {
     void api.setWindowAlwaysOnTop(onTop).catch(() => {});
   }, [onTop]);
+  // Apply the taskbar-hide preference on mount and whenever it changes, and remember it.
+  useEffect(() => {
+    try {
+      localStorage.setItem("jr.skipTaskbar", skipTaskbar ? "1" : "0");
+    } catch {
+      /* ignore storage errors */
+    }
+    void api.setWindowSkipTaskbar(skipTaskbar).catch(() => {});
+  }, [skipTaskbar]);
 
   // Track the responsive breakpoint so unread badges only accrue when panes are
   // actually hidden behind tabs.
@@ -1876,6 +1890,14 @@ export function AssistantView() {
                   <label className="auto-toggle muted sm">
                     <input type="checkbox" checked={onTop} onChange={(e) => setOnTop(e.target.checked)} />
                     Always on top
+                  </label>
+                  <label className="auto-toggle muted sm">
+                    <input
+                      type="checkbox"
+                      checked={skipTaskbar}
+                      onChange={(e) => setSkipTaskbar(e.target.checked)}
+                    />
+                    Hide from taskbar
                   </label>
                   <div className="muted sm">Dims the whole window (this UI too); min 30%.</div>
                   <div className="muted sm">
