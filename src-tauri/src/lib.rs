@@ -181,6 +181,61 @@ pub fn run() {
                 });
             }
 
+            // System-tray icon: a discreet, always-available access point - especially when
+            // the window is hidden from the taskbar and Alt+Tab. Left-click (or the Show item)
+            // reveals and focuses the window; right-click opens a small menu.
+            {
+                use tauri::menu::{Menu, MenuItem};
+                use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+
+                let reveal = |app: &tauri::AppHandle| {
+                    if let Some(w) = app.get_webview_window("main") {
+                        let _ = w.show();
+                        let _ = w.unminimize();
+                        let _ = w.set_focus();
+                    }
+                };
+                let show_i =
+                    MenuItem::with_id(app, "tray_show", "Show JobRadar", true, None::<&str>)?;
+                let hide_i = MenuItem::with_id(app, "tray_hide", "Hide", true, None::<&str>)?;
+                let quit_i = MenuItem::with_id(app, "tray_quit", "Quit", true, None::<&str>)?;
+                let menu = Menu::with_items(app, &[&show_i, &hide_i, &quit_i])?;
+
+                let mut builder = TrayIconBuilder::new()
+                    .tooltip("JobRadar")
+                    .menu(&menu)
+                    .show_menu_on_left_click(false)
+                    .on_menu_event(move |app, event| match event.id.as_ref() {
+                        "tray_show" => reveal(app),
+                        "tray_hide" => {
+                            if let Some(w) = app.get_webview_window("main") {
+                                let _ = w.hide();
+                            }
+                        }
+                        "tray_quit" => app.exit(0),
+                        _ => {}
+                    })
+                    .on_tray_icon_event(|tray, event| {
+                        if let TrayIconEvent::Click {
+                            button: MouseButton::Left,
+                            button_state: MouseButtonState::Up,
+                            ..
+                        } = event
+                        {
+                            let app = tray.app_handle();
+                            if let Some(w) = app.get_webview_window("main") {
+                                let _ = w.show();
+                                let _ = w.unminimize();
+                                let _ = w.set_focus();
+                            }
+                        }
+                    });
+                if let Some(icon) = app.default_window_icon() {
+                    builder = builder.icon(icon.clone());
+                }
+                builder.build(app)?;
+            }
+
             // Background scheduler: sync due sources, then poll on an interval.
             let app_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {

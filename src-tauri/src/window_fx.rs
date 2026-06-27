@@ -26,11 +26,46 @@ pub fn set_window_always_on_top(window: tauri::WebviewWindow, on_top: bool) -> R
         .map_err(|e| format!("set_always_on_top: {e}"))
 }
 
-/// Remove (or restore) the window's taskbar button so the app can sit discreetly with no
-/// icon on the taskbar. Cross-platform via Tauri. With no taskbar button, Alt+Shift+H still
-/// shows/hides the window, so it can always be brought back.
+/// Remove (or restore) the window from the taskbar AND the Alt+Tab switcher, so the app can
+/// sit fully discreetly - reachable only via the tray icon or the Alt+Shift+H hotkey. On
+/// Windows this flips the WS_EX_TOOLWINDOW style (a tool window shows in neither the taskbar
+/// nor Alt+Tab); elsewhere it falls back to Tauri's taskbar-skip.
 #[tauri::command]
 pub fn set_window_skip_taskbar(window: tauri::WebviewWindow, skip: bool) -> Result<(), String> {
+    set_skip_taskbar_impl(&window, skip)
+}
+
+#[cfg(windows)]
+fn set_skip_taskbar_impl(window: &tauri::WebviewWindow, skip: bool) -> Result<(), String> {
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GetWindowLongPtrW, SetWindowLongPtrW, ShowWindow, GWL_EXSTYLE, SW_HIDE, SW_SHOW,
+        WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
+    };
+    let hwnd = HWND(window.hwnd().map_err(|e| format!("hwnd: {e}"))?.0);
+    let was_visible = window.is_visible().unwrap_or(true);
+    unsafe {
+        // Alt+Tab only re-reads WS_EX_TOOLWINDOW after the window is hidden and shown again,
+        // so cycle visibility around the style change (skipped when already hidden).
+        if was_visible {
+            let _ = ShowWindow(hwnd, SW_HIDE);
+        }
+        let mut ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
+        if skip {
+            ex = (ex | WS_EX_TOOLWINDOW.0) & !WS_EX_APPWINDOW.0;
+        } else {
+            ex = (ex & !WS_EX_TOOLWINDOW.0) | WS_EX_APPWINDOW.0;
+        }
+        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex as isize);
+        if was_visible {
+            let _ = ShowWindow(hwnd, SW_SHOW);
+        }
+    }
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn set_skip_taskbar_impl(window: &tauri::WebviewWindow, skip: bool) -> Result<(), String> {
     window
         .set_skip_taskbar(skip)
         .map_err(|e| format!("set_skip_taskbar: {e}"))

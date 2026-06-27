@@ -1897,8 +1897,12 @@ export function AssistantView() {
                       checked={skipTaskbar}
                       onChange={(e) => setSkipTaskbar(e.target.checked)}
                     />
-                    Hide from taskbar
+                    Hide from taskbar &amp; Alt+Tab
                   </label>
+                  <div className="muted sm">
+                    No taskbar button or Alt+Tab entry while on; reach the app from its tray icon or{" "}
+                    <span className="kbd">Alt+Shift+H</span>.
+                  </div>
                   <div className="muted sm">Dims the whole window (this UI too); min 30%.</div>
                   <div className="muted sm">
                     Panic hide: press <span className="kbd">Alt+Shift+H</span> anytime to hide/show the window
