@@ -27,6 +27,7 @@ import {
   Monitor,
   ScanSearch,
   Send,
+  ShieldCheck,
   SlidersHorizontal,
   Smartphone,
   Sparkles,
@@ -48,6 +49,8 @@ import {
   type DeepgramBalance,
   type MonitorInfo,
   type PhoneInfo,
+  type PhoneNetStatus,
+  type Profile,
   type UsageReport,
 } from "../types";
 import { extractResumeText } from "../lib/extractText";
@@ -279,6 +282,7 @@ export function AssistantView() {
   const [screenMonitor, setScreenMonitor] = useState(0);
   const [watchingScreen, setWatchingScreen] = useState(false);
   const [screenError, setScreenError] = useState("");
+  const [screenNote, setScreenNote] = useState("");
   const [snipSrc, setSnipSrc] = useState<string | null>(null);
   const [pageMsg, setPageMsg] = useState("");
   const [sessionsReload, setSessionsReload] = useState(0);
@@ -293,6 +297,8 @@ export function AssistantView() {
   const [contextResume, setContextResume] = useState("");
   const [contextNotes, setContextNotes] = useState("");
   const [contextSaved, setContextSaved] = useState(false);
+  const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [activeProfileId, setActiveProfileId] = useState<number | null>(null);
   const [resumeMsg, setResumeMsg] = useState("");
   const resumeFileRef = useRef<HTMLInputElement>(null);
 
@@ -313,6 +319,8 @@ export function AssistantView() {
   const [phone, setPhone] = useState<PhoneInfo | null>(null);
   const [phoneErr, setPhoneErr] = useState("");
   const [phoneBusy, setPhoneBusy] = useState(false);
+  const [phoneNet, setPhoneNet] = useState<PhoneNetStatus | null>(null);
+  const [fixingFw, setFixingFw] = useState(false);
 
   // Capture mode: floating overlay panels driven by this window.
   const [captureOn, setCaptureOn] = useState(false);
@@ -483,31 +491,66 @@ export function AssistantView() {
       .then(setOllamaModels)
       .catch(() => setOllamaModels([]));
   }, []);
+  const loadProfiles = useCallback(() => {
+    void Promise.all([api.listProfiles(), api.activeProfile()])
+      .then(([list, active]) => {
+        setProfiles(list);
+        setActiveProfileId(active);
+      })
+      .catch(() => {});
+  }, []);
+  // Switch the active profile from the assistant: persist it, then reload the context
+  // fields (read from the active profile via the mirror) and the profile list.
+  const switchProfile = useCallback(
+    async (id: number) => {
+      setActiveProfileId(id);
+      try {
+        await api.setActiveProfile(id);
+        await loadSettings();
+        loadProfiles();
+      } catch {
+        /* ignore */
+      }
+    },
+    [loadSettings, loadProfiles],
+  );
   useEffect(() => {
     void loadSettings();
     void api.listAudioDevices().then(setDevices).catch(() => {});
     void api.listMonitors().then(setMonitors).catch(() => {});
     refreshOllamaModels();
-  }, [loadSettings, refreshOllamaModels]);
+    loadProfiles();
+  }, [loadSettings, refreshOllamaModels, loadProfiles]);
 
   // Capture the chosen screen and append any answer to the Q&A feed. `force`
   // answers even an unchanged screen (manual button); auto-watch passes false so
   // a static screen costs nothing. A busy guard prevents overlapping calls.
   const runScreen = useCallback(
-    async (force: boolean) => {
+    async (force: boolean, monitorOverride?: number, hybrid?: boolean) => {
       if (screenBusy.current) return;
       screenBusy.current = true;
+      // A phone tap can target a specific monitor; otherwise use the one picked in the UI.
+      const mon = monitorOverride ?? screenMonitor;
       try {
         // Feed the recent conversation so the screen answer is context-aware.
         const convo = transcriptText(segmentsRef.current).trim();
         const ctx = convo ? convo.slice(-1500) : null;
-        const res = await api.answerScreen(screenMonitor, force, ctx);
+        // Hybrid (phone Read & Answer) also reads the full page text via accessibility, so a
+        // coding exercise scrolled off-screen is still captured; desktop stays screenshot-only.
+        const res = hybrid
+          ? await api.answerScreenHybrid(mon, force, ctx)
+          : await api.answerScreen(mon, force, ctx);
         const a = res.answer.trim();
         // The backend already suppresses a perceptually-unchanged screen (res.changed),
         // so don't also dedup on answer TEXT here - two different questions can share a
         // terse answer ("True", "O(n)"), and that would wrongly swallow the second.
         if (res.changed && a && a.toUpperCase() !== "NONE") {
           setQa((prev) => [{ id: ++idRef.current, q: "From your screen", a, pending: false }, ...prev]);
+          setScreenNote("");
+        } else if (force) {
+          // A forced answer that finds nothing is otherwise a silent no-op. Say so (and which
+          // display was read) so it's clear the screen was analyzed, not that the feature broke.
+          setScreenNote(`No question found on Display ${mon + 1}.`);
         }
         setScreenError("");
       } catch (e) {
@@ -1022,6 +1065,9 @@ export function AssistantView() {
     setPhoneErr("");
     try {
       setPhone(await api.startPhoneServer());
+      // Surface a firewall/network warning up front, rather than after the user fails to
+      // connect from their phone and blames the app. Non-blocking - the server is already up.
+      void api.phoneNetworkStatus().then(setPhoneNet).catch(() => setPhoneNet(null));
     } catch (e) {
       setPhoneErr(String(e));
     } finally {
@@ -1035,18 +1081,43 @@ export function AssistantView() {
       /* ignore */
     }
     setPhone(null);
+    setPhoneNet(null);
+  };
+  // Marks the network Private and opens the companion port to the local subnet only.
+  // Triggers a Windows UAC prompt; on success the refreshed status clears the warning.
+  const allowFirewall = async () => {
+    setFixingFw(true);
+    setPhoneErr("");
+    try {
+      setPhoneNet(await api.phoneAllowFirewall());
+    } catch (e) {
+      setPhoneErr(String(e));
+    } finally {
+      setFixingFw(false);
+    }
   };
 
   // Commands arriving from a phone are dispatched through this ref, reassigned every
   // render so the once-registered listener always invokes the latest handlers.
-  const phoneCmdRef = useRef<(c: { cmd?: string; text?: string }) => void>(() => {});
+  const phoneCmdRef = useRef<(c: { cmd?: string; text?: string; dir?: string; monitor?: number }) => void>(
+    () => {},
+  );
   phoneCmdRef.current = (c) => {
     switch (c.cmd) {
       case "listen":
         void toggleListen();
         break;
+      case "opacity": {
+        // Step the whole-window opacity from the phone, clamped to the same 0.3..1 range
+        // as the desktop slider. The existing effect applies it to the window.
+        const step = c.dir === "down" ? -0.1 : 0.1;
+        setOpacity((o) => Math.min(1, Math.max(0.3, Math.round((o + step) * 10) / 10)));
+        break;
+      }
       case "answer_screen":
-        void runScreen(true);
+        // A monitor index from the phone targets that display; otherwise the UI's choice.
+        // Phone Read & Answer is hybrid: full page text (scroll-independent) + screenshot.
+        void runScreen(true, typeof c.monitor === "number" ? c.monitor : undefined, true);
         break;
       case "ask":
         if (c.text) void ask(c.text, transcriptText(segments));
@@ -1194,8 +1265,9 @@ export function AssistantView() {
       protect: captureProtect,
       segments: segs,
       answers: qa.map((e) => ({ q: e.q, a: e.a, pending: e.pending })),
+      monitors: monitors.length,
     });
-  }, [listening, watchingScreen, captureOn, captureProtect, segments, live, qa]);
+  }, [listening, watchingScreen, captureOn, captureProtect, segments, live, qa, monitors]);
 
   // Push state to phones on change (debounced) plus a heartbeat so a phone that
   // connects mid-session catches up within a couple of seconds.
@@ -1485,6 +1557,7 @@ export function AssistantView() {
             is focused to read it via accessibility (Windows).
           </div>
           {screenError && <div className="assistant-error">{screenError}</div>}
+          {screenNote && !screenError && <div className="muted sm">{screenNote}</div>}
 
           <details className="acc" open>
             <summary><SlidersHorizontal size={15} /> Setup</summary>
@@ -1760,6 +1833,20 @@ export function AssistantView() {
                   </div>
                 </div>
               )}
+              {phone && phoneNet && !phoneNet.ok && (
+                <div className="phone-fw-warn">
+                  <div className="muted sm">{phoneNet.message}</div>
+                  {phoneNet.canFix && (
+                    <button
+                      className="btn-ghost"
+                      onClick={() => void allowFirewall()}
+                      disabled={fixingFw}
+                    >
+                      <ShieldCheck size={14} /> {fixingFw ? "Allowing…" : "Allow through firewall"}
+                    </button>
+                  )}
+                </div>
+              )}
               {phoneErr && <div className="assistant-error">{phoneErr}</div>}
               <div className="muted sm">
                 Scan the code to connect instantly, or open the URL and type the PIN. Same Wi-Fi only;
@@ -1772,6 +1859,22 @@ export function AssistantView() {
             <summary><Briefcase size={15} /> Interview context</summary>
             <div className="acc-body">
             <p className="muted sm">Fed to the assistant so answers fit you and the role.</p>
+            {profiles.length > 0 && (
+              <div className="setup-field">
+                <span className="setup-label">Active profile</span>
+                <select
+                  value={activeProfileId ?? ""}
+                  onChange={(e) => void switchProfile(Number(e.target.value))}
+                >
+                  {profiles.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name || "Untitled"}
+                    </option>
+                  ))}
+                </select>
+                <div className="muted sm">Manage all profiles from the person icon in the top bar.</div>
+              </div>
+            )}
             <div className="setup-field">
               <span className="setup-label">Target role / focus</span>
               <input
@@ -1820,7 +1923,7 @@ export function AssistantView() {
           <details className="acc">
             <summary><MessageSquare size={15} /> Your stories</summary>
             <div className="acc-body">
-              <StoriesPanel />
+              <StoriesPanel key={activeProfileId ?? "none"} />
             </div>
           </details>
 

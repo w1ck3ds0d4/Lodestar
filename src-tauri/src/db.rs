@@ -166,6 +166,17 @@ pub fn init(path: &Path) -> Result<Connection> {
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS profiles (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            role TEXT NOT NULL DEFAULT '',
+            company TEXT NOT NULL DEFAULT '',
+            resume TEXT NOT NULL DEFAULT '',
+            notes TEXT NOT NULL DEFAULT '',
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
         "#,
     )?;
     // Migrate databases created before the workplace/experience columns existed.
@@ -198,6 +209,10 @@ pub fn init(path: &Path) -> Result<Connection> {
     ensure_column(&conn, "jobs", "scam_flags", "TEXT")?;
     ensure_column(&conn, "tracked", "next_action", "TEXT")?;
     ensure_column(&conn, "tracked", "prep", "TEXT")?;
+    // Multi-profile model: a story belongs to a profile, and the legacy single context
+    // (context_* settings + any pre-existing stories) folds into a "Default" profile.
+    ensure_column(&conn, "stories", "profile_id", "INTEGER")?;
+    migrate_profiles(&conn)?;
     seed_defaults(&conn)?;
     Ok(conn)
 }
@@ -306,6 +321,36 @@ fn ensure_column(conn: &Connection, table: &str, col: &str, decl: &str) -> Resul
     if !present {
         conn.execute(&format!("ALTER TABLE {table} ADD COLUMN {col} {decl}"), [])?;
     }
+    Ok(())
+}
+
+/// One-time migration to the multi-profile model: when no profile exists yet, create a
+/// "Default" profile from the legacy single context (the `context_*` settings), adopt every
+/// existing story into it, and mark it active. Idempotent - a no-op once any profile exists.
+fn migrate_profiles(conn: &Connection) -> Result<()> {
+    let count: i64 = conn.query_row("SELECT COUNT(*) FROM profiles", [], |r| r.get(0))?;
+    if count > 0 {
+        return Ok(());
+    }
+    let now = now_ms();
+    let get = |k: &str| get_setting(conn, k).ok().flatten().unwrap_or_default();
+    conn.execute(
+        "INSERT INTO profiles (name, role, company, resume, notes, created_at, updated_at) \
+         VALUES ('Default', ?1, ?2, ?3, ?4, ?5, ?5)",
+        params![
+            get("context_role"),
+            get("context_company"),
+            get("context_resume"),
+            get("context_notes"),
+            now
+        ],
+    )?;
+    let id = conn.last_insert_rowid();
+    conn.execute(
+        "UPDATE stories SET profile_id=?1 WHERE profile_id IS NULL",
+        params![id],
+    )?;
+    set_setting(conn, "active_profile_id", &id.to_string())?;
     Ok(())
 }
 

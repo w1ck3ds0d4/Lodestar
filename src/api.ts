@@ -10,6 +10,8 @@ import type {
   Job,
   MonitorInfo,
   PhoneInfo,
+  PhoneNetStatus,
+  Profile,
   ScreenAnswer,
   Session,
   Skill,
@@ -189,6 +191,21 @@ export const updateStory = (id: number, title: string, content: string, tags: st
 export const removeStory = (id: number) => invoke<void>("remove_story", { id });
 export const draftStory = (notes: string) => invoke<string>("draft_story", { notes });
 
+// --- Profiles (switchable interview personas; the active one drives the assistant) ---
+export const listProfiles = () => invoke<Profile[]>("list_profiles");
+export const activeProfile = () => invoke<number>("active_profile");
+export const setActiveProfile = (id: number) => invoke<void>("set_active_profile", { id });
+export const createProfile = (name: string) => invoke<Profile>("create_profile", { name });
+export const updateProfile = (
+  id: number,
+  name: string,
+  role: string,
+  company: string,
+  resume: string,
+  notes: string,
+) => invoke<void>("update_profile", { id, name, role, company, resume, notes });
+export const deleteProfile = (id: number) => invoke<void>("delete_profile", { id });
+
 // --- Application kit: tailor resume/cover/ATS/thank-you to a job ---
 // kind: "bullets" | "cover" | "ats" | "thanks"; input is the JD (or transcript for "thanks").
 export const applicationDoc = (kind: string, input: string) =>
@@ -279,6 +296,9 @@ export const stopListening = () => invoke<void>("stop_listening");
 export const startPhoneServer = () => invoke<PhoneInfo>("start_phone_server");
 export const stopPhoneServer = () => invoke<void>("stop_phone_server");
 export const phoneBroadcast = (payload: string) => invoke<void>("phone_broadcast", { payload });
+// Pre-flight: is Windows networking/firewall likely to block the phone, and can we fix it?
+export const phoneNetworkStatus = () => invoke<PhoneNetStatus>("phone_network_status");
+export const phoneAllowFirewall = () => invoke<PhoneNetStatus>("phone_allow_firewall");
 
 // --- Capture mode (floating overlay panels) ---
 export const openCapturePanels = (monitor: number) =>
@@ -298,6 +318,9 @@ export const toggleCapturePanels = () => invoke<boolean>("toggle_capture_panels"
 export const listMonitors = () => invoke<MonitorInfo[]>("list_monitors");
 export const answerScreen = (monitor: number, force: boolean, context: string | null = null) =>
   invoke<ScreenAnswer>("answer_screen", { monitor, force, context });
+// Hybrid: full focused-page text (scroll-independent) plus the screenshot, for the phone remote.
+export const answerScreenHybrid = (monitor: number, force: boolean, context: string | null = null) =>
+  invoke<ScreenAnswer>("answer_screen_hybrid", { monitor, force, context });
 // Snip-to-explain: grab the monitor as a base64 PNG, crop client-side, explain the crop.
 export const captureScreenPng = (monitor: number) => invoke<string>("capture_screen_png", { monitor });
 export const explainRegion = (pngBase64: string) => invoke<string>("explain_region", { pngBase64 });

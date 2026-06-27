@@ -21,6 +21,21 @@
   box-sizing: border-box;
 }
 
+/* Global preference: the mouse pointer never changes shape on hover - no hand,
+   help, grab, crosshair, move, or resize cursors anywhere. Editable fields keep
+   their natural text I-beam so typing still reads correctly. Remove these two
+   rules to restore the per-element cursors set throughout this file. */
+*,
+*::before,
+*::after {
+  cursor: default !important;
+}
+input,
+textarea,
+[contenteditable="true"] {
+  cursor: text !important;
+}
+
 html,
 body,
 #root {
@@ -522,7 +537,7 @@ select:focus {
 }
 
 /* Live (interim) line: the words being spoken right now, before the utterance is
-   finalized. Dimmed + dashed to read as provisional, with a blinking caret. */
+   finalized. Dimmed + dashed to read as provisional, with a static caret. */
 .seg-interim .seg-bubble {
   opacity: 0.72;
   border-style: dashed;
@@ -549,7 +564,6 @@ select:focus {
   margin-left: 2px;
   vertical-align: text-bottom;
   background: var(--accent-2);
-  animation: pulse-dot 1s steps(1) infinite;
 }
 @keyframes pulse-dot {
   0%,
@@ -806,6 +820,99 @@ select:focus {
 .phone-url {
   font-size: 13px;
   word-break: break-all;
+}
+.phone-fw-warn {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid rgba(217, 164, 65, 0.45);
+  border-radius: 8px;
+  background: rgba(217, 164, 65, 0.1);
+}
+
+/* Profile hub: a slide-over from the right that becomes full-width on a narrow screen. */
+.hub-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 60;
+  display: flex;
+  justify-content: flex-end;
+}
+.hub-panel {
+  width: min(440px, 100%);
+  height: 100%;
+  background: var(--panel);
+  border-left: 1px solid var(--border);
+  box-shadow: var(--shadow-lg);
+  padding: 18px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.hub-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.hub-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  font-size: 16px;
+}
+.hub-profiles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.hub-chip {
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 7px 14px;
+  font-size: 13px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.hub-chip.active {
+  border-color: var(--accent);
+  color: var(--accent-2);
+  background: rgba(16, 185, 129, 0.14);
+}
+.hub-chip.add {
+  border-style: dashed;
+}
+.hub-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.hub-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.hub-stories {
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+@media (max-width: 520px) {
+  .hub-panel {
+    width: 100%;
+    border-left: none;
+    padding: 14px;
+  }
 }
 .phone-pin {
   font-size: 20px;

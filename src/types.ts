@@ -500,6 +500,27 @@ export interface PhoneInfo {
   qr: string; // SVG data: URL
 }
 
+// A switchable interview persona: the context the assistant uses to tailor live answers.
+export interface Profile {
+  id: number;
+  name: string;
+  role: string;
+  company: string;
+  resume: string;
+  notes: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+// Result of the networking/firewall pre-flight for the phone server (Windows).
+export interface PhoneNetStatus {
+  ok: boolean; // nothing obvious should block the phone
+  publicNetwork: boolean; // network is categorized Public (blocks inbound LAN)
+  ruleMissing: boolean; // no inbound firewall allow-rule for the port
+  canFix: boolean; // an automatic, one-click fix is available on this platform
+  message: string; // user-facing explanation
+}
+
 // Deepgram Nova-2 streaming, approximate USD per minute (pay-as-you-go). Estimate only.
 export const DEEPGRAM_PER_MIN = 0.0059;
 

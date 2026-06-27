@@ -7,6 +7,7 @@ mod ingest;
 mod listen;
 mod local_stt;
 mod model;
+mod netcheck;
 mod phone;
 mod scam;
 mod screen;
@@ -196,6 +197,12 @@ pub fn run() {
             commands::update_story,
             commands::remove_story,
             commands::draft_story,
+            commands::list_profiles,
+            commands::active_profile,
+            commands::set_active_profile,
+            commands::create_profile,
+            commands::update_profile,
+            commands::delete_profile,
             commands::application_doc,
             commands::score_ats,
             commands::practice_question,
@@ -236,6 +243,7 @@ pub fn run() {
             commands::set_capture_source,
             commands::list_monitors,
             commands::answer_screen,
+            commands::answer_screen_hybrid,
             commands::capture_screen_png,
             commands::explain_region,
             commands::list_audio_devices,
@@ -246,6 +254,8 @@ pub fn run() {
             commands::start_phone_server,
             commands::stop_phone_server,
             commands::phone_broadcast,
+            commands::phone_network_status,
+            commands::phone_allow_firewall,
             commands::open_capture_panels,
             commands::close_capture_panels,
             commands::set_capture_opacity,

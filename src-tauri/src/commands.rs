@@ -5,7 +5,7 @@ use serde_json::Value;
 use tauri::{AppHandle, Manager, State};
 
 use crate::db;
-use crate::model::{Alert, Card, Job, Session, Skill, Source, Story, Tracked};
+use crate::model::{Alert, Card, Job, Profile, Session, Skill, Source, Story, Tracked};
 use crate::util::now_ms;
 use crate::AppState;
 
@@ -376,7 +376,8 @@ pub fn remove_skill(state: State<'_, AppState>, id: i64) -> Result<(), String> {
 #[tauri::command]
 pub fn list_stories(state: State<'_, AppState>) -> Result<Vec<Story>, String> {
     let conn = state.db.lock().map_err(|_| "db poisoned")?;
-    crate::career::list_stories(&conn).map_err(|e| e.to_string())
+    let pid = active_profile_id(&conn).ok_or("no active profile")?;
+    crate::career::list_stories(&conn, pid).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -387,7 +388,9 @@ pub fn add_story(
     tags: String,
 ) -> Result<i64, String> {
     let conn = state.db.lock().map_err(|_| "db poisoned")?;
-    crate::career::add_story(&conn, now_ms(), &title, &content, &tags).map_err(|e| e.to_string())
+    let pid = active_profile_id(&conn).ok_or("no active profile")?;
+    crate::career::add_story(&conn, now_ms(), pid, &title, &content, &tags)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -407,6 +410,123 @@ pub fn update_story(
 pub fn remove_story(state: State<'_, AppState>, id: i64) -> Result<(), String> {
     let conn = state.db.lock().map_err(|_| "db poisoned")?;
     crate::career::remove_story(&conn, id).map_err(|e| e.to_string())
+}
+
+// --- Profiles (switchable interview personas) ---
+
+/// The active profile's id, resolved robustly: the stored setting when it still points at a
+/// real profile, otherwise the first profile (which is then persisted). None only when no
+/// profile exists at all (should not happen after the migration creates "Default").
+fn active_profile_id(conn: &rusqlite::Connection) -> Option<i64> {
+    let stored = db::get_setting(conn, "active_profile_id")
+        .ok()
+        .flatten()
+        .and_then(|s| s.parse::<i64>().ok());
+    if let Some(id) = stored {
+        if crate::career::get_profile(conn, id)
+            .ok()
+            .flatten()
+            .is_some()
+        {
+            return Some(id);
+        }
+    }
+    let first = crate::career::first_profile_id(conn)?;
+    let _ = db::set_setting(conn, "active_profile_id", &first.to_string());
+    Some(first)
+}
+
+/// Mirror the active profile's scalar fields into the legacy `context_*` settings, so the
+/// resume-match scorer and ATS keyterm builder (which read those keys) follow the active
+/// profile without each having to know about profiles.
+fn mirror_active_profile(conn: &rusqlite::Connection) {
+    if let Some(p) =
+        active_profile_id(conn).and_then(|id| crate::career::get_profile(conn, id).ok().flatten())
+    {
+        let _ = db::set_setting(conn, "context_role", &p.role);
+        let _ = db::set_setting(conn, "context_company", &p.company);
+        let _ = db::set_setting(conn, "context_resume", &p.resume);
+        let _ = db::set_setting(conn, "context_notes", &p.notes);
+    }
+}
+
+#[tauri::command]
+pub fn list_profiles(state: State<'_, AppState>) -> Result<Vec<Profile>, String> {
+    let conn = state.db.lock().map_err(|_| "db poisoned")?;
+    crate::career::list_profiles(&conn).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn active_profile(state: State<'_, AppState>) -> Result<i64, String> {
+    let conn = state.db.lock().map_err(|_| "db poisoned")?;
+    active_profile_id(&conn).ok_or_else(|| "no profile".to_string())
+}
+
+#[tauri::command]
+pub fn set_active_profile(state: State<'_, AppState>, id: i64) -> Result<(), String> {
+    let conn = state.db.lock().map_err(|_| "db poisoned")?;
+    db::set_setting(&conn, "active_profile_id", &id.to_string()).map_err(|e| e.to_string())?;
+    mirror_active_profile(&conn);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn create_profile(state: State<'_, AppState>, name: String) -> Result<Profile, String> {
+    let conn = state.db.lock().map_err(|_| "db poisoned")?;
+    let trimmed = name.trim();
+    let name = if trimmed.is_empty() {
+        "New profile"
+    } else {
+        trimmed
+    };
+    let id = crate::career::add_profile(&conn, now_ms(), name).map_err(|e| e.to_string())?;
+    crate::career::get_profile(&conn, id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "profile not found after create".to_string())
+}
+
+#[tauri::command]
+pub fn update_profile(
+    state: State<'_, AppState>,
+    id: i64,
+    name: String,
+    role: String,
+    company: String,
+    resume: String,
+    notes: String,
+) -> Result<(), String> {
+    let conn = state.db.lock().map_err(|_| "db poisoned")?;
+    let trimmed = name.trim();
+    let name = if trimmed.is_empty() {
+        "Profile"
+    } else {
+        trimmed
+    };
+    crate::career::update_profile(&conn, now_ms(), id, name, &role, &company, &resume, &notes)
+        .map_err(|e| e.to_string())?;
+    // Keep the context_* mirror fresh when the edited profile is the active one.
+    if active_profile_id(&conn) == Some(id) {
+        mirror_active_profile(&conn);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn delete_profile(state: State<'_, AppState>, id: i64) -> Result<(), String> {
+    let conn = state.db.lock().map_err(|_| "db poisoned")?;
+    if crate::career::count_profiles(&conn).map_err(|e| e.to_string())? <= 1 {
+        return Err("Keep at least one profile.".to_string());
+    }
+    let was_active =
+        db::get_setting(&conn, "active_profile_id").ok().flatten() == Some(id.to_string());
+    crate::career::remove_profile(&conn, id).map_err(|e| e.to_string())?;
+    if was_active {
+        if let Some(first) = crate::career::first_profile_id(&conn) {
+            let _ = db::set_setting(&conn, "active_profile_id", &first.to_string());
+        }
+    }
+    mirror_active_profile(&conn);
+    Ok(())
 }
 
 /// Draft a STAR story from the user's rough notes (uses the configured answer engine).
@@ -544,7 +664,11 @@ pub struct ExportResult {
 /// Downloads/JobRadar folder. Returns the full path written, so the UI can show it and
 /// offer to reveal it. (Sessions otherwise live only in the local database.)
 #[tauri::command]
-pub fn export_session(app: AppHandle, state: State<'_, AppState>, id: i64) -> Result<String, String> {
+pub fn export_session(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: i64,
+) -> Result<String, String> {
     let (title, transcript, answers) = {
         let conn = state.db.lock().map_err(|_| "db poisoned")?;
         conn.query_row(
@@ -635,7 +759,13 @@ fn sanitize_filename(title: &str) -> String {
             }
         })
         .collect();
-    let cleaned: String = cleaned.trim().trim_end_matches('.').trim().chars().take(80).collect();
+    let cleaned: String = cleaned
+        .trim()
+        .trim_end_matches('.')
+        .trim()
+        .chars()
+        .take(80)
+        .collect();
     if cleaned.is_empty() {
         "session".to_string()
     } else {
@@ -811,7 +941,7 @@ fn interview_keyterms(conn: &rusqlite::Connection) -> Vec<String> {
     if !role.is_empty() && role.split_whitespace().count() <= 6 {
         verbatim.push(role.to_string());
     }
-    if let Ok(stories) = crate::career::list_stories(conn) {
+    if let Ok(stories) = crate::career::list_stories(conn, active_profile_id(conn).unwrap_or(0)) {
         for s in &stories {
             sources.push((s.title.clone(), true));
             for tag in s.tags.split(',') {
@@ -921,12 +1051,55 @@ fn scan_keyterms(text: &str, allow_single: bool, emit: &mut dyn FnMut(&str)) {
 
 fn is_keyterm_stopword(t: &str) -> bool {
     const STOP: &[&str] = &[
-        "the", "and", "for", "with", "you", "your", "our", "their", "this", "that", "from",
-        "into", "have", "has", "was", "were", "will", "would", "should", "could", "about",
-        "over", "under", "team", "role", "company", "resume", "notes", "experience",
-        "interview", "candidate", "monday", "tuesday", "wednesday", "thursday", "friday",
-        "saturday", "sunday", "january", "february", "march", "april", "june", "july",
-        "august", "september", "october", "november", "december",
+        "the",
+        "and",
+        "for",
+        "with",
+        "you",
+        "your",
+        "our",
+        "their",
+        "this",
+        "that",
+        "from",
+        "into",
+        "have",
+        "has",
+        "was",
+        "were",
+        "will",
+        "would",
+        "should",
+        "could",
+        "about",
+        "over",
+        "under",
+        "team",
+        "role",
+        "company",
+        "resume",
+        "notes",
+        "experience",
+        "interview",
+        "candidate",
+        "monday",
+        "tuesday",
+        "wednesday",
+        "thursday",
+        "friday",
+        "saturday",
+        "sunday",
+        "january",
+        "february",
+        "march",
+        "april",
+        "june",
+        "july",
+        "august",
+        "september",
+        "october",
+        "november",
+        "december",
     ];
     STOP.contains(&t.to_lowercase().as_str())
 }
@@ -991,7 +1164,7 @@ fn interview_profile(conn: &rusqlite::Connection) -> Option<String> {
     }
     // The story bank: real experiences to ground behavioral answers in. The model is
     // told to pick the most relevant and weave in concrete details (not invent any).
-    if let Ok(stories) = crate::career::list_stories(conn) {
+    if let Ok(stories) = crate::career::list_stories(conn, active_profile_id(conn).unwrap_or(0)) {
         if !stories.is_empty() {
             let mut block = String::from(
                 "Candidate's real experience stories - for behavioral/experience questions, draw on the \
@@ -1116,17 +1289,26 @@ pub fn set_interview_context(
     notes: String,
 ) -> Result<(), String> {
     let conn = state.db.lock().map_err(|_| "db poisoned")?;
-    let save = |k: &str, v: &str| -> Result<(), String> {
-        if v.trim().is_empty() {
-            db::delete_setting(&conn, k).map_err(|e| e.to_string())
-        } else {
-            db::set_setting(&conn, k, v.trim()).map_err(|e| e.to_string())
-        }
-    };
-    save("context_role", &role)?;
-    save("context_company", &company)?;
-    save("context_resume", &resume)?;
-    save("context_notes", &notes)?;
+    // The interview context now belongs to the active profile: update it (keeping its name)
+    // and refresh the context_* mirror that the matcher and keyterm builder read.
+    let pid = active_profile_id(&conn).ok_or("no active profile")?;
+    let name = crate::career::get_profile(&conn, pid)
+        .ok()
+        .flatten()
+        .map(|p| p.name)
+        .unwrap_or_else(|| "Profile".to_string());
+    crate::career::update_profile(
+        &conn,
+        now_ms(),
+        pid,
+        &name,
+        role.trim(),
+        company.trim(),
+        resume.trim(),
+        notes.trim(),
+    )
+    .map_err(|e| e.to_string())?;
+    mirror_active_profile(&conn);
     Ok(())
 }
 
@@ -1187,10 +1369,30 @@ pub struct AudioDevices {
 }
 
 /// List the available microphone (input) and speaker (output) device names.
+///
+/// Async + `spawn_blocking` because CPAL enumerates devices through WASAPI, which makes
+/// blocking COM calls that can stall for seconds when a device is in a bad state (a
+/// Bluetooth headset reconnecting, a sleeping USB interface, a flaky virtual cable). As a
+/// plain synchronous command this ran on the main thread, so the stall froze the whole
+/// window - Windows would mark it "Not Responding" and ghost its taskbar icon. The timeout
+/// guards against a wedged audio driver hanging enumeration forever: on timeout we return
+/// no devices and the UI falls back to the system default. The detached blocking task is
+/// harmless - it finishes on the blocking pool without ever touching the UI thread.
 #[tauri::command]
-pub fn list_audio_devices() -> Result<AudioDevices, String> {
-    let (inputs, outputs) = crate::listen::list_devices();
-    Ok(AudioDevices { inputs, outputs })
+pub async fn list_audio_devices() -> Result<AudioDevices, String> {
+    let enumerate = tokio::task::spawn_blocking(|| {
+        let (inputs, outputs) = crate::listen::list_devices();
+        AudioDevices { inputs, outputs }
+    });
+    match tokio::time::timeout(std::time::Duration::from_secs(5), enumerate).await {
+        Ok(Ok(devices)) => Ok(devices),
+        // Join error (the blocking task panicked) or timeout: degrade to an empty list
+        // rather than surfacing an error, so the picker just shows "system default".
+        _ => Ok(AudioDevices {
+            inputs: Vec::new(),
+            outputs: Vec::new(),
+        }),
+    }
 }
 
 /// Select the microphone to capture (blank = system default).
@@ -1363,14 +1565,22 @@ pub struct MonitorInfo {
 }
 
 /// List connected monitors (addressed by index) for the screen picker.
+///
+/// Async + `spawn_blocking` so the OS monitor query runs off the main thread, matching
+/// `list_audio_devices` - both fire together when the Assistant tab mounts, and neither
+/// should be able to stall the window's event loop.
 #[tauri::command]
-pub fn list_monitors() -> Result<Vec<MonitorInfo>, String> {
-    Ok((0..crate::screen::count())
-        .map(|id| MonitorInfo {
-            id,
-            name: format!("Display {}", id + 1),
-        })
-        .collect())
+pub async fn list_monitors() -> Result<Vec<MonitorInfo>, String> {
+    tokio::task::spawn_blocking(|| {
+        (0..crate::screen::count())
+            .map(|id| MonitorInfo {
+                id,
+                name: format!("Display {}", id + 1),
+            })
+            .collect()
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 #[derive(Serialize)]
@@ -1430,6 +1640,7 @@ pub async fn answer_screen(
         &b64,
         profile.as_deref(),
         context.as_deref(),
+        None,
     )
     .await
     .map_err(|e| e.to_string())?;
@@ -1437,6 +1648,80 @@ pub async fn answer_screen(
     // Advance the dedup baseline only for a real, answerable screen on the watcher path:
     // never for a forced one-off (so a manual answer can't perturb the watcher) and never
     // for a NONE / empty result (so a between-questions frame can't poison the baseline).
+    let real = {
+        let a = answer.trim();
+        !a.is_empty() && !a.eq_ignore_ascii_case("NONE")
+    };
+    if real && !force {
+        if let Ok(mut last) = state.screen_hash.lock() {
+            *last = Some(cap.hash);
+        }
+    }
+    Ok(ScreenAnswer {
+        changed: true,
+        answer,
+    })
+}
+
+/// Like `answer_screen`, but also reads the focused window's full text via UI Automation
+/// (including content scrolled off-screen) and sends it alongside the screenshot, so a coding
+/// exercise that spills past the visible viewport can still be solved. Meant for the phone
+/// remote: the PC keeps the browser focused while you tap, so the read targets the page, not
+/// JobRadar. A failed or empty text read just falls back to answering from the image alone.
+#[tauri::command]
+pub async fn answer_screen_hybrid(
+    state: State<'_, AppState>,
+    monitor: usize,
+    force: bool,
+    context: Option<String>,
+) -> Result<ScreenAnswer, String> {
+    let cap = crate::screen::capture(monitor).map_err(|e| e.to_string())?;
+
+    {
+        // Same image-hash dedup as answer_screen for the watch path; a forced call bypasses it.
+        const SCREEN_HASH_THRESHOLD: u32 = 4;
+        if !force {
+            let last = state
+                .screen_hash
+                .lock()
+                .map_err(|_| "screen hash poisoned")?;
+            if let Some(prev) = *last {
+                if (prev ^ cap.hash).count_ones() <= SCREEN_HASH_THRESHOLD {
+                    return Ok(ScreenAnswer {
+                        changed: false,
+                        answer: String::new(),
+                    });
+                }
+            }
+        }
+    }
+
+    // Best-effort full text of the focused window. UI Automation is blocking COM, so run it
+    // off the async executor. Any failure (no accessible text, canvas, locked page) just means
+    // we answer from the screenshot alone.
+    let page_text = tokio::task::spawn_blocking(crate::winauto::read_focused_window_text)
+        .await
+        .ok()
+        .and_then(|r| r.ok());
+
+    let (engine, profile) = {
+        let conn = state.db.lock().map_err(|_| "db poisoned")?;
+        (build_engine(&conn)?, interview_profile(&conn))
+    };
+
+    let b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &cap.png);
+    let http = state.http.clone();
+    let answer = crate::assistant::answer_screen(
+        &http,
+        &engine,
+        &b64,
+        profile.as_deref(),
+        context.as_deref(),
+        page_text.as_deref(),
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+
     let real = {
         let a = answer.trim();
         !a.is_empty() && !a.eq_ignore_ascii_case("NONE")
@@ -1538,6 +1823,26 @@ pub fn start_phone_server(state: State<'_, AppState>, app: AppHandle) -> Result<
     };
     *guard = Some(server);
     Ok(info)
+}
+
+/// Check whether Windows networking/firewall is likely to block phone connections, so the
+/// UI can warn up front. Runs the inspection off the main thread (it shells out to
+/// PowerShell on Windows); never errors - an unreadable environment reports "ok".
+#[tauri::command]
+pub async fn phone_network_status() -> Result<crate::netcheck::PhoneNetStatus, String> {
+    tokio::task::spawn_blocking(crate::netcheck::status)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Mark the current network Private and add a LAN-only inbound rule for the companion port.
+/// Prompts the user for elevation (UAC); returns the refreshed status. Off the main thread
+/// because it blocks on the elevated child process.
+#[tauri::command]
+pub async fn phone_allow_firewall() -> Result<crate::netcheck::PhoneNetStatus, String> {
+    tokio::task::spawn_blocking(crate::netcheck::allow)
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -1960,8 +2265,12 @@ pub async fn set_capture_protection(
 ) -> Result<(), String> {
     let monitor = {
         let conn = state.db.lock().map_err(|_| "db poisoned")?;
-        db::set_setting(&conn, "capture_protect", if protected { "true" } else { "false" })
-            .map_err(|e| e.to_string())?;
+        db::set_setting(
+            &conn,
+            "capture_protect",
+            if protected { "true" } else { "false" },
+        )
+        .map_err(|e| e.to_string())?;
         db::get_setting(&conn, "capture_monitor")
             .ok()
             .flatten()

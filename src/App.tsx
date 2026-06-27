@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { Bell, Bot, ChevronDown, ClipboardList, Eye, EyeOff, GraduationCap, HelpCircle, Radar, RefreshCw, Search, Settings, X } from "lucide-react";
+import { Bell, Bot, ChevronDown, ClipboardList, Eye, EyeOff, GraduationCap, HelpCircle, Radar, RefreshCw, Search, Settings, UserRound, X } from "lucide-react";
 import * as api from "./api";
 import { KIND_LABELS, LANG_LABELS, LEVELS, WORKPLACES, type Alert, type AtsScore, type Job, type Source, type Stats } from "./types";
 import { JobCard, htmlToText } from "./components/JobCard";
@@ -12,6 +12,7 @@ import { StudyView } from "./components/StudyView";
 import { AssistantView } from "./components/AssistantView";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { GettingStarted } from "./components/GettingStarted";
+import { ProfileHub } from "./components/ProfileHub";
 
 type View = "search" | "tracker" | "study" | "assistant";
 
@@ -63,6 +64,7 @@ export default function App() {
   // The launch splash (static markup in index.html) is dismissed once the first search
   // resolves, i.e. the UI is populated and interactive.
   const [booted, setBooted] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
 
   const refreshSources = useCallback(async () => setSources(await api.listSources()), []);
   const refreshAlerts = useCallback(async () => setAlerts(await api.listAlerts()), []);
@@ -277,6 +279,7 @@ export default function App() {
         >
           {capHidden ? <EyeOff size={18} /> : <Eye size={18} />}
         </button>
+        <button className="icon-btn" title="Your profiles" onClick={() => setProfileOpen(true)}><UserRound size={18} /></button>
         <button className="icon-btn" title="Getting started" onClick={() => setShowIntro(true)}><HelpCircle size={18} /></button>
         <button className="icon-btn" title="Alerts" onClick={() => setPanel("alerts")}><Bell size={18} /></button>
         <button className="icon-btn" title="Sources" onClick={() => setPanel("sources")}><Settings size={18} /></button>
@@ -291,6 +294,12 @@ export default function App() {
         </button>
         </div>
       </header>
+
+      <ProfileHub
+        open={profileOpen}
+        onClose={() => setProfileOpen(false)}
+        onActiveChange={() => void runSearch()}
+      />
 
       {view === "search" ? (
         <>

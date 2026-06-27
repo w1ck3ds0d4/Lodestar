@@ -770,16 +770,26 @@ pub async fn answer_screen(
     png_base64: &str,
     profile: Option<&str>,
     context: Option<&str>,
+    page_text: Option<&str>,
 ) -> Result<String> {
     // When the live conversation is supplied (capture mode's screen watch), give it
     // to the model so the screen answer is informed by what is being discussed.
-    let prompt = match context.map(str::trim).filter(|c| !c.is_empty()) {
+    let mut prompt = match context.map(str::trim).filter(|c| !c.is_empty()) {
         Some(convo) => format!(
             "Recent interview conversation, for context:\n{convo}\n\nNow look at the screen: find and \
 answer any question or problem visible on it, taking the conversation into account."
         ),
         None => "Find and answer any question or problem visible on this screen.".to_string(),
     };
+    // When page text is available it is the authoritative source: it includes content
+    // scrolled off-screen, which the screenshot (visible viewport only) cannot show. Give the
+    // model both - text for the full problem/code, the image for diagrams or canvas content.
+    if let Some(text) = page_text.map(str::trim).filter(|t| !t.is_empty()) {
+        prompt = format!(
+            "Full text of the focused page, including parts scrolled off-screen - use this as the \
+primary source; the attached screenshot only shows the visible part:\n\n{text}\n\n---\n\n{prompt}"
+        );
+    }
     vision(http, engine, SCREEN_PROMPT, &prompt, png_base64, profile).await
 }
 

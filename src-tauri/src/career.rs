@@ -4,7 +4,7 @@
 use anyhow::Result;
 use rusqlite::{params, Connection};
 
-use crate::model::{Card, Milestone, Session, Skill, Story, Tracked};
+use crate::model::{Card, Milestone, Profile, Session, Skill, Story, Tracked};
 use crate::util::epoch_to_date;
 
 const TRACKED_COLS: &str = "id, kind, title, org, url, status, notes, applied_at, deadline, \
@@ -277,24 +277,27 @@ fn row_to_story(r: &rusqlite::Row) -> rusqlite::Result<Story> {
     })
 }
 
-pub fn list_stories(conn: &Connection) -> Result<Vec<Story>> {
+pub fn list_stories(conn: &Connection, profile_id: i64) -> Result<Vec<Story>> {
     let mut stmt = conn.prepare(
-        "SELECT id, title, content, tags, created_at, updated_at FROM stories ORDER BY updated_at DESC",
+        "SELECT id, title, content, tags, created_at, updated_at FROM stories \
+         WHERE profile_id = ?1 ORDER BY updated_at DESC",
     )?;
-    let rows = stmt.query_map([], row_to_story)?;
+    let rows = stmt.query_map(params![profile_id], row_to_story)?;
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
 }
 
 pub fn add_story(
     conn: &Connection,
     now: i64,
+    profile_id: i64,
     title: &str,
     content: &str,
     tags: &str,
 ) -> Result<i64> {
     conn.execute(
-        "INSERT INTO stories (title, content, tags, created_at, updated_at) VALUES (?1,?2,?3,?4,?4)",
-        params![title, content, tags, now],
+        "INSERT INTO stories (profile_id, title, content, tags, created_at, updated_at) \
+         VALUES (?1,?2,?3,?4,?5,?5)",
+        params![profile_id, title, content, tags, now],
     )?;
     Ok(conn.last_insert_rowid())
 }
@@ -317,6 +320,87 @@ pub fn update_story(
 pub fn remove_story(conn: &Connection, id: i64) -> Result<()> {
     conn.execute("DELETE FROM stories WHERE id=?1", params![id])?;
     Ok(())
+}
+
+// --- Profiles (switchable interview personas) ---
+
+const PROFILE_COLS: &str = "id, name, role, company, resume, notes, created_at, updated_at";
+
+fn row_to_profile(r: &rusqlite::Row) -> rusqlite::Result<Profile> {
+    Ok(Profile {
+        id: r.get(0)?,
+        name: r.get(1)?,
+        role: r.get(2)?,
+        company: r.get(3)?,
+        resume: r.get(4)?,
+        notes: r.get(5)?,
+        created_at: r.get(6)?,
+        updated_at: r.get(7)?,
+    })
+}
+
+pub fn list_profiles(conn: &Connection) -> Result<Vec<Profile>> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {PROFILE_COLS} FROM profiles ORDER BY created_at, id"
+    ))?;
+    let rows = stmt.query_map([], row_to_profile)?;
+    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
+pub fn get_profile(conn: &Connection, id: i64) -> Result<Option<Profile>> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {PROFILE_COLS} FROM profiles WHERE id = ?1"
+    ))?;
+    let mut rows = stmt.query_map(params![id], row_to_profile)?;
+    Ok(rows.next().transpose()?)
+}
+
+pub fn add_profile(conn: &Connection, now: i64, name: &str) -> Result<i64> {
+    conn.execute(
+        "INSERT INTO profiles (name, created_at, updated_at) VALUES (?1, ?2, ?2)",
+        params![name, now],
+    )?;
+    Ok(conn.last_insert_rowid())
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn update_profile(
+    conn: &Connection,
+    now: i64,
+    id: i64,
+    name: &str,
+    role: &str,
+    company: &str,
+    resume: &str,
+    notes: &str,
+) -> Result<()> {
+    conn.execute(
+        "UPDATE profiles SET name=?2, role=?3, company=?4, resume=?5, notes=?6, updated_at=?7 \
+         WHERE id=?1",
+        params![id, name, role, company, resume, notes, now],
+    )?;
+    Ok(())
+}
+
+/// Delete a profile and the stories that belong to it.
+pub fn remove_profile(conn: &Connection, id: i64) -> Result<()> {
+    conn.execute("DELETE FROM stories WHERE profile_id=?1", params![id])?;
+    conn.execute("DELETE FROM profiles WHERE id=?1", params![id])?;
+    Ok(())
+}
+
+pub fn count_profiles(conn: &Connection) -> Result<i64> {
+    Ok(conn.query_row("SELECT COUNT(*) FROM profiles", [], |r| r.get(0))?)
+}
+
+/// The first profile's id (creation order), used as the fallback active profile.
+pub fn first_profile_id(conn: &Connection) -> Option<i64> {
+    conn.query_row(
+        "SELECT id FROM profiles ORDER BY created_at, id LIMIT 1",
+        [],
+        |r| r.get(0),
+    )
+    .ok()
 }
 
 // --- Interview session history ---

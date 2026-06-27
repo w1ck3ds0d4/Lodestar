@@ -12,41 +12,39 @@
       }
       * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
       html, body { margin: 0; height: 100%; }
-      body { background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
-      button, input { font: inherit; }
-      .wrap { display: flex; flex-direction: column; height: 100dvh; }
-      .bar { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--border); background: var(--panel); }
-      .brand { font-weight: 700; }
-      .dot { width: 9px; height: 9px; border-radius: 999px; background: var(--muted); }
-      .dot.on { background: var(--accent2); }
-      .spacer { flex: 1; }
-      button { cursor: pointer; border: 1px solid var(--border); background: var(--panel2); color: var(--text); border-radius: 10px; padding: 9px 12px; }
-      button.primary { border-color: var(--accent); color: var(--accent2); background: rgba(16,185,129,.14); }
-      button.primary.on { background: var(--accent); color: #04231a; }
-      button:disabled { opacity: .5; }
-      .tabs { display: flex; gap: 8px; padding: 10px 14px 0; }
-      .tabs button { flex: 1; }
-      .tabs button.sel { border-color: var(--accent); color: var(--accent2); }
-      .scroll { flex: 1; overflow-y: auto; padding: 12px 14px; -webkit-overflow-scrolling: touch; }
-      .empty { color: var(--muted); text-align: center; margin-top: 24vh; padding: 0 24px; }
-      .qa { border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; margin-bottom: 10px; background: var(--panel); }
-      .qa .q { color: var(--muted); font-size: 13px; margin-bottom: 6px; }
-      .qa .a { white-space: pre-wrap; word-break: break-word; }
-      .seg { margin-bottom: 8px; max-width: 92%; }
-      .seg .who { font-size: 11px; color: var(--muted); }
-      .seg .txt { padding: 8px 11px; border: 1px solid var(--border); border-radius: 12px; background: var(--panel); white-space: pre-wrap; }
-      .seg.you { margin-left: auto; text-align: right; }
-      .seg.you .txt { background: rgba(16,185,129,.12); border-color: var(--accent); }
-      .controls { display: flex; gap: 8px; padding: 10px 14px; border-top: 1px solid var(--border); background: var(--panel); }
-      .caprow { display: flex; gap: 8px; padding: 10px 14px 0; }
-      .caprow button { flex: 1; }
-      button.on { border-color: var(--accent); color: var(--accent2); background: rgba(16,185,129,.14); }
-      .controls input { flex: 1; min-width: 0; background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 10px; padding: 9px 11px; }
+      body { background: var(--bg); color: var(--text); font: 15px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+      button { font: inherit; color: inherit; }
+      .hidden { display: none !important; }
+
+      /* PIN gate */
       .center { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100dvh; gap: 14px; padding: 24px; }
       .center input { width: 200px; text-align: center; font-size: 22px; letter-spacing: 4px; background: var(--panel); border: 1px solid var(--border); color: var(--text); border-radius: 12px; padding: 12px; }
+      .center .connect { border: 1px solid var(--accent); color: var(--accent2); background: rgba(16,185,129,.14); border-radius: 12px; padding: 11px 20px; cursor: pointer; }
+      .brand { font-weight: 700; font-size: 18px; }
+      .hint { color: var(--muted); font-size: 13px; text-align: center; max-width: 260px; }
       .err { color: var(--danger); font-size: 14px; min-height: 18px; }
-      .hint { color: var(--muted); font-size: 13px; text-align: center; }
-      .hidden { display: none !important; }
+
+      /* 8-tile remote: a 2-by-4 grid of big tap targets that fills the screen. */
+      .grid { display: grid; grid-template-columns: 1fr 1fr; grid-auto-rows: 1fr; gap: 12px; padding: 12px; height: 100dvh; }
+      .tile {
+        display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+        border: 1px solid var(--border); background: var(--panel); border-radius: 16px; padding: 14px;
+        font-size: 17px; font-weight: 600; text-align: center; cursor: pointer;
+      }
+      .tile:active { transform: scale(0.97); }
+      .tile:disabled { opacity: 0.5; }
+      .tile.on { border-color: var(--accent); color: var(--accent2); background: rgba(16,185,129,.16); }
+      .tile .st { font-size: 12px; font-weight: 500; color: var(--muted); }
+      .tile.on .st { color: var(--accent2); }
+
+      /* Monitor chooser: shown by Read & Answer when more than one display is connected,
+         so you pick which screen to read from the phone. */
+      .modal { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center; padding: 24px; z-index: 10; }
+      .sheet { width: 100%; max-width: 320px; background: var(--panel); border: 1px solid var(--border); border-radius: 16px; padding: 18px; display: flex; flex-direction: column; gap: 12px; }
+      .sheet-title { font-weight: 700; text-align: center; }
+      .sheet-btns { display: flex; flex-direction: column; gap: 10px; }
+      .sheet-btns button { border: 1px solid var(--accent); color: var(--accent2); background: rgba(16,185,129,.14); border-radius: 12px; padding: 14px; font-size: 16px; font-weight: 600; cursor: pointer; }
+      .sheet-cancel { border: 1px solid var(--border); color: var(--muted); background: var(--panel2); border-radius: 12px; padding: 11px; cursor: pointer; }
     </style>
   </head>
   <body>
@@ -55,84 +53,72 @@
       <div class="brand">JobRadar Remote</div>
       <div class="hint">Scan the QR on your computer to connect, or enter the PIN shown there.</div>
       <input id="pin" inputmode="numeric" maxlength="6" placeholder="••••••" />
-      <button class="primary" id="connect">Connect</button>
+      <button class="connect" id="connect">Connect</button>
       <div class="err" id="gateErr"></div>
     </div>
 
-    <!-- Main -->
-    <div id="app" class="wrap hidden">
-      <div class="bar">
-        <span class="dot" id="dot"></span>
-        <span class="brand">JobRadar</span>
-        <span class="spacer"></span>
-        <button id="capture">Capture</button>
-        <button class="primary" id="listen">Listen</button>
-      </div>
-      <div class="tabs">
-        <button id="tabAnswers" class="sel">Answers</button>
-        <button id="tabDialog">Dialog</button>
-      </div>
-      <div class="scroll" id="answers"><div class="empty">No answers yet.</div></div>
-      <div class="scroll hidden" id="dialog"><div class="empty">No conversation yet.</div></div>
-      <div class="caprow">
-        <button id="watch" title="Watch the screen and auto-answer questions on it">Watch</button>
-        <button id="panels" title="Show or hide the floating overlay panels">Show/Hide</button>
-        <button id="shot" title="Make the overlay panels show up in screenshots and screen shares so you can capture them">Screenshot</button>
-      </div>
-      <div class="controls">
-        <button id="screen" title="Answer the screen">Screen</button>
-        <input id="ask" placeholder="Ask a question…" />
-        <button class="primary" id="send">Ask</button>
+    <!-- 8-tile remote (no nav or bottom bar; every action is one tap) -->
+    <div id="app" class="grid hidden">
+      <button class="tile" id="listen"><span class="tl">Audio Capture</span><span class="st" id="listenSt">Off</span></button>
+      <button class="tile" id="capture"><span class="tl">Screen Capture</span><span class="st" id="captureSt">Off</span></button>
+      <button class="tile" id="opUp"><span class="tl">Opacity +</span><span class="st">More opaque</span></button>
+      <button class="tile" id="opDown"><span class="tl">Opacity −</span><span class="st">More see-through</span></button>
+      <button class="tile" id="screen"><span class="tl">Read &amp; Answer</span><span class="st">Full page + screen</span></button>
+      <button class="tile" id="watch"><span class="tl">Watch Screen</span><span class="st" id="watchSt">Off</span></button>
+      <button class="tile" id="panels"><span class="tl">Hide / Show</span><span class="st">Overlay panels</span></button>
+      <button class="tile" id="ask"><span class="tl">Ask</span><span class="st">Type a question</span></button>
+    </div>
+
+    <!-- Monitor chooser (only shown when more than one display is connected) -->
+    <div id="monModal" class="modal hidden">
+      <div class="sheet">
+        <div class="sheet-title">Answer which screen?</div>
+        <div id="monBtns" class="sheet-btns"></div>
+        <button class="sheet-cancel" id="monCancel">Cancel</button>
       </div>
     </div>
 
     <script>
-      var ws = null, pin = "", tab = "answers", connected = false;
+      var ws = null, pin = "", connected = false, monitors = 1;
       var $ = function (id) { return document.getElementById(id); };
-
       function show(el, on) { el.classList.toggle("hidden", !on); }
-      function esc(s) { return (s || "").replace(/[&<>]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]; }); }
-
-      function renderAnswers(list) {
-        var box = $("answers");
-        if (!list || !list.length) { box.innerHTML = '<div class="empty">No answers yet.</div>'; return; }
-        box.innerHTML = list.map(function (e) {
-          var a = e.pending && !e.a ? "…" : e.a;
-          return '<div class="qa"><div class="q">' + esc(e.q) + '</div><div class="a">' + esc(a) + "</div></div>";
-        }).join("");
-      }
-      function renderDialog(list) {
-        var box = $("dialog");
-        if (!list || !list.length) { box.innerHTML = '<div class="empty">No conversation yet.</div>'; return; }
-        box.innerHTML = list.map(function (s) {
-          var cls = s.role === "you" ? "seg you" : "seg";
-          return '<div class="' + cls + '"><div class="who">' + esc(s.speaker) + '</div><div class="txt">' + esc(s.text) + "</div></div>";
-        }).join("");
-        box.scrollTop = box.scrollHeight;
-      }
-
-      function setTab(t) {
-        tab = t;
-        $("tabAnswers").classList.toggle("sel", t === "answers");
-        $("tabDialog").classList.toggle("sel", t === "dialog");
-        show($("answers"), t === "answers");
-        show($("dialog"), t === "dialog");
-      }
-      $("tabAnswers").onclick = function () { setTab("answers"); };
-      $("tabDialog").onclick = function () { setTab("dialog"); };
 
       function cmd(obj) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj)); }
-      $("listen").onclick = function () { cmd({ cmd: "listen" }); };
-      $("screen").onclick = function () { cmd({ cmd: "answer_screen" }); };
+      function setOn(tile, stEl, on) { tile.classList.toggle("on", !!on); if (stEl) stEl.textContent = on ? "On" : "Off"; }
+
+      // Each tile sends one command. The desktop executes it and broadcasts back state,
+      // which lights up the toggle tiles (Audio Capture, Screen Capture, Watch).
+      $("listen").onclick  = function () { cmd({ cmd: "listen" }); };
       $("capture").onclick = function () { cmd({ cmd: "capture" }); };
-      $("watch").onclick = function () { cmd({ cmd: "watch" }); };
-      $("panels").onclick = function () { cmd({ cmd: "panels" }); };
-      $("shot").onclick = function () { cmd({ cmd: "protect" }); };
-      $("send").onclick = function () {
-        var v = $("ask").value.trim();
-        if (v) { cmd({ cmd: "ask", text: v }); $("ask").value = ""; }
+      $("opUp").onclick    = function () { cmd({ cmd: "opacity", dir: "up" }); };
+      $("opDown").onclick  = function () { cmd({ cmd: "opacity", dir: "down" }); };
+      $("screen").onclick  = function () {
+        // One display: answer it straight away. More than one: ask which screen first.
+        if (monitors > 1) openMonModal();
+        else cmd({ cmd: "answer_screen", monitor: 0 });
       };
-      $("ask").addEventListener("keydown", function (e) { if (e.key === "Enter") $("send").click(); });
+      $("watch").onclick   = function () { cmd({ cmd: "watch" }); };
+      $("panels").onclick  = function () { cmd({ cmd: "panels" }); };
+      $("ask").onclick     = function () {
+        var v = (window.prompt("Ask a question") || "").trim();
+        if (v) cmd({ cmd: "ask", text: v });
+      };
+
+      // Build one button per connected display, each answering that monitor.
+      function openMonModal() {
+        var box = $("monBtns");
+        box.innerHTML = "";
+        for (var i = 0; i < monitors; i++) {
+          (function (idx) {
+            var b = document.createElement("button");
+            b.textContent = "Display " + (idx + 1);
+            b.onclick = function () { cmd({ cmd: "answer_screen", monitor: idx }); show($("monModal"), false); };
+            box.appendChild(b);
+          })(i);
+        }
+        show($("monModal"), true);
+      }
+      $("monCancel").onclick = function () { show($("monModal"), false); };
 
       function connect() {
         pin = $("pin").value.trim();
@@ -147,22 +133,14 @@
             if (msg.ok) { connected = true; show($("gate"), false); show($("app"), true); }
             else { $("gateErr").textContent = "Wrong PIN."; ws.close(); }
           } else if (msg.type === "state") {
-            $("dot").classList.toggle("on", !!msg.listening);
-            $("listen").classList.toggle("on", !!msg.listening);
-            $("listen").textContent = msg.listening ? "Stop" : "Listen";
-            $("capture").classList.toggle("on", !!msg.capture);
-            $("capture").textContent = msg.capture ? "Exit" : "Capture";
-            $("watch").classList.toggle("on", !!msg.watching);
-            // protect === false means the panels are visible to screen capture (you can
-            // screenshot them); highlight the button so it's clear they're exposed.
-            $("shot").classList.toggle("on", msg.protect === false);
-            $("shot").textContent = msg.protect === false ? "Screenshot on" : "Screenshot";
-            renderAnswers(msg.answers);
-            renderDialog(msg.segments);
+            setOn($("listen"), $("listenSt"), msg.listening);
+            setOn($("capture"), $("captureSt"), msg.capture);
+            setOn($("watch"), $("watchSt"), msg.watching);
+            if (typeof msg.monitors === "number") monitors = msg.monitors;
           }
         };
         ws.onclose = function () {
-          if (connected) { $("gateErr").textContent = ""; show($("app"), false); show($("gate"), true); $("gateErr").textContent = "Disconnected - reconnect."; }
+          if (connected) { show($("app"), false); show($("gate"), true); $("gateErr").textContent = "Disconnected - reconnect."; }
           connected = false;
         };
         ws.onerror = function () { $("gateErr").textContent = "Could not connect."; };
