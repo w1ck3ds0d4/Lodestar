@@ -1181,8 +1181,9 @@ export function AssistantView() {
       protect: captureProtect,
       segments: segs,
       answers: qa.map((e) => ({ q: e.q, a: e.a, pending: e.pending })),
+      opacity,
     };
-  }, [listening, watchingScreen, captureProtect, segments, live, qa]);
+  }, [listening, watchingScreen, captureProtect, segments, live, qa, opacity]);
   const pushCaptureState = useCallback(() => void emit("capture-state", captureState()), [captureState]);
 
   const startCapture = async () => {
@@ -1235,7 +1236,9 @@ export function AssistantView() {
         void readPage();
         break;
       case "opacity":
-        if (typeof c.value === "number") void api.setCaptureOpacity(c.value).catch(() => {});
+        // Route through the shared opacity state so the app slider, the phone, and the panels
+        // all move together (the effect applies it to both the window and the capture panels).
+        if (typeof c.value === "number") setOpacity(Math.min(1, Math.max(0.3, c.value)));
         break;
       case "ask":
         if (c.text) void ask(c.text, transcriptText(segments));
@@ -2278,7 +2281,18 @@ export function AssistantView() {
 
             <aside className="assistant-col col-code">
               <section className="col-section live-answers">
-                <div className="pane-title">Live answers</div>
+                <div className="pane-title">
+                  <span>Live answers</span>
+                  {qa.length > 0 && (
+                    <button
+                      className="link-btn"
+                      onClick={() => setQa([])}
+                      title="Clear the answers and the code/math derived from them"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
                 <div className="col-scroll">
                   {qa.length === 0 ? (
                     <div className="pane-empty">

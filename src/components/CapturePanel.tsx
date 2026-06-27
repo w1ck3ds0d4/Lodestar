@@ -83,6 +83,11 @@ export function CapturePanel({ kind }: { kind: PanelKind }) {
     };
   }, []);
 
+  // Keep the local opacity slider in step with externally-driven changes (app slider, phone).
+  useEffect(() => {
+    if (typeof st.opacity === "number") setOpacity(st.opacity);
+  }, [st.opacity]);
+
   // Keep the transcript pinned to the newest line as it grows.
   useEffect(() => {
     if (kind !== "answers") bodyRef.current?.scrollTo({ top: bodyRef.current.scrollHeight });

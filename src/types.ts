@@ -175,6 +175,8 @@ export interface CaptureState {
   protect?: boolean;
   segments: CaptureSegment[];
   answers: CaptureAnswer[];
+  // Overlay translucency (0.3..1), shared so every opacity control stays in sync.
+  opacity?: number;
 }
 // A command sent from an overlay window (panel or control bar) to the main window.
 export interface CaptureCommand {

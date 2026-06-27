@@ -1528,6 +1528,10 @@ select:focus {
   text-transform: uppercase;
   letter-spacing: 0.5px;
   color: var(--muted);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
 .transcript-head {
   display: flex;
