@@ -168,6 +168,14 @@ export interface CaptureAnswer {
   a: string;
   pending: boolean;
 }
+// One activity-log line, so the user can see what each action/shortcut actually did
+// (e.g. that "watch" and "read page" are different) and whether it fired.
+export interface LogEntry {
+  id: number;
+  ts: number;
+  kind: string;
+  msg: string;
+}
 export interface CaptureState {
   listening: boolean;
   watching: boolean;
@@ -177,6 +185,8 @@ export interface CaptureState {
   answers: CaptureAnswer[];
   // Overlay translucency (0.3..1), shared so every opacity control stays in sync.
   opacity?: number;
+  // Recent activity log, mirrored to the floating Log panel.
+  log?: LogEntry[];
 }
 // A command sent from an overlay window (panel or control bar) to the main window.
 export interface CaptureCommand {
@@ -190,6 +200,7 @@ export interface CaptureCommand {
     | "answer_screen"
     | "protect"
     | "read_page"
+    | "read_full_page"
     | "opacity";
   text?: string;
   value?: number; // for "opacity" (0..1)

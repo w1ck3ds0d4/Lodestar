@@ -62,7 +62,7 @@ candle-transformers = "0.10.2"
 tokenizers = "0.23.1"
 
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.58", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_System_Com"] }
+windows = { version = "0.58", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_UI_Accessibility", "Win32_System_Com", "Win32_System_Threading"] }
 # High-level Windows UI Automation wrapper used to read the focused window's text
 # (problem statement + editor) when a page disables copy/select.
 uiautomation = "0.16"

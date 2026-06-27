@@ -26,6 +26,7 @@ import {
   MessageSquare,
   Monitor,
   ScanSearch,
+  ScrollText,
   Send,
   ShieldCheck,
   SlidersHorizontal,
@@ -47,6 +48,7 @@ import {
   type CaptureSegment,
   type CaptureState,
   type DeepgramBalance,
+  type LogEntry,
   type MonitorInfo,
   type PhoneInfo,
   type PhoneNetStatus,
@@ -90,6 +92,13 @@ function fmtSegTime(ts: number): string {
   const d = new Date(ts);
   const p = (n: number, w = 2) => String(n).padStart(w, "0");
   return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${p(d.getMilliseconds(), 3)}`;
+}
+
+// HH:MM:SS for an activity-log entry (no milliseconds - these are user actions, not turns).
+function fmtLogClock(ts: number): string {
+  const d = new Date(ts);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 }
 
 // Stable colour bucket for a speaker name (so each speaker keeps one chip hue).
@@ -297,6 +306,13 @@ export function AssistantView() {
 
   const [monitors, setMonitors] = useState<MonitorInfo[]>([]);
   const [screenMonitor, setScreenMonitor] = useState(0);
+  // Activity log: a running record of what each action/shortcut did, so it's clear that e.g.
+  // "watch" (screenshots + answers) and "read page" (text -> context) are different things.
+  const [logEntries, setLogEntries] = useState<LogEntry[]>([]);
+  const logIdRef = useRef(0);
+  const pushLog = useCallback((kind: string, msg: string) => {
+    setLogEntries((prev) => [{ id: ++logIdRef.current, ts: Date.now(), kind, msg }, ...prev].slice(0, 60));
+  }, []);
   const [watchingScreen, setWatchingScreen] = useState(false);
   const [screenError, setScreenError] = useState("");
   const [screenNote, setScreenNote] = useState("");
@@ -395,30 +411,39 @@ export function AssistantView() {
 
   // Append a captured chunk (clipboard or focused-window text) to the assistant's
   // context, de-duplicating repeats and capping the total so it stays affordable.
-  const addToContext = useCallback((raw: string, label: string) => {
-    const text = raw.trim();
-    if (!text) {
-      setPageMsg(`${label}: nothing captured.`);
+  const addToContext = useCallback(
+    (raw: string, label: string) => {
+      const text = raw.trim();
+      if (!text) {
+        setPageMsg(`${label}: nothing captured.`);
+        pushLog("read", `${label}: nothing captured`);
+        window.setTimeout(() => setPageMsg(""), 3500);
+        return;
+      }
+      const prev = contextRef.current;
+      if (prev.includes(text)) {
+        setPageMsg(`${label}: already attached. Copy another part (e.g. the code editor) to add more.`);
+        pushLog("read", `${label}: already attached (deduped, ${text.length.toLocaleString()} chars)`);
+        window.setTimeout(() => setPageMsg(""), 3500);
+        return;
+      }
+      let next = prev ? prev + "\n\n----- next section -----\n\n" + text : text;
+      let note = `${label}: attached ${text.length.toLocaleString()} chars as context.`;
+      if (next.length > 40000) {
+        next = next.slice(0, 40000) + "\n\n[...truncated]";
+        note += " (context capped at 40k)";
+      }
+      contextRef.current = next;
+      setContext(next);
+      setPageMsg(note);
+      pushLog(
+        "read",
+        `${label}: +${text.length.toLocaleString()} chars to context (total ${next.length.toLocaleString()})`,
+      );
       window.setTimeout(() => setPageMsg(""), 3500);
-      return;
-    }
-    const prev = contextRef.current;
-    if (prev.includes(text)) {
-      setPageMsg(`${label}: already attached. Copy another part (e.g. the code editor) to add more.`);
-      window.setTimeout(() => setPageMsg(""), 3500);
-      return;
-    }
-    let next = prev ? prev + "\n\n----- next section -----\n\n" + text : text;
-    let note = `${label}: attached ${text.length.toLocaleString()} chars as context.`;
-    if (next.length > 40000) {
-      next = next.slice(0, 40000) + "\n\n[...truncated]";
-      note += " (context capped at 40k)";
-    }
-    contextRef.current = next;
-    setContext(next);
-    setPageMsg(note);
-    window.setTimeout(() => setPageMsg(""), 3500);
-  }, []);
+    },
+    [pushLog],
+  );
 
   // Overlay window controls. Applied after mount (hwnd() errors before the window
   // exists); opacity is debounced so dragging the slider doesn't spam invoke. The same
@@ -588,22 +613,30 @@ export function AssistantView() {
         // The backend already suppresses a perceptually-unchanged screen (res.changed),
         // so don't also dedup on answer TEXT here - two different questions can share a
         // terse answer ("True", "O(n)"), and that would wrongly swallow the second.
+        const tag = hybrid ? "Read & answer" : force ? "Answer screen" : "Watch tick";
         if (res.changed && a && a.toUpperCase() !== "NONE") {
           setQa((prev) => [{ id: ++idRef.current, q: "From your screen", a, pending: false }, ...prev]);
           setScreenNote("");
+          pushLog("screen", `${tag}: answered (Display ${mon + 1})`);
+        } else if (!res.changed) {
+          // Skipped because the screen looks the same as the last one answered.
+          pushLog("screen", `${tag}: screen unchanged, skipped (Display ${mon + 1})`);
+          if (force) setScreenNote(`No question found on Display ${mon + 1}.`);
         } else if (force) {
           // A forced answer that finds nothing is otherwise a silent no-op. Say so (and which
           // display was read) so it's clear the screen was analyzed, not that the feature broke.
           setScreenNote(`No question found on Display ${mon + 1}.`);
+          pushLog("screen", `${tag}: no question on screen (Display ${mon + 1})`);
         }
         setScreenError("");
       } catch (e) {
         setScreenError(String(e));
+        pushLog("screen", `Screen read failed: ${String(e)}`);
       } finally {
         screenBusy.current = false;
       }
     },
-    [screenMonitor, transcriptText],
+    [screenMonitor, transcriptText, pushLog],
   );
 
   // Read page: pull whatever the user copied (Ctrl+A, Ctrl+C) from the clipboard and
@@ -624,6 +657,22 @@ export function AssistantView() {
       setPageMsg("Couldn't read the clipboard: " + String(e));
     }
   }, [addToContext]);
+
+  // Read full page: pull the WHOLE focused page via accessibility (including content scrolled
+  // off-screen) and attach it as context (dedupe + accumulate via addToContext - no answer, so
+  // it can't duplicate responses). Reads the last external window, so it works from an in-app
+  // button or the phone even though those focus JobRadar itself.
+  const readFullPage = useCallback(async () => {
+    setPageMsg("Reading the full page...");
+    try {
+      const text = await api.readActivePage();
+      addToContext(text, "Read page");
+    } catch (e) {
+      setPageMsg("Read full page: " + String(e));
+      pushLog("read", "Read full page failed: " + String(e));
+      window.setTimeout(() => setPageMsg(""), 4000);
+    }
+  }, [addToContext, pushLog]);
 
   // Snip & explain: capture the chosen monitor, then crop a region to explain.
   const startSnip = useCallback(async () => {
@@ -653,13 +702,17 @@ export function AssistantView() {
   // Auto-watch: poll the chosen screen while the toggle is on.
   useEffect(() => {
     if (!watchingScreen) return;
+    pushLog("watch", "Watch screen: ON (re-reads the screen every 6s)");
     // Re-arming should answer whatever is on screen right now, even if it matches the
     // last session's screen. Force the first tick so it bypasses the backend dedup;
     // subsequent ticks poll normally.
     void runScreen(true);
     const t = setInterval(() => void runScreen(false), 6000);
-    return () => clearInterval(t);
-  }, [watchingScreen, runScreen]);
+    return () => {
+      clearInterval(t);
+      pushLog("watch", "Watch screen: OFF");
+    };
+  }, [watchingScreen, runScreen, pushLog]);
 
   // Ask the assistant; the answer streams into its Q&A card (newest first).
   const ask = useCallback(async (q: string, ctx: string | null) => {
@@ -788,6 +841,7 @@ export function AssistantView() {
     add(
       listen<string>("window-text-error", (e) => {
         setPageMsg("Read window: " + String(e.payload));
+        pushLog("read", "Read window failed: " + String(e.payload));
         window.setTimeout(() => setPageMsg(""), 4000);
       }),
     );
@@ -795,7 +849,7 @@ export function AssistantView() {
       cancelled = true;
       unlisteners.forEach((u) => u());
     };
-  }, [addToContext]);
+  }, [addToContext, pushLog]);
 
   // Auto-answer: send each batch of new dialog segments to the model, which answers
   // it if it is a question or problem (in any language) and replies "NONE" otherwise.
@@ -1212,6 +1266,11 @@ export function AssistantView() {
         // Reposition a panel (or "all") from the phone: snap to a corner/center or nudge.
         if (captureOn) void api.moveCapturePanel(c.panel || "all", c.snap, c.nudge).catch(() => {});
         break;
+      case "read_full_page":
+        // Read the whole page (incl. scrolled-off text) into context. Focus-safe: the phone
+        // doesn't change PC focus, and the read targets the last external window regardless.
+        void readFullPage();
+        break;
       case "watch":
         setWatchingScreen((v) => !v);
         break;
@@ -1241,8 +1300,9 @@ export function AssistantView() {
       segments: segs,
       answers: qa.map((e) => ({ q: e.q, a: e.a, pending: e.pending })),
       opacity,
+      log: logEntries.slice(0, 40),
     };
-  }, [listening, watchingScreen, captureProtect, segments, live, qa, opacity]);
+  }, [listening, watchingScreen, captureProtect, segments, live, qa, opacity, logEntries]);
   const pushCaptureState = useCallback(() => void emit("capture-state", captureState()), [captureState]);
 
   const startCapture = async () => {
@@ -1294,6 +1354,9 @@ export function AssistantView() {
       case "read_page":
         void readPage();
         break;
+      case "read_full_page":
+        void readFullPage();
+        break;
       case "opacity":
         // Route through the shared opacity state so the app slider, the phone, and the panels
         // all move together (the effect applies it to both the window and the capture panels).
@@ -1327,7 +1390,13 @@ export function AssistantView() {
       }),
     );
     // Global keyboard shortcuts arrive as a command object and dispatch like a phone tap.
-    add(listen<{ cmd?: string; dir?: string }>("hotkey", (e) => phoneCmdRef.current(e.payload)));
+    add(
+      listen<{ cmd?: string; dir?: string }>("hotkey", (e) => {
+        const c = e.payload || {};
+        pushLog("shortcut", `Hotkey: ${c.cmd ?? "?"}${c.dir ? " " + c.dir : ""}`);
+        phoneCmdRef.current(c);
+      }),
+    );
     add(listen<CaptureCommand>("capture-command", (e) => captureCmdRef.current(e.payload)));
     return () => {
       cancelled = true;
@@ -1653,16 +1722,24 @@ export function AssistantView() {
                 </button>
                 <button
                   className="btn-ghost"
-                  onClick={() => void readPage()}
-                  title="Copy the page in your browser (Ctrl+A, Ctrl+C) then click to attach it as context - including off-screen content. On a coding page, also click into the editor, copy the code, and click again to add it. Each click appends; use Clear to reset."
+                  onClick={() => void readFullPage()}
+                  title="Read the WHOLE focused page automatically via accessibility - including content scrolled off-screen - and attach it as context. No copy needed; it reads the window you were last on, dedupes, and accumulates (so it never duplicates answers or loses context)."
                 >
-                  <ClipboardPaste size={14} /> Read page
+                  <ScrollText size={14} /> Read full page
+                </button>
+                <button
+                  className="btn-ghost"
+                  onClick={() => void readPage()}
+                  title="Manual fallback: copy the page in your browser (Ctrl+A, Ctrl+C) then click to attach it as context. On a coding page, also copy the editor's code and click again to add it. Each click appends; use Clear to reset."
+                >
+                  <ClipboardPaste size={14} /> Read page (clipboard)
                 </button>
               </div>
               {pageMsg && <div className="muted sm">{pageMsg}</div>}
               <div className="muted sm">
-                Can't copy (proctored / locked page)? Press <span className="kbd">Alt+Shift+R</span> while the
-                page is focused to read it via accessibility (Windows).
+                <b>Read full page</b> reads the whole page (incl. off-screen) automatically - good for
+                proctored / locked pages. <span className="kbd">Alt+Shift+R</span> does the same while the
+                page is focused (Windows).
               </div>
               {screenError && <div className="assistant-error">{screenError}</div>}
               {screenNote && !screenError && <div className="muted sm">{screenNote}</div>}
@@ -1920,6 +1997,36 @@ export function AssistantView() {
                     Panic hide: press <span className="kbd">Alt+Shift+H</span> anytime to hide/show the window
                     instantly (Windows).
                   </div>
+                </div>
+              </details>
+
+              <details className="acc">
+                <summary>
+                  <ScrollText size={15} /> Activity log
+                </summary>
+                <div className="acc-body">
+                  <div className="muted sm">
+                    What each shortcut/action did. Watch = re-reads the screen and answers; Read page / window
+                    = attaches the page text as context (no answer).
+                  </div>
+                  {logEntries.length === 0 ? (
+                    <div className="muted sm">No activity yet - try a shortcut or screen action.</div>
+                  ) : (
+                    <>
+                      <div className="act-log">
+                        {logEntries.map((l) => (
+                          <div className={"act-log-row k-" + l.kind} key={l.id}>
+                            <span className="act-log-time">{fmtLogClock(l.ts)}</span>
+                            <span className="act-log-kind">{l.kind}</span>
+                            <span className="act-log-msg">{l.msg}</span>
+                          </div>
+                        ))}
+                      </div>
+                      <button className="btn-ghost sm" onClick={() => setLogEntries([])}>
+                        Clear log
+                      </button>
+                    </>
+                  )}
                 </div>
               </details>
 

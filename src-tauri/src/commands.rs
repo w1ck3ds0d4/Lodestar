@@ -2325,3 +2325,15 @@ pub fn move_capture_panel(
 ) -> Result<(), String> {
     crate::capture::move_panel(&app, &panel, snap.as_deref(), nudge.as_deref())
 }
+
+/// Read the full text of the page the user is on (including content scrolled off-screen) and
+/// return it, so the caller can attach it to context. Works from an in-app button or the
+/// phone - which would otherwise focus JobRadar - by targeting the last external window the
+/// user was on. UI Automation can be slow, so it runs on a blocking thread.
+#[tauri::command]
+pub async fn read_active_page() -> Result<String, String> {
+    tokio::task::spawn_blocking(crate::winauto::read_active_page)
+        .await
+        .map_err(|e| format!("read task failed: {e}"))?
+        .map_err(|e| e.to_string())
+}

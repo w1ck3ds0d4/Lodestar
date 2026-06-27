@@ -181,6 +181,10 @@ pub fn run() {
                 });
             }
 
+            // Track the last external foreground window so a "Read full page" button/phone tap
+            // can read the page the user was on (clicking a button focuses JobRadar itself).
+            winauto::start_foreground_tracker();
+
             // System-tray icon: a discreet, always-available access point - especially when
             // the window is hidden from the taskbar and Alt+Tab. Left-click (or the Show item)
             // reveals and focuses the window; right-click opens a small menu.
@@ -359,6 +363,7 @@ pub fn run() {
             commands::set_capture_opacity,
             commands::toggle_capture_panels,
             commands::move_capture_panel,
+            commands::read_active_page,
             commands::set_capture_protection,
             window_fx::set_window_opacity,
             window_fx::set_window_always_on_top,

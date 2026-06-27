@@ -34,6 +34,7 @@
       .tile:active { transform: scale(0.97); }
       .tile:disabled { opacity: 0.5; }
       .tile.on { border-color: var(--accent); color: var(--accent2); background: rgba(16,185,129,.16); }
+      .tile-wide { grid-column: 1 / -1; }
       .tile .st { font-size: 12px; font-weight: 500; color: var(--muted); }
       .tile.on .st { color: var(--accent2); }
 
@@ -78,6 +79,7 @@
       <button class="tile" id="watch"><span class="tl">Watch Screen</span><span class="st" id="watchSt">Off</span></button>
       <button class="tile" id="panels"><span class="tl">Panels</span><span class="st">Move / show-hide</span></button>
       <button class="tile" id="ask"><span class="tl">Ask</span><span class="st">Type a question</span></button>
+      <button class="tile tile-wide" id="readpage"><span class="tl">Read full page</span><span class="st">Attach the whole page (incl. scrolled) as context</span></button>
     </div>
 
     <!-- Monitor chooser (only shown when more than one display is connected) -->
@@ -137,6 +139,7 @@
         else cmd({ cmd: "answer_screen", monitor: 0 });
       };
       $("watch").onclick   = function () { cmd({ cmd: "watch" }); };
+      $("readpage").onclick = function () { cmd({ cmd: "read_full_page" }); };
       $("panels").onclick  = function () { show($("panelModal"), true); };
       $("ask").onclick     = function () {
         var v = (window.prompt("Ask a question") || "").trim();

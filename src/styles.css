@@ -3230,6 +3230,94 @@ textarea:focus {
   font-size: 11px;
   margin-top: 4px;
 }
+/* Activity log panel: one line per action (newest first) so it's clear what each fired. */
+.cap-log {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 11.5px;
+}
+.cap-log-row {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  gap: 6px;
+  align-items: baseline;
+}
+.cap-log-time {
+  color: var(--muted);
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  font-size: 10.5px;
+  white-space: nowrap;
+}
+.cap-log-kind {
+  font-size: 9.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 700;
+  color: var(--muted);
+  align-self: center;
+}
+.cap-log-row.k-screen .cap-log-kind {
+  color: var(--accent-2);
+}
+.cap-log-row.k-read .cap-log-kind {
+  color: #d19a66;
+}
+.cap-log-row.k-watch .cap-log-kind {
+  color: #61afef;
+}
+.cap-log-row.k-shortcut .cap-log-kind {
+  color: #c678dd;
+}
+.cap-log-msg {
+  color: var(--text);
+  word-break: break-word;
+}
+/* Main-window Activity log (Setup accordion): same data, roomier. */
+.act-log {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 240px;
+  overflow-y: auto;
+  margin: 8px 0;
+  font-size: 12px;
+}
+.act-log-row {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  gap: 8px;
+  align-items: baseline;
+}
+.act-log-time {
+  color: var(--muted);
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.act-log-kind {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 700;
+  color: var(--muted);
+}
+.act-log-row.k-screen .act-log-kind {
+  color: var(--accent-2);
+}
+.act-log-row.k-read .act-log-kind {
+  color: #d19a66;
+}
+.act-log-row.k-watch .act-log-kind {
+  color: #61afef;
+}
+.act-log-row.k-shortcut .act-log-kind {
+  color: #c678dd;
+}
+.act-log-msg {
+  color: var(--text);
+  word-break: break-word;
+}
 /* Transcript */
 .cap-seg {
   display: flex;

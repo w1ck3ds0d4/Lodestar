@@ -12,6 +12,7 @@ import {
   MessageSquare,
   Minus,
   ScanSearch,
+  ScrollText,
   Send,
   Sparkles,
   Square,
@@ -21,7 +22,14 @@ import type { CaptureState } from "../types";
 import { Answer } from "./MarkdownAnswer";
 import { sendCaptureCommand as send, usePersistedBounds } from "../lib/captureWindow";
 
-export type PanelKind = "answers" | "transcript" | "controls" | "shortcuts";
+export type PanelKind = "answers" | "transcript" | "controls" | "shortcuts" | "log";
+
+// Wall-clock HH:MM:SS for an activity-log entry's timestamp.
+const fmtClock = (ts: number) => {
+  const d = new Date(ts);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+};
 
 const EMPTY: CaptureState = { listening: false, watching: false, segments: [], answers: [] };
 
@@ -101,15 +109,17 @@ export function CapturePanel({ kind }: { kind: PanelKind }) {
     if (typeof st.opacity === "number") setOpacity(st.opacity);
   }, [st.opacity]);
 
-  // Keep the transcript pinned to the newest line as it grows.
+  // Keep the transcript pinned to the newest line as it grows (Answers and Log are
+  // newest-first at the top, so they should not jump to the bottom).
   useEffect(() => {
-    if (kind !== "answers") bodyRef.current?.scrollTo({ top: bodyRef.current.scrollHeight });
+    if (kind === "transcript") bodyRef.current?.scrollTo({ top: bodyRef.current.scrollHeight });
   }, [st.segments, kind]);
 
   const meta = useMemo(() => {
     if (kind === "answers") return { title: "Answers", Icon: Sparkles };
     if (kind === "transcript") return { title: "Transcript", Icon: MessageSquare };
     if (kind === "shortcuts") return { title: "Shortcuts", Icon: Keyboard };
+    if (kind === "log") return { title: "Log", Icon: ScrollText };
     return { title: "Controls", Icon: ScanSearch };
   }, [kind]);
 
@@ -216,10 +226,19 @@ export function CapturePanel({ kind }: { kind: PanelKind }) {
                   </button>
                   <button
                     className="cap-btn"
-                    onClick={() => send({ cmd: "read_page" })}
-                    title="Read the page you copied (Ctrl+A then Ctrl+C in the exercise) as context - captures the whole page, including off-screen text"
+                    onClick={() => send({ cmd: "read_full_page" })}
+                    title="Read the WHOLE focused page automatically via accessibility - including off-screen content - and attach it as context. No copy needed; dedupes and accumulates."
                   >
-                    <ClipboardPaste size={14} /> Read page
+                    <ScrollText size={14} /> Read full page
+                  </button>
+                </div>
+                <div className="cap-btns">
+                  <button
+                    className="cap-btn"
+                    onClick={() => send({ cmd: "read_page" })}
+                    title="Manual fallback: read the page you copied (Ctrl+A then Ctrl+C) from the clipboard as context"
+                  >
+                    <ClipboardPaste size={14} /> Read page (clipboard)
                   </button>
                 </div>
                 <label className="cap-opacity">
@@ -266,6 +285,21 @@ export function CapturePanel({ kind }: { kind: PanelKind }) {
                 <div className="cap-sc-note">Global - they fire even while your call app is focused.</div>
               </div>
             )}
+
+            {kind === "log" &&
+              (!st.log || st.log.length === 0 ? (
+                <div className="cap-empty">No activity yet.</div>
+              ) : (
+                <div className="cap-log">
+                  {st.log.map((l) => (
+                    <div className={"cap-log-row k-" + l.kind} key={l.id}>
+                      <span className="cap-log-time">{fmtClock(l.ts)}</span>
+                      <span className="cap-log-kind">{l.kind}</span>
+                      <span className="cap-log-msg">{l.msg}</span>
+                    </div>
+                  ))}
+                </div>
+              ))}
           </div>
 
           <div className="cap-grip" onMouseDown={startResize} title="Drag to resize" />
