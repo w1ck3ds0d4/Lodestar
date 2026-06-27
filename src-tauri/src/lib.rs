@@ -203,6 +203,8 @@ pub fn run() {
             commands::create_profile,
             commands::update_profile,
             commands::delete_profile,
+            commands::get_job_prefs,
+            commands::set_job_prefs,
             commands::application_doc,
             commands::score_ats,
             commands::practice_question,

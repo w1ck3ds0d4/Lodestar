@@ -529,6 +529,22 @@ pub fn delete_profile(state: State<'_, AppState>, id: i64) -> Result<(), String>
     Ok(())
 }
 
+/// The active profile's saved job-search preferences (opaque JSON the frontend owns).
+#[tauri::command]
+pub fn get_job_prefs(state: State<'_, AppState>) -> Result<String, String> {
+    let conn = state.db.lock().map_err(|_| "db poisoned")?;
+    let pid = active_profile_id(&conn).ok_or("no active profile")?;
+    crate::career::get_job_prefs(&conn, pid).map_err(|e| e.to_string())
+}
+
+/// Save job-search preferences (JSON) onto the active profile.
+#[tauri::command]
+pub fn set_job_prefs(state: State<'_, AppState>, prefs: String) -> Result<(), String> {
+    let conn = state.db.lock().map_err(|_| "db poisoned")?;
+    let pid = active_profile_id(&conn).ok_or("no active profile")?;
+    crate::career::set_job_prefs(&conn, pid, &prefs).map_err(|e| e.to_string())
+}
+
 /// Draft a STAR story from the user's rough notes (uses the configured answer engine).
 #[tauri::command]
 pub async fn draft_story(state: State<'_, AppState>, notes: String) -> Result<String, String> {

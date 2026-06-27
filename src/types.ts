@@ -545,6 +545,18 @@ export interface Profile {
   updatedAt: number;
 }
 
+// Per-profile job-search preferences: the saved search filters that travel with a profile.
+export interface JobPrefs {
+  workplaces: string[];
+  levels: string[];
+  remoteEligible: boolean;
+  relocationOnly: boolean;
+  postedWithin: number | null;
+  minSalary: number | null;
+  langs: string[];
+  minMatch: number | null;
+}
+
 // Result of the networking/firewall pre-flight for the phone server (Windows).
 export interface PhoneNetStatus {
   ok: boolean; // nothing obvious should block the phone

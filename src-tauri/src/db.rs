@@ -174,6 +174,7 @@ pub fn init(path: &Path) -> Result<Connection> {
             company TEXT NOT NULL DEFAULT '',
             resume TEXT NOT NULL DEFAULT '',
             notes TEXT NOT NULL DEFAULT '',
+            job_prefs TEXT NOT NULL DEFAULT '',
             created_at INTEGER NOT NULL,
             updated_at INTEGER NOT NULL
         );
@@ -213,6 +214,8 @@ pub fn init(path: &Path) -> Result<Connection> {
     // (context_* settings + any pre-existing stories) folds into a "Default" profile.
     ensure_column(&conn, "stories", "profile_id", "INTEGER")?;
     migrate_profiles(&conn)?;
+    // Per-profile job-search preferences (JSON blob), added after the profiles table shipped.
+    ensure_column(&conn, "profiles", "job_prefs", "TEXT NOT NULL DEFAULT ''")?;
     seed_defaults(&conn)?;
     Ok(conn)
 }

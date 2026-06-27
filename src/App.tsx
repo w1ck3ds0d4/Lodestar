@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   Bell,
@@ -25,6 +25,7 @@ import {
   type Alert,
   type AtsScore,
   type Job,
+  type JobPrefs,
   type Source,
   type Stats,
 } from "./types";
@@ -90,6 +91,10 @@ export default function App() {
   // resolves, i.e. the UI is populated and interactive.
   const [booted, setBooted] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  // Per-profile filter sync guards: prefsReady gates saving until the first load completes;
+  // skipNextSave swallows the save that a programmatic load (mount or switch) would trigger.
+  const prefsReady = useRef(false);
+  const skipNextSave = useRef(false);
 
   const refreshSources = useCallback(async () => setSources(await api.listSources()), []);
   const refreshAlerts = useCallback(async () => setAlerts(await api.listAlerts()), []);
@@ -134,6 +139,74 @@ export default function App() {
     minMatch,
     workCountry,
   ]);
+
+  // --- Per-profile job preferences: each profile remembers its own search filters. ---
+  // Apply a saved prefs JSON blob to the filter state (missing keys fall back to defaults),
+  // marking skipNextSave so the resulting change is not echoed straight back to disk.
+  const applyPrefs = useCallback((json: string) => {
+    let p: Partial<JobPrefs> = {};
+    try {
+      p = json ? (JSON.parse(json) as Partial<JobPrefs>) : {};
+    } catch {
+      p = {};
+    }
+    skipNextSave.current = true;
+    setWorkplaces(p.workplaces ?? []);
+    setLevels(p.levels ?? []);
+    setRemoteEligible(p.remoteEligible ?? false);
+    setRelocationOnly(p.relocationOnly ?? false);
+    setPostedWithin(p.postedWithin ?? null);
+    setMinSalary(p.minSalary ?? null);
+    setLangs(p.langs ?? []);
+    setMinMatch(p.minMatch ?? null);
+  }, []);
+
+  // Load the active profile's saved filters once on mount.
+  useEffect(() => {
+    void (async () => {
+      try {
+        applyPrefs(await api.getJobPrefs());
+      } catch {
+        /* no profile yet; leave the defaults */
+      }
+      prefsReady.current = true;
+    })();
+  }, [applyPrefs]);
+
+  // Persist filter changes back onto the active profile (debounced). Skips the initial load
+  // and any programmatic apply, so loading a profile never echoes a save.
+  useEffect(() => {
+    if (skipNextSave.current) {
+      skipNextSave.current = false;
+      return;
+    }
+    if (!prefsReady.current) return;
+    const t = setTimeout(() => {
+      const prefs: JobPrefs = {
+        workplaces,
+        levels,
+        remoteEligible,
+        relocationOnly,
+        postedWithin,
+        minSalary,
+        langs,
+        minMatch,
+      };
+      void api.setJobPrefs(JSON.stringify(prefs)).catch(() => {});
+    }, 400);
+    return () => clearTimeout(t);
+  }, [workplaces, levels, remoteEligible, relocationOnly, postedWithin, minSalary, langs, minMatch]);
+
+  // When the active profile changes (from the Profile hub), load its filters and re-search:
+  // the resume changed too, so match scores differ even if the filters happen to be the same.
+  const onProfileChanged = useCallback(async () => {
+    try {
+      applyPrefs(await api.getJobPrefs());
+    } catch {
+      /* ignore */
+    }
+    void runSearch();
+  }, [applyPrefs, runSearch]);
 
   useEffect(() => {
     void refreshSources();
@@ -350,7 +423,7 @@ export default function App() {
       <ProfileHub
         open={profileOpen}
         onClose={() => setProfileOpen(false)}
-        onActiveChange={() => void runSearch()}
+        onActiveChange={() => void onProfileChanged()}
       />
 
       {view === "search" ? (

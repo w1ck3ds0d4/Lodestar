@@ -215,6 +215,9 @@ export const updateProfile = (
   notes: string,
 ) => invoke<void>("update_profile", { id, name, role, company, resume, notes });
 export const deleteProfile = (id: number) => invoke<void>("delete_profile", { id });
+// Per-profile job-search preferences, stored as an opaque JSON string the frontend owns.
+export const getJobPrefs = () => invoke<string>("get_job_prefs");
+export const setJobPrefs = (prefs: string) => invoke<void>("set_job_prefs", { prefs });
 
 // --- Application kit: tailor resume/cover/ATS/thank-you to a job ---
 // kind: "bullets" | "cover" | "ats" | "thanks"; input is the JD (or transcript for "thanks").

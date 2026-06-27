@@ -403,6 +403,25 @@ pub fn first_profile_id(conn: &Connection) -> Option<i64> {
     .ok()
 }
 
+/// The profile's job-search preferences as an opaque JSON string ("" when unset).
+pub fn get_job_prefs(conn: &Connection, id: i64) -> Result<String> {
+    Ok(conn
+        .query_row(
+            "SELECT job_prefs FROM profiles WHERE id=?1",
+            params![id],
+            |r| r.get(0),
+        )
+        .unwrap_or_default())
+}
+
+pub fn set_job_prefs(conn: &Connection, id: i64, prefs: &str) -> Result<()> {
+    conn.execute(
+        "UPDATE profiles SET job_prefs=?2 WHERE id=?1",
+        params![id, prefs],
+    )?;
+    Ok(())
+}
+
 // --- Interview session history ---
 
 fn row_to_session(r: &rusqlite::Row) -> rusqlite::Result<Session> {
