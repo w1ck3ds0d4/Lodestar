@@ -10,7 +10,10 @@ pub fn set_window_opacity(window: tauri::WebviewWindow, opacity: f64) -> Result<
 
 /// Apply `opacity` (0.0..=1.0) to a specific window. Reusable from other modules (e.g.
 /// the capture overlay sets every panel's opacity together).
-pub(crate) fn apply_window_opacity(window: &tauri::WebviewWindow, opacity: f64) -> Result<(), String> {
+pub(crate) fn apply_window_opacity(
+    window: &tauri::WebviewWindow,
+    opacity: f64,
+) -> Result<(), String> {
     let alpha = (opacity.clamp(0.0, 1.0) * 255.0).round() as u8;
     set_opacity_impl(window, alpha)
 }

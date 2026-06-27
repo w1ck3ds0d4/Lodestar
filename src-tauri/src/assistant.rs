@@ -85,11 +85,22 @@ async fn complete(
     user_text: String,
     on_token: Option<&(dyn Fn(&str) + Send + Sync)>,
 ) -> Result<String> {
-    complete_content(http, api_key, model, system, json!(user_text), 4096, true, on_token).await
+    complete_content(
+        http,
+        api_key,
+        model,
+        system,
+        json!(user_text),
+        4096,
+        true,
+        on_token,
+    )
+    .await
 }
 
 /// Like [`complete`] but takes the user message `content` directly, so callers can
 /// pass a multimodal content array (e.g. an image block plus text).
+#[allow(clippy::too_many_arguments)]
 async fn complete_content(
     http: &reqwest::Client,
     api_key: &str,
@@ -701,8 +712,17 @@ pub async fn auto_answer(
         Engine::Claude { api_key, model } => {
             // Live path: skip adaptive thinking (faster first token) and bound the
             // output budget - these are concise mid-call answers or "NONE".
-            complete_content(http, api_key, model, &system, json!(user_text), 2048, false, on_token)
-                .await
+            complete_content(
+                http,
+                api_key,
+                model,
+                &system,
+                json!(user_text),
+                2048,
+                false,
+                on_token,
+            )
+            .await
         }
         Engine::Ollama { url, model } => {
             ollama_chat(http, url, model, &system, user_text, None, on_token).await

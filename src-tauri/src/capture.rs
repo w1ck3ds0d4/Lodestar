@@ -32,6 +32,7 @@ const PANELS: &[(&str, &str, f64, f64, f64, f64)] = &[
 /// from the taskbar, and (when `protected`) excluded from screen capture/sharing.
 /// `protected` is normally true so the panels stay invisible to a shared/recorded
 /// screen; the user can turn it off to screenshot the panels themselves.
+#[allow(clippy::too_many_arguments)]
 fn build_overlay(
     app: &AppHandle,
     label: &str,
@@ -60,7 +61,11 @@ fn build_overlay(
 }
 
 /// Geometry of one capture window, captured so it can be recreated in place.
-pub type PanelGeom = (&'static str, tauri::PhysicalPosition<i32>, tauri::PhysicalSize<u32>);
+pub type PanelGeom = (
+    &'static str,
+    tauri::PhysicalPosition<i32>,
+    tauri::PhysicalSize<u32>,
+);
 
 /// Snapshot each open capture window's geometry and destroy it, returning the geometry.
 /// Recreating (rather than toggling `set_content_protected` on a live window) is the
@@ -130,7 +135,13 @@ fn tauri_bounds(app: &AppHandle, w: u32, h: u32) -> Option<(f64, f64, f64, f64, 
         .find(|m| m.size().width == w && m.size().height == h)
         .or_else(|| mons.first())?;
     let (p, sz) = (m.position(), m.size());
-    Some((p.x as f64, p.y as f64, sz.width as f64, sz.height as f64, m.scale_factor()))
+    Some((
+        p.x as f64,
+        p.y as f64,
+        sz.width as f64,
+        sz.height as f64,
+        m.scale_factor(),
+    ))
 }
 
 /// Open (or re-focus) the control bar and overlay panels. Idempotent. `protected` sets
@@ -138,7 +149,11 @@ fn tauri_bounds(app: &AppHandle, w: u32, h: u32) -> Option<(f64, f64, f64, f64, 
 /// chosen monitor's physical bounds + scale in Tauri's coordinate space (see
 /// [`monitor_bounds`]). New windows are built hidden, positioned on that monitor via
 /// `Position::Physical`, then shown - so they never flash on, or stick to, the wrong one.
-pub fn open_panels(app: &AppHandle, protected: bool, mon: (f64, f64, f64, f64, f64)) -> Result<(), String> {
+pub fn open_panels(
+    app: &AppHandle,
+    protected: bool,
+    mon: (f64, f64, f64, f64, f64),
+) -> Result<(), String> {
     let (mx, my, mw, mh, scale) = mon;
     // Physical top-left for a window of LOGICAL size (lw,lh) at LOGICAL offset (lx,ly)
     // within the monitor, clamped to the monitor's physical box (so nothing opens
@@ -147,7 +162,10 @@ pub fn open_panels(app: &AppHandle, protected: bool, mon: (f64, f64, f64, f64, f
         let (pw, ph) = (lw * scale, lh * scale);
         let px = (mx + lx * scale).min(mx + (mw - pw).max(0.0)).max(mx);
         let py = (my + ly * scale).min(my + (mh - ph).max(0.0)).max(my);
-        tauri::PhysicalPosition { x: px.round() as i32, y: py.round() as i32 }
+        tauri::PhysicalPosition {
+            x: px.round() as i32,
+            y: py.round() as i32,
+        }
     };
     // Place a freshly-built (hidden) window on the chosen monitor, then reveal it.
     let setup = |label: &str, pos: tauri::PhysicalPosition<i32>| {
