@@ -861,7 +861,16 @@ export function AssistantView() {
         }
       })();
     };
-    const t = setTimeout(fire, 400);
+    // Adaptive debounce so we answer the WHOLE question, not a half-delivered one. Deepgram
+    // ends an utterance after ~0.5s of silence (endpointing=500), so a long question lands as
+    // several "Them:" segments with pauses between them. If the interviewer's line is the
+    // newest, wait for the rest of it before answering - but if it already ends in a question
+    // mark she is likely done, so answer sooner. Once the candidate has started replying (the
+    // newest line is "You:"), the question is complete, so fire quickly.
+    const lastSeg = pending[pending.length - 1];
+    const themTail = lastSeg?.role === "them" ? lastSeg.text.trim() : "";
+    const waitMs = themTail ? (/[?!]\s*$/.test(themTail) ? 800 : 1400) : 400;
+    const t = setTimeout(fire, waitMs);
     return () => clearTimeout(t);
   }, [segments, autoAnswer, listening, transcriptText]);
 

@@ -1500,10 +1500,19 @@ select:focus {
 .assistant-answer--live {
   font-size: 15.5px;
   line-height: 1.6;
-  max-width: 62ch;
 }
+/* Cap the width of spoken PROSE only (one sentence per line), not code blocks - a 62ch cap
+   on the whole answer was clipping code and forcing horizontal scroll. */
 .assistant-answer--live p {
   margin: 0.7em 0;
+  max-width: 62ch;
+}
+/* In the narrow live / teleprompter panels, wrap long code lines so the whole snippet is
+   readable without horizontal scrolling - essential for reading a coding exercise to type it
+   out. Indentation (leading whitespace) is preserved; only over-long lines wrap. */
+.assistant-answer--live pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 .assistant-answer--live p:first-child {
   color: var(--accent-2);
