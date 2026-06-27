@@ -2147,7 +2147,6 @@ select:focus {
 .card-head {
   display: flex;
   align-items: flex-start;
-  justify-content: space-between;
   gap: 12px;
 }
 
@@ -2158,6 +2157,10 @@ select:focus {
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
+  /* Take the leftover width so the trailing badges (source, match, ...) cluster on the
+     right instead of being spread across the row by the old space-between. */
+  flex: 1;
+  min-width: 0;
 }
 
 .link-title {
