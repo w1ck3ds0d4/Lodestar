@@ -118,8 +118,12 @@ export const setWorkCountry = (code: string) => invoke<void>("set_work_country",
 
 export const listSources = () => invoke<Source[]>("list_sources");
 
-export const addSource = (kind: string, label: string, config: Record<string, string>, minIntervalSecs: number) =>
-  invoke<number>("add_source", { kind, label, config, minIntervalSecs });
+export const addSource = (
+  kind: string,
+  label: string,
+  config: Record<string, string>,
+  minIntervalSecs: number,
+) => invoke<number>("add_source", { kind, label, config, minIntervalSecs });
 
 export const updateSource = (
   id: number,
@@ -160,8 +164,13 @@ export const addTracked = (t: {
   sourceJobId: number | null;
 }) => invoke<number>("add_tracked", t);
 
-export const updateTracked = (id: number, status: string, notes: string, progress: number, deadline: string | null) =>
-  invoke<void>("update_tracked", { id, status, notes, progress, deadline });
+export const updateTracked = (
+  id: number,
+  status: string,
+  notes: string,
+  progress: number,
+  deadline: string | null,
+) => invoke<void>("update_tracked", { id, status, notes, progress, deadline });
 
 export const removeTracked = (id: number) => invoke<void>("remove_tracked", { id });
 export const setTrackedNextAction = (id: number, text: string) =>
@@ -169,7 +178,8 @@ export const setTrackedNextAction = (id: number, text: string) =>
 export const prepApplication = (id: number, title: string, org: string) =>
   invoke<string>("prep_application", { id, title, org });
 
-export const addMilestone = (trackedId: number, label: string) => invoke<number>("add_milestone", { trackedId, label });
+export const addMilestone = (trackedId: number, label: string) =>
+  invoke<number>("add_milestone", { trackedId, label });
 export const setMilestone = (id: number, done: boolean) => invoke<void>("set_milestone", { id, done });
 export const removeMilestone = (id: number) => invoke<void>("remove_milestone", { id });
 
@@ -235,8 +245,7 @@ export const sessionReview = (transcript: string, answers: string) =>
 // resolves to the file path written.
 export const exportSession = (id: number) => invoke<string>("export_session", { id });
 // Export every saved session; resolves to { dir, count }.
-export const exportAllSessions = () =>
-  invoke<{ dir: string; count: number }>("export_all_sessions");
+export const exportAllSessions = () => invoke<{ dir: string; count: number }>("export_all_sessions");
 
 // --- Screen privacy (exclude window from screen capture / sharing) ---
 export const setScreenPrivacy = (enabled: boolean) => invoke<void>("set_screen_privacy", { enabled });
@@ -256,9 +265,7 @@ export const setInterviewContext = (role: string, company: string, resume: strin
   invoke<void>("set_interview_context", { role, company, resume, notes });
 // Streamed answer chunks from `ask_assistant` (over a Tauri channel).
 export type AnswerChunk =
-  | { kind: "delta"; text: string }
-  | { kind: "done"; text: string }
-  | { kind: "error"; message: string };
+  { kind: "delta"; text: string } | { kind: "done"; text: string } | { kind: "error"; message: string };
 export const askAssistant = (question: string, context: string | null, onEvent: Channel<AnswerChunk>) =>
   invoke<void>("ask_assistant", { question, context, onEvent });
 // Streams the auto-answer over a channel (delta/done/error), same shape as askAssistant.
@@ -301,12 +308,10 @@ export const phoneNetworkStatus = () => invoke<PhoneNetStatus>("phone_network_st
 export const phoneAllowFirewall = () => invoke<PhoneNetStatus>("phone_allow_firewall");
 
 // --- Capture mode (floating overlay panels) ---
-export const openCapturePanels = (monitor: number) =>
-  invoke<void>("open_capture_panels", { monitor });
+export const openCapturePanels = (monitor: number) => invoke<void>("open_capture_panels", { monitor });
 export const closeCapturePanels = () => invoke<void>("close_capture_panels");
 // Translucency (0..1) of the whole capture overlay (bar + panels) together.
-export const setCaptureOpacity = (opacity: number) =>
-  invoke<void>("set_capture_opacity", { opacity });
+export const setCaptureOpacity = (opacity: number) => invoke<void>("set_capture_opacity", { opacity });
 // Whether the capture panels are hidden from screen capture/sharing. Pass false to make
 // them appear in screenshots/shares (so you can capture the panels); true re-hides them.
 export const setCaptureProtection = (protected_: boolean) =>
@@ -327,5 +332,4 @@ export const explainRegion = (pngBase64: string) => invoke<string>("explain_regi
 
 // --- Overlay window controls (translucency + always-on-top; Windows-backed) ---
 export const setWindowOpacity = (opacity: number) => invoke<void>("set_window_opacity", { opacity });
-export const setWindowAlwaysOnTop = (onTop: boolean) =>
-  invoke<void>("set_window_always_on_top", { onTop });
+export const setWindowAlwaysOnTop = (onTop: boolean) => invoke<void>("set_window_always_on_top", { onTop });

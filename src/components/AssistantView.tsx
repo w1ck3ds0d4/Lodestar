@@ -114,7 +114,8 @@ function snippetGroups(qa: QA[]): SnippetGroup[] {
     let i = 0;
     while ((m = codeRe.exec(e.a))) {
       const body = m[2].replace(/\n+$/, "");
-      if (body.trim()) items.push({ key: `${e.id}-c${i++}`, md: "```" + (m[1] || "") + "\n" + body + "\n```" });
+      if (body.trim())
+        items.push({ key: `${e.id}-c${i++}`, md: "```" + (m[1] || "") + "\n" + body + "\n```" });
     }
     const mathRe = /\$\$([\s\S]*?)\$\$/g;
     let j = 0;
@@ -480,7 +481,9 @@ export function AssistantView() {
         return;
       }
       setContextResume(text);
-      setResumeMsg(`Imported ${text.length.toLocaleString()} chars from ${file.name} - review and Save context.`);
+      setResumeMsg(
+        `Imported ${text.length.toLocaleString()} chars from ${file.name} - review and Save context.`,
+      );
     } catch (err) {
       setResumeMsg(String(err));
     }
@@ -516,8 +519,14 @@ export function AssistantView() {
   );
   useEffect(() => {
     void loadSettings();
-    void api.listAudioDevices().then(setDevices).catch(() => {});
-    void api.listMonitors().then(setMonitors).catch(() => {});
+    void api
+      .listAudioDevices()
+      .then(setDevices)
+      .catch(() => {});
+    void api
+      .listMonitors()
+      .then(setMonitors)
+      .catch(() => {});
     refreshOllamaModels();
     loadProfiles();
   }, [loadSettings, refreshOllamaModels, loadProfiles]);
@@ -663,16 +672,14 @@ export function AssistantView() {
   useEffect(() => {
     let cancelled = false;
     const unlisteners: UnlistenFn[] = [];
-    const add = (p: Promise<UnlistenFn>) =>
-      void p.then((u) => (cancelled ? u() : unlisteners.push(u)));
+    const add = (p: Promise<UnlistenFn>) => void p.then((u) => (cancelled ? u() : unlisteners.push(u)));
     add(
       listen<{ role: "you" | "them"; speaker: string; text: string; final?: boolean; speechFinal?: boolean }>(
         "transcript",
         (e) => {
           const { role, speaker, text, final, speechFinal } = e.payload;
           const slot = liveRef.current[role];
-          const sync = () =>
-            setLive({ you: { ...liveRef.current.you }, them: { ...liveRef.current.them } });
+          const sync = () => setLive({ you: { ...liveRef.current.you }, them: { ...liveRef.current.them } });
           if (final === false) {
             // Interim refinement: replace the live tail (don't touch finalized text).
             slot.int = text;
@@ -714,10 +721,7 @@ export function AssistantView() {
           const acc = (slot.fin + " " + slot.int).trim();
           if (acc) {
             const speaker = slot.spk || (role === "them" ? "Them" : "You");
-            setSegments((s) => [
-              ...s,
-              { id: ++segIdRef.current, role, speaker, text: acc },
-            ]);
+            setSegments((s) => [...s, { id: ++segIdRef.current, role, speaker, text: acc }]);
           }
         });
         liveRef.current = emptyLive();
@@ -768,54 +772,56 @@ export function AssistantView() {
     // Debounce ~400ms so a burst of speech-final segments coalesces into one call
     // instead of firing (and often retracting a NONE) on every interim finalization.
     const fire = () => {
-    const newSegs = segments.slice(answeredIdx.current);
-    if (newSegs.length === 0) return;
-    const latest = transcriptText(newSegs).trim();
-    if (latest.length < 2) return;
-    const ctx = transcriptText(segments.slice(0, answeredIdx.current));
-    answeredIdx.current = segments.length;
-    void (async () => {
-      const id = ++idRef.current;
-      let acc = "";
-      let created = false;
-      // Letters-only upper, so we can tell the "NONE" sentinel from a real answer even
-      // through punctuation/whitespace, and hold the bubble until the stream diverges.
-      const stripped = (s: string) => s.replace(/[^a-z]/gi, "").toUpperCase();
-      const looksNone = (s: string) => "NONE".startsWith(stripped(s));
-      const channel = new Channel<api.AnswerChunk>();
-      channel.onmessage = (msg) => {
-        if (msg.kind === "delta") {
-          acc += msg.text;
-          if (!created) {
-            if (looksNone(acc)) return; // still ambiguous (N / NO / NON / NONE)
-            created = true;
-            setQa((prev) => [{ id, q: latest, a: acc, pending: true }, ...prev]);
-          } else {
-            setQa((prev) => prev.map((e) => (e.id === id ? { ...e, a: acc, pending: true } : e)));
+      const newSegs = segments.slice(answeredIdx.current);
+      if (newSegs.length === 0) return;
+      const latest = transcriptText(newSegs).trim();
+      if (latest.length < 2) return;
+      const ctx = transcriptText(segments.slice(0, answeredIdx.current));
+      answeredIdx.current = segments.length;
+      void (async () => {
+        const id = ++idRef.current;
+        let acc = "";
+        let created = false;
+        // Letters-only upper, so we can tell the "NONE" sentinel from a real answer even
+        // through punctuation/whitespace, and hold the bubble until the stream diverges.
+        const stripped = (s: string) => s.replace(/[^a-z]/gi, "").toUpperCase();
+        const looksNone = (s: string) => "NONE".startsWith(stripped(s));
+        const channel = new Channel<api.AnswerChunk>();
+        channel.onmessage = (msg) => {
+          if (msg.kind === "delta") {
+            acc += msg.text;
+            if (!created) {
+              if (looksNone(acc)) return; // still ambiguous (N / NO / NON / NONE)
+              created = true;
+              setQa((prev) => [{ id, q: latest, a: acc, pending: true }, ...prev]);
+            } else {
+              setQa((prev) => prev.map((e) => (e.id === id ? { ...e, a: acc, pending: true } : e)));
+            }
+          } else if (msg.kind === "done") {
+            const full = (msg.text || acc).trim();
+            if (!full || stripped(full) === "NONE") {
+              if (created) setQa((prev) => prev.filter((e) => e.id !== id)); // retract a NONE
+              return;
+            }
+            if (!created) {
+              created = true;
+              setQa((prev) => [{ id, q: latest, a: full, pending: false }, ...prev]);
+            } else {
+              setQa((prev) => prev.map((e) => (e.id === id ? { ...e, a: full, pending: false } : e)));
+            }
+          } else if (created) {
+            setQa((prev) =>
+              prev.map((e) => (e.id === id ? { ...e, error: msg.message, pending: false } : e)),
+            );
           }
-        } else if (msg.kind === "done") {
-          const full = (msg.text || acc).trim();
-          if (!full || stripped(full) === "NONE") {
-            if (created) setQa((prev) => prev.filter((e) => e.id !== id)); // retract a NONE
-            return;
-          }
-          if (!created) {
-            created = true;
-            setQa((prev) => [{ id, q: latest, a: full, pending: false }, ...prev]);
-          } else {
-            setQa((prev) => prev.map((e) => (e.id === id ? { ...e, a: full, pending: false } : e)));
-          }
-        } else if (created) {
-          setQa((prev) => prev.map((e) => (e.id === id ? { ...e, error: msg.message, pending: false } : e)));
+          // delta/done errors before a bubble exists are dropped so the loop keeps going.
+        };
+        try {
+          await api.autoAnswer(ctx, latest, channel);
+        } catch {
+          /* ignore transient auto-answer errors so the loop keeps going */
         }
-        // delta/done errors before a bubble exists are dropped so the loop keeps going.
-      };
-      try {
-        await api.autoAnswer(ctx, latest, channel);
-      } catch {
-        /* ignore transient auto-answer errors so the loop keeps going */
-      }
-    })();
+      })();
     };
     const t = setTimeout(fire, 400);
     return () => clearTimeout(t);
@@ -1067,7 +1073,10 @@ export function AssistantView() {
       setPhone(await api.startPhoneServer());
       // Surface a firewall/network warning up front, rather than after the user fails to
       // connect from their phone and blames the app. Non-blocking - the server is already up.
-      void api.phoneNetworkStatus().then(setPhoneNet).catch(() => setPhoneNet(null));
+      void api
+        .phoneNetworkStatus()
+        .then(setPhoneNet)
+        .catch(() => setPhoneNet(null));
     } catch (e) {
       setPhoneErr(String(e));
     } finally {
@@ -1392,689 +1401,656 @@ export function AssistantView() {
           </div>
 
           <div className={"assistant-body pane-" + pane + (settingsOpen ? " settings-open" : "")}>
-          <section className="assistant-col col-settings">
-          {/* Drawer header - only exists in the narrow layout where Setup is a drawer.
+            <section className="assistant-col col-settings">
+              {/* Drawer header - only exists in the narrow layout where Setup is a drawer.
               In the wide layout Setup is a permanent column, so there's nothing to close. */}
-          {narrow && (
-            <div className="drawer-head">
-              <span>Setup</span>
-              <button className="icon-btn sm" title="Close" onClick={() => setSettingsOpen(false)}>
-                <X size={16} />
-              </button>
-            </div>
-          )}
-          {needsDeepgramKey ? (
-            <div className="add-source onboard">
-              <h3>
-                <Ear size={16} /> Deepgram API key
-              </h3>
-              <p className="muted sm">
-                The Cloud engine sends captured audio to Deepgram to transcribe it, so audio leaves your
-                machine. Get a key at console.deepgram.com - or switch the engine to Local above to keep
-                everything on-device.
-              </p>
-              <div className="add-row">
-                <input
-                  type="password"
-                  placeholder="Deepgram API key"
-                  value={sttKeyInput}
-                  onChange={(e) => setSttKeyInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") void saveSttKey();
-                  }}
-                />
-                <button className="btn-open" onClick={saveSttKey} disabled={savingStt || !sttKeyInput.trim()}>
-                  {savingStt ? "Saving..." : "Save key"}
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div className="listen-bar">
-              <button className={"btn-listen primary" + (listening ? " on" : "")} onClick={toggleListen}>
-                {listening ? <Square size={15} /> : <Ear size={15} />}
-                {listening ? "Stop listening" : "Listen to call"}
-              </button>
-              <button
-                className={"btn-listen" + (captureOn ? " on" : "")}
-                onClick={() => (captureOn ? void stopCapture() : void startCapture())}
-                title="Pop out floating, always-on-top panels you can drag over your call (starts listening)"
-              >
-                {captureOn ? <Square size={15} /> : <LayoutDashboard size={15} />}
-                {captureOn ? "Exit capture" : "Capture mode"}
-              </button>
-              <label className="auto-toggle muted sm">
-                <input
-                  type="checkbox"
-                  checked={autoAnswer}
-                  onChange={(e) => setAutoAnswer(e.target.checked)}
-                />
-                Auto-answer questions
-              </label>
-            </div>
-          )}
-
-          {captureErr && <div className="assistant-error">{captureErr}</div>}
-          {captureOn && (
-            <>
-              <div className="muted sm">
-                A control bar sits at the top of your screen (listen, screenshot, show/hide). Panels are
-                floating and always-on-top - drag them anywhere. Press <span className="kbd">Alt+Shift+C</span>{" "}
-                to hide or show the panels instantly.
-              </div>
-              <label className="auto-toggle muted sm">
-                <input
-                  type="checkbox"
-                  checked={!captureProtect}
-                  onChange={(e) => void changeCaptureProtect(!e.target.checked)}
-                />
-                Show panels in screenshots / screen share
-              </label>
-              {!captureProtect && (
-                <div className="assistant-warn sm">
-                  Panels are now visible to screen capture, so you can screenshot them - but anyone you
-                  share your screen with will see them too. Turn this off again before the interview.
+              {narrow && (
+                <div className="drawer-head">
+                  <span>Setup</span>
+                  <button className="icon-btn sm" title="Close" onClick={() => setSettingsOpen(false)}>
+                    <X size={16} />
+                  </button>
                 </div>
               )}
-            </>
-          )}
-          {listenError && <div className="assistant-error">{listenError}</div>}
-
-          {listening && (
-            <div className={"capture-diag" + (level.peak < 0.005 ? " warn" : " ok")}>
-              <div className="capture-diag-head">
-                <span className="muted sm">Capture diagnostics</span>
-                <span className="muted sm">
-                  peak {level.peak.toFixed(3)} · {Math.round(level.buffered / 1000)}k buffered
-                </span>
-              </div>
-              <div className="level-track">
-                <div
-                  className={"level-fill" + (level.peak >= 0.005 ? " live" : "")}
-                  style={{ width: `${Math.min(100, Math.round(level.peak * 140))}%` }}
-                />
-              </div>
-              {captureInfo.length === 0 ? (
-                <div className="muted sm">Opening capture device…</div>
-              ) : (
-                captureInfo.map((d) => (
-                  <div key={d.role} className="muted sm">
-                    {d.role}: <strong>{d.name}</strong> · {Math.round(d.rate / 1000)}kHz · {d.channels}ch
+              {needsDeepgramKey ? (
+                <div className="add-source onboard">
+                  <h3>
+                    <Ear size={16} /> Deepgram API key
+                  </h3>
+                  <p className="muted sm">
+                    The Cloud engine sends captured audio to Deepgram to transcribe it, so audio leaves your
+                    machine. Get a key at console.deepgram.com - or switch the engine to Local above to keep
+                    everything on-device.
+                  </p>
+                  <div className="add-row">
+                    <input
+                      type="password"
+                      placeholder="Deepgram API key"
+                      value={sttKeyInput}
+                      onChange={(e) => setSttKeyInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") void saveSttKey();
+                      }}
+                    />
+                    <button
+                      className="btn-open"
+                      onClick={saveSttKey}
+                      disabled={savingStt || !sttKeyInput.trim()}
+                    >
+                      {savingStt ? "Saving..." : "Save key"}
+                    </button>
                   </div>
-                ))
-              )}
-              <div className="diag-hint muted sm">
-                {level.peak < 0.005
-                  ? "No sound reaching this device. If capturing System audio, set the Output device above to the one your call plays through."
-                  : "Audio is being captured. If nothing transcribes, it's the transcription engine, not capture."}
-              </div>
-            </div>
-          )}
-
-          <div className="listen-bar screen-bar">
-            <span className="muted sm">
-              <Monitor size={14} /> Screen:
-            </span>
-            <select
-              value={screenMonitor}
-              onChange={(e) => setScreenMonitor(Number(e.target.value))}
-              disabled={watchingScreen}
-              title="Which monitor to read questions from"
-            >
-              {monitors.length === 0 ? (
-                <option value={0}>Primary display</option>
-              ) : (
-                monitors.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.name}
-                  </option>
-                ))
-              )}
-            </select>
-            <button
-              className={"btn-listen" + (watchingScreen ? " on" : "")}
-              onClick={() => setWatchingScreen((v) => !v)}
-            >
-              {watchingScreen ? <Square size={15} /> : <ScanSearch size={15} />}
-              {watchingScreen ? "Stop watching" : "Watch screen"}
-            </button>
-            <button className="btn-ghost" onClick={() => void runScreen(true)} disabled={watchingScreen}>
-              Answer screen now
-            </button>
-            <button className="btn-ghost" onClick={() => void startSnip()} disabled={watchingScreen} title="Snip a region of the screen and explain it">
-              <Crop size={14} /> Snip
-            </button>
-            <button
-              className="btn-ghost"
-              onClick={() => void readPage()}
-              title="Copy the page in your browser (Ctrl+A, Ctrl+C) then click to attach it as context - including off-screen content. On a coding page, also click into the editor, copy the code, and click again to add it. Each click appends; use Clear to reset."
-            >
-              <ClipboardPaste size={14} /> Read page
-            </button>
-          </div>
-          {pageMsg && <div className="muted sm">{pageMsg}</div>}
-          <div className="muted sm">
-            Can't copy (proctored / locked page)? Press <span className="kbd">Alt+Shift+R</span> while the page
-            is focused to read it via accessibility (Windows).
-          </div>
-          {screenError && <div className="assistant-error">{screenError}</div>}
-          {screenNote && !screenError && <div className="muted sm">{screenNote}</div>}
-
-          <details className="acc" open>
-            <summary><SlidersHorizontal size={15} /> Setup</summary>
-            <div className={"acc-body" + (listening ? " is-listening" : "")}>
-
-            <div className="setup-row">
-              <span className="setup-label">Answer</span>
-              <div className="seg" role="group" aria-label="Answer engine">
-                <button
-                  className={"seg-btn" + (answerEngine === "claude" ? " on" : "")}
-                  aria-pressed={answerEngine === "claude"}
-                  title="Claude (cloud) - sharpest answers; uses your Anthropic API key"
-                  onClick={() => void changeAnswerEngine("claude")}
-                >
-                  Claude
-                </button>
-                <button
-                  className={"seg-btn" + (answerEngine === "ollama" ? " on" : "")}
-                  aria-pressed={answerEngine === "ollama"}
-                  title="Local (Ollama) - free + private, runs on your machine; requires Ollama"
-                  onClick={() => void changeAnswerEngine("ollama")}
-                >
-                  Local
-                </button>
-              </div>
-            </div>
-
-            <div className="setup-row">
-              <span className="setup-label">Answer style</span>
-              <select
-                value={answerStyle}
-                title="How answers are formatted. Auto lets the model pick per question."
-                onChange={(e) => void changeStyle(e.target.value)}
-              >
-                {ANSWER_STYLES.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.label} - {s.note}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {answerEngine === "ollama" && (
-              <div className="setup-row">
-                <span className="setup-label">Ollama model</span>
-                {ollamaModels.length > 0 ? (
-                  <select
-                    value={ollamaModel}
-                    onChange={(e) => void changeOllamaModel(e.target.value)}
-                    title="Local model used to answer (run `ollama pull <model>` to add more)"
-                  >
-                    <option value="">Select a model…</option>
-                    {ollamaModels.map((m) => (
-                      <option key={m} value={m}>
-                        {m}
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  <span className="muted sm">
-                    No models found - start Ollama, then <code>ollama pull llama3.1</code>.
-                  </span>
-                )}
-              </div>
-            )}
-
-            <div className="setup-divider" />
-
-            <div className="setup-row">
-              <span className="setup-label">Transcription</span>
-              <div className="seg" role="group" aria-label="Transcription engine">
-                <button
-                  className={"seg-btn" + (sttEngine === "deepgram" ? " on" : "")}
-                  aria-pressed={sttEngine === "deepgram"}
-                  disabled={listening}
-                  title="Cloud (Deepgram) - captured audio is sent to Deepgram to transcribe"
-                  onClick={() => void changeEngine("deepgram")}
-                >
-                  Cloud
-                </button>
-                <button
-                  className={"seg-btn" + (sttEngine === "local" ? " on" : "")}
-                  aria-pressed={sttEngine === "local"}
-                  disabled={listening}
-                  title="Local (Whisper) - runs on-device, audio never leaves your machine"
-                  onClick={() => void changeEngine("local")}
-                >
-                  Local
-                </button>
-              </div>
-            </div>
-
-            {sttEngine === "deepgram" && (
-              <>
-                <div className="setup-row">
-                  <span className="setup-label">Language</span>
-                  <select
-                    value={sttLanguage}
-                    disabled={listening}
-                    title="Spoken language for Deepgram. Streaming can't auto-detect, so pick the language of the call (or Multilingual)."
-                    onChange={(e) => void changeLanguage(e.target.value)}
-                  >
-                    {STT_LANGUAGES.map((l) => (
-                      <option key={l.code} value={l.code}>
-                        {l.label}
-                      </option>
-                    ))}
-                  </select>
                 </div>
-                <div className="setup-row">
-                  <label
-                    className="switch"
-                    title="Splits only the other side (your system/loopback audio) into Speaker 1/2/... for calls with several people on the far end. It can't tell you apart from them - that's set by the capture source (your mic is always 'You'). Leave off for 1-on-1 calls; it tends to mislabel one person as several."
+              ) : (
+                <div className="listen-bar">
+                  <button className={"btn-listen primary" + (listening ? " on" : "")} onClick={toggleListen}>
+                    {listening ? <Square size={15} /> : <Ear size={15} />}
+                    {listening ? "Stop listening" : "Listen to call"}
+                  </button>
+                  <button
+                    className={"btn-listen" + (captureOn ? " on" : "")}
+                    onClick={() => (captureOn ? void stopCapture() : void startCapture())}
+                    title="Pop out floating, always-on-top panels you can drag over your call (starts listening)"
                   >
+                    {captureOn ? <Square size={15} /> : <LayoutDashboard size={15} />}
+                    {captureOn ? "Exit capture" : "Capture mode"}
+                  </button>
+                  <label className="auto-toggle muted sm">
                     <input
                       type="checkbox"
-                      checked={sttDiarize}
-                      disabled={listening}
-                      onChange={(e) => void changeDiarize(e.target.checked)}
+                      checked={autoAnswer}
+                      onChange={(e) => setAutoAnswer(e.target.checked)}
                     />
-                    Separate speakers
+                    Auto-answer questions
                   </label>
                 </div>
-                {sttDiarize && (
-                  <div className="setup-row diarize-hint muted sm">
-                    Only splits the other side into Speaker 1/2 (for 3+ people). You vs. them is set
-                    by the capture source - your mic is always &quot;You&quot;. If your own voice also
-                    shows up here as a speaker, it's leaking into the system audio: use headphones (so
-                    it isn't re-captured) and turn off any mic monitoring / &quot;Stereo Mix&quot;.
-                  </div>
-                )}
-              </>
-            )}
+              )}
 
-            <div className="setup-row">
-              <span className="setup-label">Capture</span>
-              <div className="seg" role="group" aria-label="Capture source">
-                <button
-                  className={"seg-btn" + (captureSource === "system" ? " on" : "")}
-                  aria-pressed={captureSource === "system"}
-                  disabled={listening}
-                  title="System audio - the other side of the call/video (via loopback)"
-                  onClick={() => void changeCaptureSource("system")}
-                >
-                  System
-                </button>
-                <button
-                  className={"seg-btn" + (captureSource === "mic" ? " on" : "")}
-                  aria-pressed={captureSource === "mic"}
-                  disabled={listening}
-                  title="Microphone - your voice"
-                  onClick={() => void changeCaptureSource("mic")}
-                >
-                  Mic
-                </button>
-                <button
-                  className={"seg-btn" + (captureSource === "both" ? " on" : "")}
-                  aria-pressed={captureSource === "both"}
-                  disabled={listening}
-                  title="System + Mic - both sides of the call"
-                  onClick={() => void changeCaptureSource("both")}
-                >
-                  Both
-                </button>
-              </div>
-            </div>
-
-            <div className="setup-divider" />
-
-            {captureSource !== "mic" && (
-              <div className="setup-row">
-                <span className="setup-label">Output device</span>
-                <select
-                  value={outputDevice}
-                  onChange={(e) => void changeOutputDevice(e.target.value)}
-                  disabled={listening}
-                  title="Which speaker/output to capture (its sound is recorded via loopback)"
-                >
-                  <option value="">Default output</option>
-                  {devices.outputs.map((d) => (
-                    <option key={d} value={d}>
-                      {d}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
-
-            {captureSource !== "system" && (
-              <div className="setup-row">
-                <span className="setup-label">Input device</span>
-                <select
-                  value={inputDevice}
-                  onChange={(e) => void changeInputDevice(e.target.value)}
-                  disabled={listening}
-                  title="Which microphone to capture"
-                >
-                  <option value="">Default microphone</option>
-                  {devices.inputs.map((d) => (
-                    <option key={d} value={d}>
-                      {d}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
-            </div>
-          </details>
-
-          <details className="acc">
-            <summary><Monitor size={15} /> Overlay</summary>
-            <div className="acc-body">
-            <div className="overlay-row">
-              <span className="setup-label">Opacity</span>
-              <input
-                type="range"
-                min={0.3}
-                max={1}
-                step={0.01}
-                value={opacity}
-                onChange={(e) => setOpacity(Number(e.target.value))}
-                title="Make the window translucent so it sits over a call (Windows)"
-                style={
-                  {
-                    "--range-fill": `linear-gradient(to right, var(--accent) ${opacityPct}%, var(--border) ${opacityPct}%)`,
-                  } as CSSProperties
-                }
-              />
-              <span className="muted sm">{Math.round(opacity * 100)}%</span>
-            </div>
-            <label className="auto-toggle muted sm">
-              <input type="checkbox" checked={onTop} onChange={(e) => setOnTop(e.target.checked)} />
-              Always on top
-            </label>
-            <div className="muted sm">Dims the whole window (this UI too); min 30%.</div>
-            <div className="muted sm">
-              Panic hide: press <span className="kbd">Alt+Shift+H</span> anytime to hide/show the window
-              instantly (Windows).
-            </div>
-            </div>
-          </details>
-
-          <details className="acc">
-            <summary><Smartphone size={15} /> Phone control</summary>
-            <div className="acc-body">
-              {!phone ? (
+              {captureErr && <div className="assistant-error">{captureErr}</div>}
+              {captureOn && (
                 <>
                   <div className="muted sm">
-                    Run a server on your Wi-Fi so your phone can watch the transcript and answers and
-                    drive listening - a discreet second screen during a call.
+                    A control bar sits at the top of your screen (listen, screenshot, show/hide). Panels are
+                    floating and always-on-top - drag them anywhere. Press{" "}
+                    <span className="kbd">Alt+Shift+C</span> to hide or show the panels instantly.
                   </div>
-                  <button className="btn-ghost" onClick={() => void startPhone()} disabled={phoneBusy}>
-                    <Smartphone size={14} /> {phoneBusy ? "Starting…" : "Start phone server"}
-                  </button>
+                  <label className="auto-toggle muted sm">
+                    <input
+                      type="checkbox"
+                      checked={!captureProtect}
+                      onChange={(e) => void changeCaptureProtect(!e.target.checked)}
+                    />
+                    Show panels in screenshots / screen share
+                  </label>
+                  {!captureProtect && (
+                    <div className="assistant-warn sm">
+                      Panels are now visible to screen capture, so you can screenshot them - but anyone you
+                      share your screen with will see them too. Turn this off again before the interview.
+                    </div>
+                  )}
                 </>
-              ) : (
-                <div className="phone-conn">
-                  {phone.qr && (
-                    <img className="phone-qr" src={phone.qr} alt="Scan to connect" width={150} height={150} />
+              )}
+              {listenError && <div className="assistant-error">{listenError}</div>}
+
+              {listening && (
+                <div className={"capture-diag" + (level.peak < 0.005 ? " warn" : " ok")}>
+                  <div className="capture-diag-head">
+                    <span className="muted sm">Capture diagnostics</span>
+                    <span className="muted sm">
+                      peak {level.peak.toFixed(3)} · {Math.round(level.buffered / 1000)}k buffered
+                    </span>
+                  </div>
+                  <div className="level-track">
+                    <div
+                      className={"level-fill" + (level.peak >= 0.005 ? " live" : "")}
+                      style={{ width: `${Math.min(100, Math.round(level.peak * 140))}%` }}
+                    />
+                  </div>
+                  {captureInfo.length === 0 ? (
+                    <div className="muted sm">Opening capture device…</div>
+                  ) : (
+                    captureInfo.map((d) => (
+                      <div key={d.role} className="muted sm">
+                        {d.role}: <strong>{d.name}</strong> · {Math.round(d.rate / 1000)}kHz · {d.channels}ch
+                      </div>
+                    ))
                   )}
-                  <div className="phone-conn-info">
-                    <div className="phone-row">
-                      <span className="setup-label">Open</span>
-                      <code className="phone-url">{phone.url}</code>
-                    </div>
-                    <div className="phone-row">
-                      <span className="setup-label">PIN</span>
-                      <span className="phone-pin">{phone.pin}</span>
-                    </div>
-                    <button className="btn-ghost" onClick={() => void stopPhone()}>
-                      <Square size={14} /> Stop server
-                    </button>
+                  <div className="diag-hint muted sm">
+                    {level.peak < 0.005
+                      ? "No sound reaching this device. If capturing System audio, set the Output device above to the one your call plays through."
+                      : "Audio is being captured. If nothing transcribes, it's the transcription engine, not capture."}
                   </div>
                 </div>
               )}
-              {phone && phoneNet && !phoneNet.ok && (
-                <div className="phone-fw-warn">
-                  <div className="muted sm">{phoneNet.message}</div>
-                  {phoneNet.canFix && (
-                    <button
-                      className="btn-ghost"
-                      onClick={() => void allowFirewall()}
-                      disabled={fixingFw}
-                    >
-                      <ShieldCheck size={14} /> {fixingFw ? "Allowing…" : "Allow through firewall"}
-                    </button>
-                  )}
-                </div>
-              )}
-              {phoneErr && <div className="assistant-error">{phoneErr}</div>}
-              <div className="muted sm">
-                Scan the code to connect instantly, or open the URL and type the PIN. Same Wi-Fi only;
-                the code carries the PIN and traffic is unencrypted, so use a network you trust.
-              </div>
-            </div>
-          </details>
 
-          <details className="acc">
-            <summary><Briefcase size={15} /> Interview context</summary>
-            <div className="acc-body">
-            <p className="muted sm">Fed to the assistant so answers fit you and the role.</p>
-            {profiles.length > 0 && (
-              <div className="setup-field">
-                <span className="setup-label">Active profile</span>
-                <select
-                  value={activeProfileId ?? ""}
-                  onChange={(e) => void switchProfile(Number(e.target.value))}
-                >
-                  {profiles.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name || "Untitled"}
-                    </option>
-                  ))}
-                </select>
-                <div className="muted sm">Manage all profiles from the person icon in the top bar.</div>
-              </div>
-            )}
-            <div className="setup-field">
-              <span className="setup-label">Target role / focus</span>
-              <input
-                value={contextRole}
-                onChange={(e) => setContextRole(e.target.value)}
-                placeholder="e.g. Senior Backend Engineer"
-              />
-            </div>
-            <div className="setup-field">
-              <span className="setup-label">Resume / background</span>
-              <textarea
-                rows={4}
-                value={contextResume}
-                onChange={(e) => setContextResume(e.target.value)}
-                placeholder="Paste your resume, or import a file below…"
-              />
-              <div className="resume-import">
-                <input
-                  ref={resumeFileRef}
-                  type="file"
-                  accept=".pdf,.docx,.txt,.md"
-                  className="hidden-file"
-                  onChange={(e) => void onResumeFile(e)}
-                />
-                <button className="link-btn" onClick={() => resumeFileRef.current?.click()}>
-                  <Upload size={13} /> Import PDF / DOCX / text
-                </button>
-                {resumeMsg && <span className="muted sm">{resumeMsg}</span>}
-              </div>
-            </div>
-            <div className="setup-field">
-              <span className="setup-label">Notes / materials</span>
-              <textarea
-                rows={3}
-                value={contextNotes}
-                onChange={(e) => setContextNotes(e.target.value)}
-                placeholder="Job description, talking points, anything to tailor answers…"
-              />
-            </div>
-            <button className="btn-open" onClick={() => void saveContext()}>
-              {contextSaved ? "Saved ✓" : "Save context"}
-            </button>
-            </div>
-          </details>
-
-          <details className="acc">
-            <summary><MessageSquare size={15} /> Your stories</summary>
-            <div className="acc-body">
-              <StoriesPanel key={activeProfileId ?? "none"} />
-            </div>
-          </details>
-
-          <details className="acc">
-            <summary><History size={15} /> Past sessions</summary>
-            <div className="acc-body">
-              <SessionsPanel reload={sessionsReload} />
-            </div>
-          </details>
-
-          <details className="acc">
-            <summary><Building2 size={15} /> Company information</summary>
-            <div className="acc-body">
-            <p className="muted sm">
-              Add the company you're interviewing at - answers become company-aware, and you can generate a
-              briefing + questions to ask.
-            </p>
-            <div className="setup-field">
-              <span className="setup-label">Company (name, site, or notes)</span>
-              <textarea
-                rows={3}
-                value={contextCompany}
-                onChange={(e) => setContextCompany(e.target.value)}
-                placeholder="e.g. Stripe - payments infrastructure. Anything you know: products, team, JD…"
-              />
-            </div>
-            <button
-              className="btn-sync"
-              onClick={() => void generateCompanyBrief()}
-              disabled={!contextCompany.trim()}
-            >
-              <Send size={15} /> Generate briefing &amp; questions
-            </button>
-            <div className="muted sm">
-              Uses the model's own knowledge + what you enter (no live web lookup), so verify specifics.
-            </div>
-            </div>
-          </details>
-
-          <details className="acc">
-            <summary><FileText size={15} /> Application kit</summary>
-            <div className="acc-body">
-              <ApplicationKit transcript={transcriptText(segments)} />
-            </div>
-          </details>
-
-          <details
-            className="acc"
-            onToggle={(e) => {
-              if ((e.target as HTMLDetailsElement).open) void refreshUsage();
-            }}
-          >
-            <summary><Gauge size={15} /> Usage &amp; cost</summary>
-            <div className="acc-body">
-              {/* Claude: token-based spend estimate, optional credit -> remaining. */}
-              <div className="usage-row">
-                <span className="usage-name">Claude</span>
-                <span className="usage-val">
-                  {usage && usage.claudeCredit > 0
-                    ? `$${Math.max(0, usage.claudeCredit - claudeUsed).toFixed(2)} left`
-                    : `$${claudeUsed.toFixed(2)} used`}
+              <div className="listen-bar screen-bar">
+                <span className="muted sm">
+                  <Monitor size={14} /> Screen:
                 </span>
-              </div>
-              <div className="muted sm">
-                {usage?.since
-                  ? `~$${claudeCost.toFixed(2)} est. (${(claudeTokens / 1000).toFixed(0)}k tokens) since ${new Date(
-                      usage.since * 1000,
-                    ).toLocaleDateString()}`
-                  : "No Claude usage tracked yet."}
-              </div>
-              {(usage?.claudeItems ?? []).map((it) => (
-                <div key={it.model} className="muted sm usage-line">
-                  {modelLabel(it.model)}: {(it.input / 1000).toFixed(0)}k in / {(it.output / 1000).toFixed(0)}k out
-                </div>
-              ))}
-              <label className="usage-credit">
-                <span className="setup-label">Credit added ($)</span>
-                <input
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  placeholder="e.g. 20"
-                  value={claudeCreditInput}
-                  onChange={(e) => setClaudeCreditInput(e.target.value)}
-                  onBlur={() => void saveCredit("claude", claudeCreditInput)}
-                />
-              </label>
-              <label className="usage-credit">
-                <span className="setup-label">Actual spent ($)</span>
-                <input
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  placeholder="sync to console"
-                  title="Override the estimate with the real spend from your Anthropic console. Leave blank to use the estimate."
-                  value={claudeSpentInput}
-                  onChange={(e) => setClaudeSpentInput(e.target.value)}
-                  onBlur={() => void saveSpent("claude", claudeSpentInput)}
-                />
-              </label>
-              <div className="usage-actions">
-                <button className="link-btn" onClick={() => void resetUsage()}>
-                  Reset spend
+                <select
+                  value={screenMonitor}
+                  onChange={(e) => setScreenMonitor(Number(e.target.value))}
+                  disabled={watchingScreen}
+                  title="Which monitor to read questions from"
+                >
+                  {monitors.length === 0 ? (
+                    <option value={0}>Primary display</option>
+                  ) : (
+                    monitors.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.name}
+                      </option>
+                    ))
+                  )}
+                </select>
+                <button
+                  className={"btn-listen" + (watchingScreen ? " on" : "")}
+                  onClick={() => setWatchingScreen((v) => !v)}
+                >
+                  {watchingScreen ? <Square size={15} /> : <ScanSearch size={15} />}
+                  {watchingScreen ? "Stop watching" : "Watch screen"}
+                </button>
+                <button className="btn-ghost" onClick={() => void runScreen(true)} disabled={watchingScreen}>
+                  Answer screen now
                 </button>
                 <button
-                  className="link-btn"
-                  onClick={() => void openUrl("https://console.anthropic.com/settings/usage")}
+                  className="btn-ghost"
+                  onClick={() => void startSnip()}
+                  disabled={watchingScreen}
+                  title="Snip a region of the screen and explain it"
                 >
-                  Open Anthropic console
+                  <Crop size={14} /> Snip
+                </button>
+                <button
+                  className="btn-ghost"
+                  onClick={() => void readPage()}
+                  title="Copy the page in your browser (Ctrl+A, Ctrl+C) then click to attach it as context - including off-screen content. On a coding page, also click into the editor, copy the code, and click again to add it. Each click appends; use Clear to reset."
+                >
+                  <ClipboardPaste size={14} /> Read page
                 </button>
               </div>
+              {pageMsg && <div className="muted sm">{pageMsg}</div>}
               <div className="muted sm">
-                Spend is estimated from token counts and list prices, then subtracted from the credit you
-                enter - the exact balance lives in the Anthropic console.
+                Can't copy (proctored / locked page)? Press <span className="kbd">Alt+Shift+R</span> while the
+                page is focused to read it via accessibility (Windows).
               </div>
+              {screenError && <div className="assistant-error">{screenError}</div>}
+              {screenNote && !screenError && <div className="muted sm">{screenNote}</div>}
 
-              <hr className="usage-sep" />
+              <details className="acc" open>
+                <summary>
+                  <SlidersHorizontal size={15} /> Setup
+                </summary>
+                <div className={"acc-body" + (listening ? " is-listening" : "")}>
+                  <div className="setup-row">
+                    <span className="setup-label">Answer</span>
+                    <div className="seg" role="group" aria-label="Answer engine">
+                      <button
+                        className={"seg-btn" + (answerEngine === "claude" ? " on" : "")}
+                        aria-pressed={answerEngine === "claude"}
+                        title="Claude (cloud) - sharpest answers; uses your Anthropic API key"
+                        onClick={() => void changeAnswerEngine("claude")}
+                      >
+                        Claude
+                      </button>
+                      <button
+                        className={"seg-btn" + (answerEngine === "ollama" ? " on" : "")}
+                        aria-pressed={answerEngine === "ollama"}
+                        title="Local (Ollama) - free + private, runs on your machine; requires Ollama"
+                        onClick={() => void changeAnswerEngine("ollama")}
+                      >
+                        Local
+                      </button>
+                    </div>
+                  </div>
 
-              {/* Deepgram: live balance when the key allows it; otherwise a minute-based estimate. */}
-              <div className="usage-row">
-                <span className="usage-name">Deepgram</span>
-                <span className="usage-val">
-                  {dgLoading
-                    ? "…"
-                    : dgBalance
-                      ? `$${dgBalance.amount.toFixed(2)} left`
-                      : usage && usage.deepgramCredit > 0
-                        ? `$${Math.max(0, usage.deepgramCredit - dgUsed).toFixed(2)} left`
-                        : `$${dgUsed.toFixed(2)} used`}
-                </span>
-              </div>
-              {dgBalance ? (
-                <div className="muted sm">Live balance{dgBalance.project ? ` · ${dgBalance.project}` : ""}</div>
-              ) : (
-                <div className="muted sm">
-                  {`~$${dgCost.toFixed(2)} est. (${dgMinutes.toFixed(1)} min streamed)`}
-                  {dgError ? " · live balance unavailable for this key" : ""}
+                  <div className="setup-row">
+                    <span className="setup-label">Answer style</span>
+                    <select
+                      value={answerStyle}
+                      title="How answers are formatted. Auto lets the model pick per question."
+                      onChange={(e) => void changeStyle(e.target.value)}
+                    >
+                      {ANSWER_STYLES.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.label} - {s.note}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {answerEngine === "ollama" && (
+                    <div className="setup-row">
+                      <span className="setup-label">Ollama model</span>
+                      {ollamaModels.length > 0 ? (
+                        <select
+                          value={ollamaModel}
+                          onChange={(e) => void changeOllamaModel(e.target.value)}
+                          title="Local model used to answer (run `ollama pull <model>` to add more)"
+                        >
+                          <option value="">Select a model…</option>
+                          {ollamaModels.map((m) => (
+                            <option key={m} value={m}>
+                              {m}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <span className="muted sm">
+                          No models found - start Ollama, then <code>ollama pull llama3.1</code>.
+                        </span>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="setup-divider" />
+
+                  <div className="setup-row">
+                    <span className="setup-label">Transcription</span>
+                    <div className="seg" role="group" aria-label="Transcription engine">
+                      <button
+                        className={"seg-btn" + (sttEngine === "deepgram" ? " on" : "")}
+                        aria-pressed={sttEngine === "deepgram"}
+                        disabled={listening}
+                        title="Cloud (Deepgram) - captured audio is sent to Deepgram to transcribe"
+                        onClick={() => void changeEngine("deepgram")}
+                      >
+                        Cloud
+                      </button>
+                      <button
+                        className={"seg-btn" + (sttEngine === "local" ? " on" : "")}
+                        aria-pressed={sttEngine === "local"}
+                        disabled={listening}
+                        title="Local (Whisper) - runs on-device, audio never leaves your machine"
+                        onClick={() => void changeEngine("local")}
+                      >
+                        Local
+                      </button>
+                    </div>
+                  </div>
+
+                  {sttEngine === "deepgram" && (
+                    <>
+                      <div className="setup-row">
+                        <span className="setup-label">Language</span>
+                        <select
+                          value={sttLanguage}
+                          disabled={listening}
+                          title="Spoken language for Deepgram. Streaming can't auto-detect, so pick the language of the call (or Multilingual)."
+                          onChange={(e) => void changeLanguage(e.target.value)}
+                        >
+                          {STT_LANGUAGES.map((l) => (
+                            <option key={l.code} value={l.code}>
+                              {l.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="setup-row">
+                        <label
+                          className="switch"
+                          title="Splits only the other side (your system/loopback audio) into Speaker 1/2/... for calls with several people on the far end. It can't tell you apart from them - that's set by the capture source (your mic is always 'You'). Leave off for 1-on-1 calls; it tends to mislabel one person as several."
+                        >
+                          <input
+                            type="checkbox"
+                            checked={sttDiarize}
+                            disabled={listening}
+                            onChange={(e) => void changeDiarize(e.target.checked)}
+                          />
+                          Separate speakers
+                        </label>
+                      </div>
+                      {sttDiarize && (
+                        <div className="setup-row diarize-hint muted sm">
+                          Only splits the other side into Speaker 1/2 (for 3+ people). You vs. them is set by
+                          the capture source - your mic is always &quot;You&quot;. If your own voice also
+                          shows up here as a speaker, it's leaking into the system audio: use headphones (so
+                          it isn't re-captured) and turn off any mic monitoring / &quot;Stereo Mix&quot;.
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                  <div className="setup-row">
+                    <span className="setup-label">Capture</span>
+                    <div className="seg" role="group" aria-label="Capture source">
+                      <button
+                        className={"seg-btn" + (captureSource === "system" ? " on" : "")}
+                        aria-pressed={captureSource === "system"}
+                        disabled={listening}
+                        title="System audio - the other side of the call/video (via loopback)"
+                        onClick={() => void changeCaptureSource("system")}
+                      >
+                        System
+                      </button>
+                      <button
+                        className={"seg-btn" + (captureSource === "mic" ? " on" : "")}
+                        aria-pressed={captureSource === "mic"}
+                        disabled={listening}
+                        title="Microphone - your voice"
+                        onClick={() => void changeCaptureSource("mic")}
+                      >
+                        Mic
+                      </button>
+                      <button
+                        className={"seg-btn" + (captureSource === "both" ? " on" : "")}
+                        aria-pressed={captureSource === "both"}
+                        disabled={listening}
+                        title="System + Mic - both sides of the call"
+                        onClick={() => void changeCaptureSource("both")}
+                      >
+                        Both
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="setup-divider" />
+
+                  {captureSource !== "mic" && (
+                    <div className="setup-row">
+                      <span className="setup-label">Output device</span>
+                      <select
+                        value={outputDevice}
+                        onChange={(e) => void changeOutputDevice(e.target.value)}
+                        disabled={listening}
+                        title="Which speaker/output to capture (its sound is recorded via loopback)"
+                      >
+                        <option value="">Default output</option>
+                        {devices.outputs.map((d) => (
+                          <option key={d} value={d}>
+                            {d}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  {captureSource !== "system" && (
+                    <div className="setup-row">
+                      <span className="setup-label">Input device</span>
+                      <select
+                        value={inputDevice}
+                        onChange={(e) => void changeInputDevice(e.target.value)}
+                        disabled={listening}
+                        title="Which microphone to capture"
+                      >
+                        <option value="">Default microphone</option>
+                        {devices.inputs.map((d) => (
+                          <option key={d} value={d}>
+                            {d}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
                 </div>
-              )}
-              {!dgBalance && (
-                <>
+              </details>
+
+              <details className="acc">
+                <summary>
+                  <Monitor size={15} /> Overlay
+                </summary>
+                <div className="acc-body">
+                  <div className="overlay-row">
+                    <span className="setup-label">Opacity</span>
+                    <input
+                      type="range"
+                      min={0.3}
+                      max={1}
+                      step={0.01}
+                      value={opacity}
+                      onChange={(e) => setOpacity(Number(e.target.value))}
+                      title="Make the window translucent so it sits over a call (Windows)"
+                      style={
+                        {
+                          "--range-fill": `linear-gradient(to right, var(--accent) ${opacityPct}%, var(--border) ${opacityPct}%)`,
+                        } as CSSProperties
+                      }
+                    />
+                    <span className="muted sm">{Math.round(opacity * 100)}%</span>
+                  </div>
+                  <label className="auto-toggle muted sm">
+                    <input type="checkbox" checked={onTop} onChange={(e) => setOnTop(e.target.checked)} />
+                    Always on top
+                  </label>
+                  <div className="muted sm">Dims the whole window (this UI too); min 30%.</div>
+                  <div className="muted sm">
+                    Panic hide: press <span className="kbd">Alt+Shift+H</span> anytime to hide/show the window
+                    instantly (Windows).
+                  </div>
+                </div>
+              </details>
+
+              <details className="acc">
+                <summary>
+                  <Smartphone size={15} /> Phone control
+                </summary>
+                <div className="acc-body">
+                  {!phone ? (
+                    <>
+                      <div className="muted sm">
+                        Run a server on your Wi-Fi so your phone can watch the transcript and answers and
+                        drive listening - a discreet second screen during a call.
+                      </div>
+                      <button className="btn-ghost" onClick={() => void startPhone()} disabled={phoneBusy}>
+                        <Smartphone size={14} /> {phoneBusy ? "Starting…" : "Start phone server"}
+                      </button>
+                    </>
+                  ) : (
+                    <div className="phone-conn">
+                      {phone.qr && (
+                        <img
+                          className="phone-qr"
+                          src={phone.qr}
+                          alt="Scan to connect"
+                          width={150}
+                          height={150}
+                        />
+                      )}
+                      <div className="phone-conn-info">
+                        <div className="phone-row">
+                          <span className="setup-label">Open</span>
+                          <code className="phone-url">{phone.url}</code>
+                        </div>
+                        <div className="phone-row">
+                          <span className="setup-label">PIN</span>
+                          <span className="phone-pin">{phone.pin}</span>
+                        </div>
+                        <button className="btn-ghost" onClick={() => void stopPhone()}>
+                          <Square size={14} /> Stop server
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  {phone && phoneNet && !phoneNet.ok && (
+                    <div className="phone-fw-warn">
+                      <div className="muted sm">{phoneNet.message}</div>
+                      {phoneNet.canFix && (
+                        <button
+                          className="btn-ghost"
+                          onClick={() => void allowFirewall()}
+                          disabled={fixingFw}
+                        >
+                          <ShieldCheck size={14} /> {fixingFw ? "Allowing…" : "Allow through firewall"}
+                        </button>
+                      )}
+                    </div>
+                  )}
+                  {phoneErr && <div className="assistant-error">{phoneErr}</div>}
+                  <div className="muted sm">
+                    Scan the code to connect instantly, or open the URL and type the PIN. Same Wi-Fi only; the
+                    code carries the PIN and traffic is unencrypted, so use a network you trust.
+                  </div>
+                </div>
+              </details>
+
+              <details className="acc">
+                <summary>
+                  <Briefcase size={15} /> Interview context
+                </summary>
+                <div className="acc-body">
+                  <p className="muted sm">Fed to the assistant so answers fit you and the role.</p>
+                  {profiles.length > 0 && (
+                    <div className="setup-field">
+                      <span className="setup-label">Active profile</span>
+                      <select
+                        value={activeProfileId ?? ""}
+                        onChange={(e) => void switchProfile(Number(e.target.value))}
+                      >
+                        {profiles.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.name || "Untitled"}
+                          </option>
+                        ))}
+                      </select>
+                      <div className="muted sm">Manage all profiles from the person icon in the top bar.</div>
+                    </div>
+                  )}
+                  <div className="setup-field">
+                    <span className="setup-label">Target role / focus</span>
+                    <input
+                      value={contextRole}
+                      onChange={(e) => setContextRole(e.target.value)}
+                      placeholder="e.g. Senior Backend Engineer"
+                    />
+                  </div>
+                  <div className="setup-field">
+                    <span className="setup-label">Resume / background</span>
+                    <textarea
+                      rows={4}
+                      value={contextResume}
+                      onChange={(e) => setContextResume(e.target.value)}
+                      placeholder="Paste your resume, or import a file below…"
+                    />
+                    <div className="resume-import">
+                      <input
+                        ref={resumeFileRef}
+                        type="file"
+                        accept=".pdf,.docx,.txt,.md"
+                        className="hidden-file"
+                        onChange={(e) => void onResumeFile(e)}
+                      />
+                      <button className="link-btn" onClick={() => resumeFileRef.current?.click()}>
+                        <Upload size={13} /> Import PDF / DOCX / text
+                      </button>
+                      {resumeMsg && <span className="muted sm">{resumeMsg}</span>}
+                    </div>
+                  </div>
+                  <div className="setup-field">
+                    <span className="setup-label">Notes / materials</span>
+                    <textarea
+                      rows={3}
+                      value={contextNotes}
+                      onChange={(e) => setContextNotes(e.target.value)}
+                      placeholder="Job description, talking points, anything to tailor answers…"
+                    />
+                  </div>
+                  <button className="btn-open" onClick={() => void saveContext()}>
+                    {contextSaved ? "Saved ✓" : "Save context"}
+                  </button>
+                </div>
+              </details>
+
+              <details className="acc">
+                <summary>
+                  <MessageSquare size={15} /> Your stories
+                </summary>
+                <div className="acc-body">
+                  <StoriesPanel key={activeProfileId ?? "none"} />
+                </div>
+              </details>
+
+              <details className="acc">
+                <summary>
+                  <History size={15} /> Past sessions
+                </summary>
+                <div className="acc-body">
+                  <SessionsPanel reload={sessionsReload} />
+                </div>
+              </details>
+
+              <details className="acc">
+                <summary>
+                  <Building2 size={15} /> Company information
+                </summary>
+                <div className="acc-body">
+                  <p className="muted sm">
+                    Add the company you're interviewing at - answers become company-aware, and you can
+                    generate a briefing + questions to ask.
+                  </p>
+                  <div className="setup-field">
+                    <span className="setup-label">Company (name, site, or notes)</span>
+                    <textarea
+                      rows={3}
+                      value={contextCompany}
+                      onChange={(e) => setContextCompany(e.target.value)}
+                      placeholder="e.g. Stripe - payments infrastructure. Anything you know: products, team, JD…"
+                    />
+                  </div>
+                  <button
+                    className="btn-sync"
+                    onClick={() => void generateCompanyBrief()}
+                    disabled={!contextCompany.trim()}
+                  >
+                    <Send size={15} /> Generate briefing &amp; questions
+                  </button>
+                  <div className="muted sm">
+                    Uses the model's own knowledge + what you enter (no live web lookup), so verify specifics.
+                  </div>
+                </div>
+              </details>
+
+              <details className="acc">
+                <summary>
+                  <FileText size={15} /> Application kit
+                </summary>
+                <div className="acc-body">
+                  <ApplicationKit transcript={transcriptText(segments)} />
+                </div>
+              </details>
+
+              <details
+                className="acc"
+                onToggle={(e) => {
+                  if ((e.target as HTMLDetailsElement).open) void refreshUsage();
+                }}
+              >
+                <summary>
+                  <Gauge size={15} /> Usage &amp; cost
+                </summary>
+                <div className="acc-body">
+                  {/* Claude: token-based spend estimate, optional credit -> remaining. */}
+                  <div className="usage-row">
+                    <span className="usage-name">Claude</span>
+                    <span className="usage-val">
+                      {usage && usage.claudeCredit > 0
+                        ? `$${Math.max(0, usage.claudeCredit - claudeUsed).toFixed(2)} left`
+                        : `$${claudeUsed.toFixed(2)} used`}
+                    </span>
+                  </div>
+                  <div className="muted sm">
+                    {usage?.since
+                      ? `~$${claudeCost.toFixed(2)} est. (${(claudeTokens / 1000).toFixed(0)}k tokens) since ${new Date(
+                          usage.since * 1000,
+                        ).toLocaleDateString()}`
+                      : "No Claude usage tracked yet."}
+                  </div>
+                  {(usage?.claudeItems ?? []).map((it) => (
+                    <div key={it.model} className="muted sm usage-line">
+                      {modelLabel(it.model)}: {(it.input / 1000).toFixed(0)}k in /{" "}
+                      {(it.output / 1000).toFixed(0)}k out
+                    </div>
+                  ))}
                   <label className="usage-credit">
                     <span className="setup-label">Credit added ($)</span>
                     <input
                       type="number"
                       min={0}
                       step="0.01"
-                      placeholder="e.g. 25"
-                      value={dgCreditInput}
-                      onChange={(e) => setDgCreditInput(e.target.value)}
-                      onBlur={() => void saveCredit("deepgram", dgCreditInput)}
+                      placeholder="e.g. 20"
+                      value={claudeCreditInput}
+                      onChange={(e) => setClaudeCreditInput(e.target.value)}
+                      onBlur={() => void saveCredit("claude", claudeCreditInput)}
                     />
                   </label>
                   <label className="usage-credit">
@@ -2084,172 +2060,242 @@ export function AssistantView() {
                       min={0}
                       step="0.01"
                       placeholder="sync to console"
-                      title="Override the estimate with the real spend from your Deepgram console. Leave blank to use the estimate."
-                      value={dgSpentInput}
-                      onChange={(e) => setDgSpentInput(e.target.value)}
-                      onBlur={() => void saveSpent("deepgram", dgSpentInput)}
+                      title="Override the estimate with the real spend from your Anthropic console. Leave blank to use the estimate."
+                      value={claudeSpentInput}
+                      onChange={(e) => setClaudeSpentInput(e.target.value)}
+                      onBlur={() => void saveSpent("claude", claudeSpentInput)}
                     />
                   </label>
-                </>
-              )}
-              <div className="usage-actions">
-                <button className="link-btn" onClick={() => void refreshUsage()} disabled={dgLoading}>
-                  Refresh
-                </button>
-                <button className="link-btn" onClick={() => void openUrl("https://console.deepgram.com/")}>
-                  Open Deepgram console
-                </button>
+                  <div className="usage-actions">
+                    <button className="link-btn" onClick={() => void resetUsage()}>
+                      Reset spend
+                    </button>
+                    <button
+                      className="link-btn"
+                      onClick={() => void openUrl("https://console.anthropic.com/settings/usage")}
+                    >
+                      Open Anthropic console
+                    </button>
+                  </div>
+                  <div className="muted sm">
+                    Spend is estimated from token counts and list prices, then subtracted from the credit you
+                    enter - the exact balance lives in the Anthropic console.
+                  </div>
+
+                  <hr className="usage-sep" />
+
+                  {/* Deepgram: live balance when the key allows it; otherwise a minute-based estimate. */}
+                  <div className="usage-row">
+                    <span className="usage-name">Deepgram</span>
+                    <span className="usage-val">
+                      {dgLoading
+                        ? "…"
+                        : dgBalance
+                          ? `$${dgBalance.amount.toFixed(2)} left`
+                          : usage && usage.deepgramCredit > 0
+                            ? `$${Math.max(0, usage.deepgramCredit - dgUsed).toFixed(2)} left`
+                            : `$${dgUsed.toFixed(2)} used`}
+                    </span>
+                  </div>
+                  {dgBalance ? (
+                    <div className="muted sm">
+                      Live balance{dgBalance.project ? ` · ${dgBalance.project}` : ""}
+                    </div>
+                  ) : (
+                    <div className="muted sm">
+                      {`~$${dgCost.toFixed(2)} est. (${dgMinutes.toFixed(1)} min streamed)`}
+                      {dgError ? " · live balance unavailable for this key" : ""}
+                    </div>
+                  )}
+                  {!dgBalance && (
+                    <>
+                      <label className="usage-credit">
+                        <span className="setup-label">Credit added ($)</span>
+                        <input
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          placeholder="e.g. 25"
+                          value={dgCreditInput}
+                          onChange={(e) => setDgCreditInput(e.target.value)}
+                          onBlur={() => void saveCredit("deepgram", dgCreditInput)}
+                        />
+                      </label>
+                      <label className="usage-credit">
+                        <span className="setup-label">Actual spent ($)</span>
+                        <input
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          placeholder="sync to console"
+                          title="Override the estimate with the real spend from your Deepgram console. Leave blank to use the estimate."
+                          value={dgSpentInput}
+                          onChange={(e) => setDgSpentInput(e.target.value)}
+                          onBlur={() => void saveSpent("deepgram", dgSpentInput)}
+                        />
+                      </label>
+                    </>
+                  )}
+                  <div className="usage-actions">
+                    <button className="link-btn" onClick={() => void refreshUsage()} disabled={dgLoading}>
+                      Refresh
+                    </button>
+                    <button
+                      className="link-btn"
+                      onClick={() => void openUrl("https://console.deepgram.com/")}
+                    >
+                      Open Deepgram console
+                    </button>
+                  </div>
+                  {dgError && (
+                    <div className="muted sm">
+                      Live balance needs an Owner/Admin Deepgram key; a transcription key can't read it. Enter
+                      your credit above for an estimate, or check the console.
+                    </div>
+                  )}
+
+                  <hr className="usage-sep" />
+                  <div className="muted sm">Local (Ollama / Whisper): free - runs on your machine.</div>
+                </div>
+              </details>
+            </section>
+
+            <section className="assistant-col col-dialog">
+              <div className="dialog-head">
+                <span className="muted sm">{listening ? listenStatus || "Listening..." : "Live dialog"}</span>
+                <span className="transcript-actions">
+                  {(segments.length > 0 || qa.length > 0) && (
+                    <button
+                      className="link-btn"
+                      onClick={() => void saveSession()}
+                      title="Sessions also auto-save when you stop listening"
+                    >
+                      {sessionSaved ? "Saved ✓" : "Save session"}
+                    </button>
+                  )}
+                  {segments.length > 0 && (
+                    <button className="link-btn" onClick={() => setContext(transcriptText(segments))}>
+                      Use as context
+                    </button>
+                  )}
+                  {segments.length > 0 && (
+                    <button className="link-btn" onClick={clearTranscript}>
+                      Clear
+                    </button>
+                  )}
+                </span>
               </div>
-              {dgError && (
-                <div className="muted sm">
-                  Live balance needs an Owner/Admin Deepgram key; a transcription key can't read it. Enter your
-                  credit above for an estimate, or check the console.
+              {listening || segments.length > 0 ? (
+                <div
+                  className="dialog-list"
+                  aria-live="polite"
+                  ref={dialogListRef}
+                  onScroll={() => {
+                    const el = dialogListRef.current;
+                    if (el) stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+                  }}
+                >
+                  {segments.map((s) => (
+                    <div key={s.id} className={"seg-msg seg-" + s.role}>
+                      {s.role === "them" && (
+                        <span className={"seg-chip " + chipClass(s.speaker)}>{s.speaker}</span>
+                      )}
+                      <div className="seg-bubble">{s.text}</div>
+                    </div>
+                  ))}
+                  {(["them", "you"] as const).map((role) => {
+                    const t = `${live[role].fin} ${live[role].int}`.trim();
+                    return t ? (
+                      <div key={"live-" + role} className={"seg-msg seg-" + role + " seg-interim"}>
+                        {role === "them" && <span className="seg-chip seg-chip--live">Speaking…</span>}
+                        <div className="seg-bubble">
+                          {t}
+                          <span className="seg-caret" />
+                        </div>
+                      </div>
+                    ) : null;
+                  })}
+                </div>
+              ) : (
+                <div className="dialog-empty">
+                  <Ear size={28} />
+                  <span>
+                    Hit <strong>Listen to call</strong> - the conversation appears here, you on the right, the
+                    other side on the left.
+                  </span>
                 </div>
               )}
 
-              <hr className="usage-sep" />
-              <div className="muted sm">Local (Ollama / Whisper): free - runs on your machine.</div>
-            </div>
-          </details>
-          </section>
+              <div className="assistant-ask">
+                <textarea
+                  placeholder="Ask directly, e.g. 'Solve 3x + 7 = 22' - or just hit Listen and let it auto-answer"
+                  value={question}
+                  onChange={(e) => setQuestion(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) askManual();
+                  }}
+                  rows={2}
+                />
+                <button className="btn-sync" onClick={askManual} disabled={!question.trim()}>
+                  <Send size={16} /> Ask
+                </button>
+              </div>
+              {context && (
+                <div className="muted sm context-note">
+                  Context attached ({context.length} chars).{" "}
+                  <button className="link-btn" onClick={() => setContext("")}>
+                    clear
+                  </button>
+                </div>
+              )}
+            </section>
 
-          <section className="assistant-col col-dialog">
-            <div className="dialog-head">
-              <span className="muted sm">{listening ? listenStatus || "Listening..." : "Live dialog"}</span>
-              <span className="transcript-actions">
-                {(segments.length > 0 || qa.length > 0) && (
-                  <button
-                    className="link-btn"
-                    onClick={() => void saveSession()}
-                    title="Sessions also auto-save when you stop listening"
-                  >
-                    {sessionSaved ? "Saved ✓" : "Save session"}
-                  </button>
-                )}
-                {segments.length > 0 && (
-                  <button className="link-btn" onClick={() => setContext(transcriptText(segments))}>
-                    Use as context
-                  </button>
-                )}
-                {segments.length > 0 && (
-                  <button className="link-btn" onClick={clearTranscript}>
-                    Clear
-                  </button>
-                )}
-              </span>
-            </div>
-            {listening || segments.length > 0 ? (
-              <div
-                className="dialog-list"
-                aria-live="polite"
-                ref={dialogListRef}
-                onScroll={() => {
-                  const el = dialogListRef.current;
-                  if (el) stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
-                }}
-              >
-                {segments.map((s) => (
-                  <div key={s.id} className={"seg-msg seg-" + s.role}>
-                    {s.role === "them" && (
-                      <span className={"seg-chip " + chipClass(s.speaker)}>{s.speaker}</span>
-                    )}
-                    <div className="seg-bubble">{s.text}</div>
-                  </div>
-                ))}
-                {(["them", "you"] as const).map((role) => {
-                  const t = `${live[role].fin} ${live[role].int}`.trim();
-                  return t ? (
-                    <div key={"live-" + role} className={"seg-msg seg-" + role + " seg-interim"}>
-                      {role === "them" && <span className="seg-chip seg-chip--live">Speaking…</span>}
-                      <div className="seg-bubble">
-                        {t}
-                        <span className="seg-caret" />
+            <aside className="assistant-col col-code">
+              <section className="col-section live-answers">
+                <div className="pane-title">Live answers</div>
+                <div className="col-scroll">
+                  {qa.length === 0 ? (
+                    <div className="pane-empty">
+                      <strong>No answers yet.</strong>
+                      <span className="muted sm">Ask, auto-answer, or snip - answers stream in here.</span>
+                    </div>
+                  ) : (
+                    qa.map((e) => <QaCard key={e.id} e={e} />)
+                  )}
+                </div>
+              </section>
+              <section className="col-section code-math">
+                <div className="pane-title">Code &amp; Math</div>
+                <div className="col-scroll">
+                  {cmGroups.length === 0 ? (
+                    <div className="pane-empty">
+                      <span className="muted sm">
+                        Code blocks &amp; equations pulled from answers collect here.
+                      </span>
+                    </div>
+                  ) : (
+                    cmGroups.map((g, gi) => (
+                      <div className={"cm-group" + (gi === 0 ? " latest" : "")} key={g.id}>
+                        <div className="cm-group-q">{g.q}</div>
+                        {g.items.map((s) => (
+                          <div className="cm-card" key={s.key}>
+                            <Answer text={s.md} />
+                          </div>
+                        ))}
                       </div>
-                    </div>
-                  ) : null;
-                })}
-              </div>
-            ) : (
-              <div className="dialog-empty">
-                <Ear size={28} />
-                <span>
-                  Hit <strong>Listen to call</strong> - the conversation appears here, you on the right,
-                  the other side on the left.
-                </span>
-              </div>
+                    ))
+                  )}
+                </div>
+              </section>
+            </aside>
+            {narrow && settingsOpen && (
+              <div className="settings-backdrop" onClick={() => setSettingsOpen(false)} />
             )}
-
-          <div className="assistant-ask">
-            <textarea
-              placeholder="Ask directly, e.g. 'Solve 3x + 7 = 22' - or just hit Listen and let it auto-answer"
-              value={question}
-              onChange={(e) => setQuestion(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) askManual();
-              }}
-              rows={2}
-            />
-            <button className="btn-sync" onClick={askManual} disabled={!question.trim()}>
-              <Send size={16} /> Ask
-            </button>
-          </div>
-          {context && (
-            <div className="muted sm context-note">
-              Context attached ({context.length} chars).{" "}
-              <button className="link-btn" onClick={() => setContext("")}>
-                clear
-              </button>
-            </div>
-          )}
-
-          </section>
-
-          <aside className="assistant-col col-code">
-            <section className="col-section live-answers">
-              <div className="pane-title">Live answers</div>
-              <div className="col-scroll">
-                {qa.length === 0 ? (
-                  <div className="pane-empty">
-                    <strong>No answers yet.</strong>
-                    <span className="muted sm">Ask, auto-answer, or snip - answers stream in here.</span>
-                  </div>
-                ) : (
-                  qa.map((e) => <QaCard key={e.id} e={e} />)
-                )}
-              </div>
-            </section>
-            <section className="col-section code-math">
-              <div className="pane-title">Code &amp; Math</div>
-              <div className="col-scroll">
-                {cmGroups.length === 0 ? (
-                  <div className="pane-empty">
-                    <span className="muted sm">Code blocks &amp; equations pulled from answers collect here.</span>
-                  </div>
-                ) : (
-                  cmGroups.map((g, gi) => (
-                    <div className={"cm-group" + (gi === 0 ? " latest" : "")} key={g.id}>
-                      <div className="cm-group-q">{g.q}</div>
-                      {g.items.map((s) => (
-                        <div className="cm-card" key={s.key}>
-                          <Answer text={s.md} />
-                        </div>
-                      ))}
-                    </div>
-                  ))
-                )}
-              </div>
-            </section>
-          </aside>
-          {narrow && settingsOpen && (
-            <div className="settings-backdrop" onClick={() => setSettingsOpen(false)} />
-          )}
           </div>
         </>
       )}
 
-      {snipSrc && (
-        <SnipOverlay src={snipSrc} onCancel={() => setSnipSrc(null)} onSelect={onSnipSelect} />
-      )}
+      {snipSrc && <SnipOverlay src={snipSrc} onCancel={() => setSnipSrc(null)} onSelect={onSnipSelect} />}
     </div>
   );
 }

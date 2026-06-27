@@ -45,7 +45,11 @@ export function SessionsPanel({ reload }: { reload: number }) {
   return (
     <div className="sessions">
       <div className="sessions-toolbar">
-        <button className="link-btn" onClick={() => void exportAll()} title="Save every session as a Markdown file in Downloads/JobRadar">
+        <button
+          className="link-btn"
+          onClick={() => void exportAll()}
+          title="Save every session as a Markdown file in Downloads/JobRadar"
+        >
           <Download size={14} /> Export all to files
         </button>
       </div>
@@ -113,7 +117,11 @@ function SessionCard({ session, onChanged }: { session: Session; onChanged: () =
           <button className="btn-sync" onClick={() => void runReview()} disabled={busy}>
             <Sparkles size={15} /> {busy ? "Reviewing..." : "Review & coach"}
           </button>
-          <button className="btn-ghost sm" title="Export this session to a Markdown file" onClick={() => void exportOne()}>
+          <button
+            className="btn-ghost sm"
+            title="Export this session to a Markdown file"
+            onClick={() => void exportOne()}
+          >
             <Download size={14} /> Export
           </button>
           <button className="icon-btn danger sm" title="Delete session" onClick={() => void del()}>

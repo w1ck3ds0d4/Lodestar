@@ -41,7 +41,11 @@ export function CaptureBar() {
       >
         {st.listening ? <Square size={15} /> : <Ear size={15} />}
       </button>
-      <button className="cap-bar-btn" onClick={() => send({ cmd: "answer_screen" })} title="Answer the screen now">
+      <button
+        className="cap-bar-btn"
+        onClick={() => send({ cmd: "answer_screen" })}
+        title="Answer the screen now"
+      >
         <Camera size={15} />
       </button>
       <button

@@ -44,14 +44,22 @@ export function StudyView() {
       <div className="add-source">
         <h3>Add a skill to study</h3>
         <div className="add-row">
-          <input placeholder="Skill (e.g. Rust, System design)" value={name} onChange={(e) => setName(e.target.value)} />
+          <input
+            placeholder="Skill (e.g. Rust, System design)"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
           <input placeholder="Goal (optional)" value={goal} onChange={(e) => setGoal(e.target.value)} />
-          <button className="btn-open" onClick={add}><Plus size={14} /> Add</button>
+          <button className="btn-open" onClick={add}>
+            <Plus size={14} /> Add
+          </button>
         </div>
       </div>
       <div className="skill-list">
         {skills.length === 0 && (
-          <p className="muted">No skills yet. Add one above - the assistant can also generate a study plan that fills this in.</p>
+          <p className="muted">
+            No skills yet. Add one above - the assistant can also generate a study plan that fills this in.
+          </p>
         )}
         {skills.map((s) => (
           <SkillRow key={s.id} skill={s} onChanged={load} />
@@ -101,7 +109,9 @@ function SkillRow({ skill, onChanged }: { skill: Skill; onChanged: () => void })
           <div className="skill-name">{skill.name}</div>
           {skill.goal && <div className="muted sm">{skill.goal}</div>}
         </div>
-        <button className="icon-btn danger sm" title="Remove" onClick={del}><Trash2 size={14} /></button>
+        <button className="icon-btn danger sm" title="Remove" onClick={del}>
+          <Trash2 size={14} />
+        </button>
       </div>
       <div className="skill-level">
         <span className="muted sm">Level {level}%</span>
@@ -115,11 +125,21 @@ function SkillRow({ skill, onChanged }: { skill: Skill; onChanged: () => void })
           onTouchEnd={commitLevel}
         />
       </div>
-      <div className="progress-bar"><div className="progress-fill" style={{ width: `${level}%` }} /></div>
+      <div className="progress-bar">
+        <div className="progress-fill" style={{ width: `${level}%` }} />
+      </div>
       <div className="skill-hours">
         <span className="muted sm">{skill.hours.toFixed(1)} h logged</span>
-        <input type="number" min={0} step={0.5} value={hoursToLog} onChange={(e) => setHoursToLog(e.target.value)} />
-        <button className="btn-open" onClick={log}>Log hours</button>
+        <input
+          type="number"
+          min={0}
+          step={0.5}
+          value={hoursToLog}
+          onChange={(e) => setHoursToLog(e.target.value)}
+        />
+        <button className="btn-open" onClick={log}>
+          Log hours
+        </button>
         <button className="btn-sync" onClick={generatePlan} disabled={planning}>
           <Sparkles size={14} /> {planning ? "Generating…" : skill.notes ? "Regenerate plan" : "Study plan"}
         </button>

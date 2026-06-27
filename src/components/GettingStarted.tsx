@@ -7,25 +7,29 @@ const AREAS: { view: View; icon: typeof Bot; title: string; blurb: string }[] = 
     view: "search",
     icon: Search,
     title: "Search",
-    blurb: "Aggregate jobs from public boards into a local database. Filter by workplace, level, and what's workable from your location; track any listing with one click.",
+    blurb:
+      "Aggregate jobs from public boards into a local database. Filter by workplace, level, and what's workable from your location; track any listing with one click.",
   },
   {
     view: "tracker",
     icon: ClipboardList,
     title: "Tracker",
-    blurb: "A pipeline board for applications and training programs - deadlines, next actions, and AI interview prep per role.",
+    blurb:
+      "A pipeline board for applications and training programs - deadlines, next actions, and AI interview prep per role.",
   },
   {
     view: "study",
     icon: GraduationCap,
     title: "Study",
-    blurb: "AI study plans for skills you're building, plus a Mock interview that asks tailored questions and scores your answers on content and delivery.",
+    blurb:
+      "AI study plans for skills you're building, plus a Mock interview that asks tailored questions and scores your answers on content and delivery.",
   },
   {
     view: "assistant",
     icon: Bot,
     title: "Assistant",
-    blurb: "Your live interview copilot: real-time transcription, streaming auto-answers, screen/page capture, your story bank, an application kit, and saved-session review.",
+    blurb:
+      "Your live interview copilot: real-time transcription, streaming auto-answers, screen/page capture, your story bank, an application kit, and saved-session review.",
   },
 ];
 

@@ -86,23 +86,23 @@ Built with Tauri v2 (Rust) + React + Vite. The Rust core owns ingestion, storage
 
 ## Tech Stack
 
-| Layer            | Technology                                                  |
-| ---------------- | ----------------------------------------------------------- |
-| Desktop          | Tauri v2 (Rust)                                             |
-| Frontend         | React 19 + TypeScript + Vite                                |
-| Storage          | SQLite (rusqlite, bundled) with FTS5                        |
-| Search           | FTS5 full-text, BM25 ranking                                |
-| HTTP             | reqwest (rustls, no OpenSSL)                                |
-| Async runtime    | tokio                                                       |
-| Audio capture    | cpal (WASAPI loopback + microphone)                         |
-| Local STT        | Candle (pure-Rust Whisper), tokenizers                      |
-| Cloud STT        | Deepgram (optional)                                         |
-| Answer models    | Claude Messages API (streaming) and/or local Ollama         |
-| Screen capture   | xcap                                                        |
-| Markdown / math  | react-markdown, remark-gfm, remark-math, KaTeX              |
-| Notifications    | tauri-plugin-notification                                   |
-| Icons            | lucide-react                                                |
-| Package manager  | pnpm                                                        |
+| Layer           | Technology                                          |
+| --------------- | --------------------------------------------------- |
+| Desktop         | Tauri v2 (Rust)                                     |
+| Frontend        | React 19 + TypeScript + Vite                        |
+| Storage         | SQLite (rusqlite, bundled) with FTS5                |
+| Search          | FTS5 full-text, BM25 ranking                        |
+| HTTP            | reqwest (rustls, no OpenSSL)                        |
+| Async runtime   | tokio                                               |
+| Audio capture   | cpal (WASAPI loopback + microphone)                 |
+| Local STT       | Candle (pure-Rust Whisper), tokenizers              |
+| Cloud STT       | Deepgram (optional)                                 |
+| Answer models   | Claude Messages API (streaming) and/or local Ollama |
+| Screen capture  | xcap                                                |
+| Markdown / math | react-markdown, remark-gfm, remark-math, KaTeX      |
+| Notifications   | tauri-plugin-notification                           |
+| Icons           | lucide-react                                        |
+| Package manager | pnpm                                                |
 
 ---
 
@@ -145,22 +145,22 @@ The database is created at the OS-standard app-data directory on first launch. E
 
 Keyless (work out of the box):
 
-| Source                | Kind         | Notes                                                              |
-| --------------------- | ------------ | ------------------------------------------------------------------ |
-| Greenhouse            | `greenhouse` | Public ATS board per company. Config: `{ "company": "stripe" }`.   |
-| Lever                 | `lever`      | Public ATS board per company. Config: `{ "company": "..." }`.      |
-| Ashby                 | `ashby`      | Public job board per company. Honors the `isListed` flag.          |
-| Arbeitnow             | `arbeitnow`  | Global / EU + remote feed. No config.                              |
-| Remotive              | `remotive`   | Remote-jobs feed. Polled politely (6h), attributed to Remotive.    |
-| Jobicy                | `jobicy`     | Remote-jobs feed. Polled hourly, attributed to Jobicy.             |
-| Career page (JSON-LD) | `jsonld`     | Parses schema.org `JobPosting` markup from any careers URL.        |
+| Source                | Kind         | Notes                                                            |
+| --------------------- | ------------ | ---------------------------------------------------------------- |
+| Greenhouse            | `greenhouse` | Public ATS board per company. Config: `{ "company": "stripe" }`. |
+| Lever                 | `lever`      | Public ATS board per company. Config: `{ "company": "..." }`.    |
+| Ashby                 | `ashby`      | Public job board per company. Honors the `isListed` flag.        |
+| Arbeitnow             | `arbeitnow`  | Global / EU + remote feed. No config.                            |
+| Remotive              | `remotive`   | Remote-jobs feed. Polled politely (6h), attributed to Remotive.  |
+| Jobicy                | `jobicy`     | Remote-jobs feed. Polled hourly, attributed to Jobicy.           |
+| Career page (JSON-LD) | `jsonld`     | Parses schema.org `JobPosting` markup from any careers URL.      |
 
 Credential-gated (add your own free key in the Sources drawer):
 
-| Source  | Kind      | Config                                                                          |
-| ------- | --------- | ------------------------------------------------------------------------------- |
-| Adzuna  | `adzuna`  | `{ "app_id", "app_key", "country", "what", "where" }`                           |
-| USAJOBS | `usajobs` | `{ "email", "api_key", "keyword" }`                                             |
+| Source  | Kind      | Config                                                |
+| ------- | --------- | ----------------------------------------------------- |
+| Adzuna  | `adzuna`  | `{ "app_id", "app_key", "country", "what", "where" }` |
+| USAJOBS | `usajobs` | `{ "email", "api_key", "keyword" }`                   |
 
 ---
 

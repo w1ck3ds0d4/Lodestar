@@ -66,7 +66,9 @@ export function JobCard({
     <article className="card">
       <div className="card-head">
         <h3 className="card-title">
-          <button className="link-title" onClick={() => job.url && onOpen(job.url)}>{job.title}</button>
+          <button className="link-title" onClick={() => job.url && onOpen(job.url)}>
+            {job.title}
+          </button>
           {job.workplace && (
             <span className={`badge badge-${job.workplace}`}>
               {WORKPLACE_LABELS[job.workplace] ?? job.workplace}
@@ -102,10 +104,26 @@ export function JobCard({
       </div>
 
       <div className="card-meta">
-        {job.company && <span><Building2 size={14} /> {job.company}</span>}
-        {job.location && <span><MapPin size={14} /> {job.location}</span>}
-        {job.postedAt && <span><CalendarDays size={14} /> {job.postedAt}</span>}
-        {job.salary && <span><Wallet size={14} /> {job.salary}</span>}
+        {job.company && (
+          <span>
+            <Building2 size={14} /> {job.company}
+          </span>
+        )}
+        {job.location && (
+          <span>
+            <MapPin size={14} /> {job.location}
+          </span>
+        )}
+        {job.postedAt && (
+          <span>
+            <CalendarDays size={14} /> {job.postedAt}
+          </span>
+        )}
+        {job.salary && (
+          <span>
+            <Wallet size={14} /> {job.salary}
+          </span>
+        )}
         {job.employmentType && <span className="muted">{job.employmentType}</span>}
       </div>
 
@@ -134,7 +152,15 @@ export function JobCard({
             setTracked(true);
           }}
         >
-          {tracked ? <><Check size={14} /> Tracking</> : <><Plus size={14} /> Track</>}
+          {tracked ? (
+            <>
+              <Check size={14} /> Tracking
+            </>
+          ) : (
+            <>
+              <Plus size={14} /> Track
+            </>
+          )}
         </button>
         {job.url && (
           <button className="btn-open" onClick={() => onOpen(job.url)}>

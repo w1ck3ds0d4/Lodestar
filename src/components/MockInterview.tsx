@@ -128,7 +128,11 @@ export function MockInterview() {
             <span className="muted sm">
               {words} words · {fillers} filler{fillers === 1 ? "" : "s"}
             </span>
-            <button className="btn-sync" onClick={() => void getFeedback()} disabled={busy === "fb" || !answer.trim()}>
+            <button
+              className="btn-sync"
+              onClick={() => void getFeedback()}
+              disabled={busy === "fb" || !answer.trim()}
+            >
               <Sparkles size={15} /> {busy === "fb" ? "Scoring..." : "Get feedback"}
             </button>
           </div>

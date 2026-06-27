@@ -29,7 +29,10 @@ export async function extractResumeText(file: File): Promise<string> {
       const content = await page.getTextContent();
       pages.push(content.items.map((it) => ("str" in it ? it.str : "")).join(" "));
     }
-    return pages.join("\n").replace(/[ \t]+\n/g, "\n").trim();
+    return pages
+      .join("\n")
+      .replace(/[ \t]+\n/g, "\n")
+      .trim();
   }
 
   throw new Error("Unsupported file - use PDF, DOCX, TXT, or MD.");

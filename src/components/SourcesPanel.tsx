@@ -60,7 +60,9 @@ function SourceRow({ source, onChanged }: { source: Source; onChanged: () => voi
         </label>
         <span className="badge badge-source">{KIND_LABELS[source.kind] ?? source.kind}</span>
         <input className="src-label" value={label} onChange={(e) => setLabel(e.target.value)} />
-        <button className="icon-btn danger" title="Delete" onClick={del}><Trash2 size={16} /></button>
+        <button className="icon-btn danger" title="Delete" onClick={del}>
+          <Trash2 size={16} />
+        </button>
       </div>
 
       {fieldsFor(source.kind).length > 0 && (
@@ -109,7 +111,9 @@ function SourceRow({ source, onChanged }: { source: Source; onChanged: () => voi
         >
           <Play size={14} /> {testing ? "Testing..." : "Test"}
         </button>
-        <button className="btn-open" onClick={save} disabled={saving || testing}><Check size={14} /> Save</button>
+        <button className="btn-open" onClick={save} disabled={saving || testing}>
+          <Check size={14} /> Save
+        </button>
       </div>
     </div>
   );
@@ -141,16 +145,32 @@ export function SourcesPanel({
       <div className="drawer" onClick={(e) => e.stopPropagation()}>
         <div className="drawer-head">
           <h2>Sources</h2>
-          <button className="icon-btn" onClick={onClose}>✕</button>
+          <button className="icon-btn" onClick={onClose}>
+            ✕
+          </button>
         </div>
         <div className="drawer-body">
           <div className="add-source">
             <h3>Add a source</h3>
             <div className="add-row">
-              <select value={newKind} onChange={(e) => { setNewKind(e.target.value); setNewConfig({}); }}>
-                {SOURCE_KINDS.map((k) => <option key={k} value={k}>{KIND_LABELS[k]}</option>)}
+              <select
+                value={newKind}
+                onChange={(e) => {
+                  setNewKind(e.target.value);
+                  setNewConfig({});
+                }}
+              >
+                {SOURCE_KINDS.map((k) => (
+                  <option key={k} value={k}>
+                    {KIND_LABELS[k]}
+                  </option>
+                ))}
               </select>
-              <input placeholder="Label (optional)" value={newLabel} onChange={(e) => setNewLabel(e.target.value)} />
+              <input
+                placeholder="Label (optional)"
+                value={newLabel}
+                onChange={(e) => setNewLabel(e.target.value)}
+              />
             </div>
             {fieldsFor(newKind).length > 0 && (
               <div className="src-fields">
@@ -166,11 +186,15 @@ export function SourcesPanel({
                 ))}
               </div>
             )}
-            <button className="btn-open" onClick={add}><Plus size={14} /> Add source</button>
+            <button className="btn-open" onClick={add}>
+              <Plus size={14} /> Add source
+            </button>
           </div>
 
           <div className="src-list">
-            {sources.map((s) => <SourceRow key={s.id} source={s} onChanged={onChanged} />)}
+            {sources.map((s) => (
+              <SourceRow key={s.id} source={s} onChanged={onChanged} />
+            ))}
           </div>
         </div>
       </div>

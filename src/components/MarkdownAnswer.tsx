@@ -15,10 +15,7 @@ const KATEX_OPTS = { throwOnError: false, errorColor: "#e06c75" } as const;
 export const Answer = memo(function Answer({ text }: { text: string }) {
   return (
     <div className="assistant-answer">
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm, remarkMath]}
-        rehypePlugins={[[rehypeKatex, KATEX_OPTS]]}
-      >
+      <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[[rehypeKatex, KATEX_OPTS]]}>
         {text}
       </ReactMarkdown>
     </div>

@@ -147,8 +147,8 @@ export function ProfileHub({
           </button>
         </header>
         <p className="muted sm">
-          Each profile is a persona (role, company, resume, notes, and its own stories). The active
-          one tailors the live assistant answers, the screen answer, and the phone remote.
+          Each profile is a persona (role, company, resume, notes, and its own stories). The active one
+          tailors the live assistant answers, the screen answer, and the phone remote.
         </p>
 
         <div className="hub-profiles">
@@ -183,7 +183,11 @@ export function ProfileHub({
           </div>
           <div className="setup-field">
             <span className="setup-label">Company (for prep / briefs)</span>
-            <input value={company} onChange={(e) => setCompany(e.target.value)} placeholder="e.g. Acme Corp" />
+            <input
+              value={company}
+              onChange={(e) => setCompany(e.target.value)}
+              placeholder="e.g. Acme Corp"
+            />
           </div>
           <div className="setup-field">
             <span className="setup-label">Resume / background</span>

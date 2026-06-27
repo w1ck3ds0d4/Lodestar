@@ -193,7 +193,15 @@ export interface CaptureCommand {
   value?: number; // for "opacity" (0..1)
 }
 
-export const APP_STATUSES = ["saved", "applied", "screen", "interview", "offer", "accepted", "rejected"] as const;
+export const APP_STATUSES = [
+  "saved",
+  "applied",
+  "screen",
+  "interview",
+  "offer",
+  "accepted",
+  "rejected",
+] as const;
 export const APP_STATUS_LABELS: Record<string, string> = {
   saved: "Saved",
   applied: "Applied",
@@ -227,18 +235,33 @@ export const PROGRAM_CATALOG: CatalogProgram[] = [
   { name: "Andela", org: "Andela", url: "https://www.andela.com/", tag: "Remote marketplace" },
   { name: "Toptal", org: "Toptal", url: "https://www.toptal.com/", tag: "Remote marketplace" },
   { name: "Arc.dev", org: "Arc", url: "https://arc.dev/", tag: "Remote marketplace" },
-  { name: "LinkedIn REACH", org: "LinkedIn", url: "https://careers.linkedin.com/reach", tag: "Paid apprenticeship" },
+  {
+    name: "LinkedIn REACH",
+    org: "LinkedIn",
+    url: "https://careers.linkedin.com/reach",
+    tag: "Paid apprenticeship",
+  },
   {
     name: "Amazon Technical Academy",
     org: "Amazon",
     url: "https://www.amazon.jobs/content/en/teams/amazon-web-services/technical-apprenticeships",
     tag: "Paid apprenticeship",
   },
-  { name: "Microsoft LEAP", org: "Microsoft", url: "https://leap.microsoft.com/", tag: "Paid apprenticeship" },
+  {
+    name: "Microsoft LEAP",
+    org: "Microsoft",
+    url: "https://leap.microsoft.com/",
+    tag: "Paid apprenticeship",
+  },
   { name: "Multiverse", org: "Multiverse", url: "https://www.multiverse.io/", tag: "Apprenticeships" },
   { name: "Year Up", org: "Year Up United", url: "https://www.yearup.org/", tag: "Free + stipend" },
   { name: "Per Scholas", org: "Per Scholas", url: "https://perscholas.org/", tag: "Free + stipend" },
-  { name: "apprenticeship.gov", org: "US DOL", url: "https://www.apprenticeship.gov/", tag: "Registered apprenticeships" },
+  {
+    name: "apprenticeship.gov",
+    org: "US DOL",
+    url: "https://www.apprenticeship.gov/",
+    tag: "Registered apprenticeships",
+  },
 ];
 
 export const SOURCE_KINDS = [
@@ -335,9 +358,7 @@ export const CONFIG_FIELDS: Record<string, { key: string; label: string; placeho
     { key: "url", label: "Feed URL (RSS or Atom)", placeholder: "https://example.com/jobs.rss" },
     { key: "company", label: "Company (optional)", placeholder: "overrides the feed author" },
   ],
-  weworkremotely: [
-    { key: "category", label: "Category (optional)", placeholder: "remote-programming-jobs" },
-  ],
+  weworkremotely: [{ key: "category", label: "Category (optional)", placeholder: "remote-programming-jobs" }],
   adzuna: [
     { key: "app_id", label: "App ID" },
     { key: "app_key", label: "App key" },
@@ -463,8 +484,20 @@ export const ANSWER_STYLES: { id: string; label: string; note: string }[] = [
   { id: "code", label: "Code", note: "solution + complexity" },
 ];
 
-export const ASSISTANT_MODELS: { id: string; label: string; note: string; inPrice: number; outPrice: number }[] = [
-  { id: "claude-opus-4-8", label: "Claude Opus 4.8", note: "most capable, slower", inPrice: 15, outPrice: 75 },
+export const ASSISTANT_MODELS: {
+  id: string;
+  label: string;
+  note: string;
+  inPrice: number;
+  outPrice: number;
+}[] = [
+  {
+    id: "claude-opus-4-8",
+    label: "Claude Opus 4.8",
+    note: "most capable, slower",
+    inPrice: 15,
+    outPrice: 75,
+  },
   { id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6", note: "balanced", inPrice: 3, outPrice: 15 },
   { id: "claude-haiku-4-5", label: "Claude Haiku 4.5", note: "fastest", inPrice: 1, outPrice: 5 },
 ];
