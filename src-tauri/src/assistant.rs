@@ -67,8 +67,12 @@ the problem, list alternatives, or repeat yourself. Keep prose minimal.",
 fn with_profile(base: &str, profile: Option<&str>) -> String {
     match profile.map(str::trim).filter(|p| !p.is_empty()) {
         Some(p) => format!(
-            "{base}\n\nUSER PROFILE & CONTEXT (use this to tailor answers to this person and the \
-             role they are targeting; never read it aloud or repeat it verbatim):\n{p}"
+            "{base}\n\nUSER PROFILE & CONTEXT - use this ONLY for behavioral, experience, motivation, \
+             or fit questions (e.g. \"tell me about a time...\", \"why this role\", \"walk me through \
+             your background\"), where you ground the answer in this person's real background and \
+             stories. For technical, coding, factual, or definitional questions, IGNORE this profile \
+             entirely and give the standard correct answer. Never read this profile aloud or repeat it \
+             verbatim:\n{p}"
         ),
         None => base.to_string(),
     }
