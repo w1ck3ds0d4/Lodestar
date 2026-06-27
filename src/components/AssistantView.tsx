@@ -81,6 +81,15 @@ interface DialogSegment {
   role: "you" | "them";
   speaker: string;
   text: string;
+  // Capture time (epoch ms) so the dialog can show timestamps + response latency.
+  ts: number;
+}
+
+// HH:MM:SS.mmm for a dialog line, so the user can see how long each turn took.
+function fmtSegTime(ts: number): string {
+  const d = new Date(ts);
+  const p = (n: number, w = 2) => String(n).padStart(w, "0");
+  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${p(d.getMilliseconds(), 3)}`;
 }
 
 // Stable colour bucket for a speaker name (so each speaker keeps one chip hue).
@@ -709,7 +718,7 @@ export function AssistantView() {
             if (acc)
               setSegments((s) => [
                 ...s,
-                { id: ++segIdRef.current, role, speaker: slot.spk || speaker, text: acc },
+                { id: ++segIdRef.current, role, speaker: slot.spk || speaker, text: acc, ts: Date.now() },
               ]);
             slot.fin = "";
             slot.spk = "";
@@ -735,7 +744,7 @@ export function AssistantView() {
           const acc = (slot.fin + " " + slot.int).trim();
           if (acc) {
             const speaker = slot.spk || (role === "them" ? "Them" : "You");
-            setSegments((s) => [...s, { id: ++segIdRef.current, role, speaker, text: acc }]);
+            setSegments((s) => [...s, { id: ++segIdRef.current, role, speaker, text: acc, ts: Date.now() }]);
           }
         });
         liveRef.current = emptyLive();
@@ -2226,14 +2235,27 @@ export function AssistantView() {
                     if (el) stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
                   }}
                 >
-                  {segments.map((s) => (
-                    <div key={s.id} className={"seg-msg seg-" + s.role}>
-                      {s.role === "them" && (
-                        <span className={"seg-chip " + chipClass(s.speaker)}>{s.speaker}</span>
-                      )}
-                      <div className="seg-bubble">{s.text}</div>
-                    </div>
-                  ))}
+                  {segments.map((s, i) => {
+                    const prev = segments[i - 1];
+                    // Gap since the other speaker's previous line = how long this turn took to start.
+                    const gap = prev && prev.role !== s.role ? s.ts - prev.ts : null;
+                    return (
+                      <div key={s.id} className={"seg-msg seg-" + s.role}>
+                        <div className="seg-head">
+                          {s.role === "them" && (
+                            <span className={"seg-chip " + chipClass(s.speaker)}>{s.speaker}</span>
+                          )}
+                          {s.ts ? <span className="seg-time">{fmtSegTime(s.ts)}</span> : null}
+                          {gap != null && (
+                            <span className="seg-gap" title="Time since the other speaker's last line">
+                              +{(gap / 1000).toFixed(2)}s
+                            </span>
+                          )}
+                        </div>
+                        <div className="seg-bubble">{s.text}</div>
+                      </div>
+                    );
+                  })}
                   {(["them", "you"] as const).map((role) => {
                     const t = `${live[role].fin} ${live[role].int}`.trim();
                     return t ? (
