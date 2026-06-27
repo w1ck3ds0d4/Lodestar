@@ -1494,6 +1494,41 @@ select:focus {
 .assistant-answer p {
   margin: 0.5em 0;
 }
+/* Live (teleprompter) variant: the user reads these sentences aloud, so they render larger
+   and well-spaced, one sentence per visual line. The first paragraph (the spoken roadmap)
+   and the last (the handoff) are accented so the eye finds where to START and where to LAND. */
+.assistant-answer--live {
+  font-size: 15.5px;
+  line-height: 1.6;
+  max-width: 62ch;
+}
+.assistant-answer--live p {
+  margin: 0.7em 0;
+}
+.assistant-answer--live p:first-child {
+  color: var(--accent-2);
+  font-weight: 600;
+}
+.assistant-answer--live p:last-of-type {
+  color: var(--accent-2);
+}
+/* The dim, non-spoken "Next:" follow-up hint, pinned under the answer (never read aloud). */
+.answer-next {
+  margin-top: 10px;
+  font-size: 11px;
+  color: var(--muted);
+  opacity: 0.6;
+}
+/* A sayable bridge shown while the answer streams, so there is never dead air on screen. */
+.stall-bridge {
+  font-size: 13px;
+  color: var(--muted);
+  font-style: italic;
+}
+/* Tighter teleprompter size inside the small floating capture panel. */
+.cap-qa .assistant-answer--live {
+  font-size: 14.5px;
+}
 .assistant-answer pre {
   background: var(--bg-2);
   border: 1px solid var(--border);

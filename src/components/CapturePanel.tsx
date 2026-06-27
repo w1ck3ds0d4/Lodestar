@@ -158,9 +158,11 @@ export function CapturePanel({ kind }: { kind: PanelKind }) {
                   <div key={i} className="cap-qa">
                     <div className="cap-q">{a.q}</div>
                     {a.pending && !a.a ? (
-                      <div className="cap-a muted">Thinking...</div>
+                      <div className="cap-a stall-bridge">
+                        Good question - let me give you a structured answer.
+                      </div>
                     ) : (
-                      <Answer text={a.a} />
+                      <Answer text={a.a} live />
                     )}
                   </div>
                 ))

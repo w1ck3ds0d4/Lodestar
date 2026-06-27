@@ -226,9 +226,10 @@ const QaCard = memo(function QaCard({ e }: { e: QA }) {
       {e.error ? (
         <div className="assistant-error">{e.error}</div>
       ) : e.pending && !e.a ? (
-        <div className="muted sm">Thinking...</div>
+        // A sayable bridge the user can read aloud to kill dead air while the answer streams.
+        <div className="stall-bridge">Good question - let me give you a structured answer.</div>
       ) : (
-        <Answer text={e.a} />
+        <Answer text={e.a} live />
       )}
     </div>
   );
@@ -833,7 +834,10 @@ export function AssistantView() {
             }
           } else if (msg.kind === "done") {
             const full = (msg.text || acc).trim();
-            if (!full || stripped(full) === "NONE") {
+            // Ignore any trailing "Next:" heads-up line when testing for the NONE sentinel,
+            // so a stray hint can never make a filler reply look like a real answer.
+            const core = full.replace(/(?:^|\n)[ \t]*Next:[ \t]*[^\n]*$/i, "").trim();
+            if (!core || stripped(core) === "NONE") {
               if (created) setQa((prev) => prev.filter((e) => e.id !== id)); // retract a NONE
               return;
             }
