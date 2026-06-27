@@ -8,6 +8,7 @@ import {
   ClipboardPaste,
   Crop,
   Ear,
+  Keyboard,
   MessageSquare,
   Minus,
   ScanSearch,
@@ -20,12 +21,24 @@ import type { CaptureState } from "../types";
 import { Answer } from "./MarkdownAnswer";
 import { sendCaptureCommand as send, usePersistedBounds } from "../lib/captureWindow";
 
-export type PanelKind = "answers" | "transcript" | "controls";
+export type PanelKind = "answers" | "transcript" | "controls" | "shortcuts";
 
 const EMPTY: CaptureState = { listening: false, watching: false, segments: [], answers: [] };
 
 // Borderless windows have no native resize edges, so drive a resize from a corner grip.
 const startResize = () => void getCurrentWindow().startResizeDragging("SouthEast");
+
+// Cheat-sheet for the Shortcuts overlay panel. The keys are registered globally in the Rust
+// hotkey handler, so they fire even while the call app (browser/Teams) is the focused window.
+const SHORTCUTS: { keys: string; label: string }[] = [
+  { keys: "Alt+Shift+L", label: "Listen on / off" },
+  { keys: "Alt+Shift+A", label: "Answer the screen" },
+  { keys: "Alt+Shift+W", label: "Watch screen on / off" },
+  { keys: "Alt+Shift+↑ / ↓", label: "Opacity up / down" },
+  { keys: "Alt+Shift+C", label: "Show / hide panels" },
+  { keys: "Alt+Shift+R", label: "Read the focused page" },
+  { keys: "Alt+Shift+H", label: "Panic hide (whole app)" },
+];
 
 // One floating overlay window. The whole panel is its own borderless window; the
 // header is a drag region so it can be moved anywhere over a call. It is a thin
@@ -96,6 +109,7 @@ export function CapturePanel({ kind }: { kind: PanelKind }) {
   const meta = useMemo(() => {
     if (kind === "answers") return { title: "Answers", Icon: Sparkles };
     if (kind === "transcript") return { title: "Transcript", Icon: MessageSquare };
+    if (kind === "shortcuts") return { title: "Shortcuts", Icon: Keyboard };
     return { title: "Controls", Icon: ScanSearch };
   }, [kind]);
 
@@ -236,6 +250,18 @@ export function CapturePanel({ kind }: { kind: PanelKind }) {
                     <Send size={14} />
                   </button>
                 </div>
+              </div>
+            )}
+
+            {kind === "shortcuts" && (
+              <div className="cap-sc">
+                {SHORTCUTS.map((s) => (
+                  <div className="cap-sc-row" key={s.keys}>
+                    <kbd className="cap-kbd">{s.keys}</kbd>
+                    <span className="cap-sc-label">{s.label}</span>
+                  </div>
+                ))}
+                <div className="cap-sc-note">Global - they fire even while your call app is focused.</div>
               </div>
             )}
           </div>

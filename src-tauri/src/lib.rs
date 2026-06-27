@@ -48,11 +48,13 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
-        // Global hotkeys:
-        //  - Alt+Shift+C: show/hide the capture overlay panels (instant, focus-free).
-        //  - Alt+Shift+H: panic-hide - instantly toggle the main window's visibility.
-        //  - Alt+Shift+R: read the focused window's text via UI Automation, for pages
-        //    that block copy/paste (runs on a fresh thread; COM + UIA can be slow).
+        // Global hotkeys (all Alt+Shift, so they never collide with browser shortcuts):
+        //  - C: show/hide the capture overlay panels (instant, focus-free).
+        //  - H: panic-hide - instantly toggle the main window's visibility.
+        //  - R: read the focused window's text via UI Automation (pages that block copy/paste;
+        //    runs on a fresh thread, COM + UIA can be slow).
+        //  - L / A / W: listen / answer screen / watch - relayed to the Assistant view.
+        //  - Up / Down: raise / lower opacity - relayed to the Assistant view.
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, shortcut, event| {
@@ -75,6 +77,34 @@ pub fn run() {
                                 let _ = win.set_focus();
                             }
                         }
+                        return;
+                    }
+                    // Capture-mode actions: emit a command the Assistant view dispatches
+                    // through the same handler the phone uses (listen/answer/watch/opacity).
+                    if shortcut.matches(alt_shift, Code::KeyL) {
+                        let _ = app.emit("hotkey", serde_json::json!({ "cmd": "listen" }));
+                        return;
+                    }
+                    if shortcut.matches(alt_shift, Code::KeyA) {
+                        let _ = app.emit("hotkey", serde_json::json!({ "cmd": "answer_screen" }));
+                        return;
+                    }
+                    if shortcut.matches(alt_shift, Code::KeyW) {
+                        let _ = app.emit("hotkey", serde_json::json!({ "cmd": "watch" }));
+                        return;
+                    }
+                    if shortcut.matches(alt_shift, Code::ArrowUp) {
+                        let _ = app.emit(
+                            "hotkey",
+                            serde_json::json!({ "cmd": "opacity", "dir": "up" }),
+                        );
+                        return;
+                    }
+                    if shortcut.matches(alt_shift, Code::ArrowDown) {
+                        let _ = app.emit(
+                            "hotkey",
+                            serde_json::json!({ "cmd": "opacity", "dir": "down" }),
+                        );
                         return;
                     }
                     if shortcut.matches(alt_shift, Code::KeyR) {
@@ -113,19 +143,30 @@ pub fn run() {
                 phone: Arc::new(Mutex::new(None)),
             });
 
-            // Register the global "read focused window" hotkey. Alt+Shift+R is unlikely
-            // to collide with a browser shortcut; failure (e.g. already taken) is
-            // non-fatal so the rest of the app still starts.
+            // Register the global Alt+Shift+<key> hotkeys, by Code so they match the handler
+            // exactly. Alt+Shift combos don't collide with browser shortcuts, and these are
+            // OS-level anyway. Each failure (e.g. already taken) is non-fatal so the app still
+            // starts. R: read page, H: panic-hide, C: show/hide panels, L: listen, A: answer
+            // screen, W: watch, Up/Down: opacity.
             {
-                use tauri_plugin_global_shortcut::GlobalShortcutExt;
-                for sc in ["Alt+Shift+R", "Alt+Shift+H"] {
-                    if let Err(e) = app.global_shortcut().register(sc) {
-                        tracing::warn!("could not register hotkey {sc}: {e}");
+                use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut};
+                let alt_shift = Modifiers::ALT | Modifiers::SHIFT;
+                for code in [
+                    Code::KeyR,
+                    Code::KeyH,
+                    Code::KeyC,
+                    Code::KeyL,
+                    Code::KeyA,
+                    Code::KeyW,
+                    Code::ArrowUp,
+                    Code::ArrowDown,
+                ] {
+                    if let Err(e) = app
+                        .global_shortcut()
+                        .register(Shortcut::new(Some(alt_shift), code))
+                    {
+                        tracing::warn!("could not register hotkey {code:?}: {e}");
                     }
-                }
-                // Alt+Shift+C toggles the capture overlay panels' visibility.
-                if let Err(e) = app.global_shortcut().register("Alt+Shift+C") {
-                    tracing::warn!("could not register capture-toggle hotkey: {e}");
                 }
             }
 

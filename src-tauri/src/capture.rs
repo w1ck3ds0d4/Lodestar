@@ -26,6 +26,7 @@ const PANELS: &[(&str, &str, f64, f64, f64, f64)] = &[
     ("cap-answers", "Answers", 24.0, 64.0, 320.0, 300.0),
     ("cap-transcript", "Transcript", 24.0, 372.0, 320.0, 200.0),
     ("cap-controls", "Controls", 24.0, 580.0, 320.0, 132.0),
+    ("cap-shortcuts", "Shortcuts", 360.0, 64.0, 280.0, 250.0),
 ];
 
 /// Shared window flags for every capture overlay: borderless, always-on-top, hidden

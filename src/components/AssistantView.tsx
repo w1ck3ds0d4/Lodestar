@@ -1267,6 +1267,8 @@ export function AssistantView() {
         }
       }),
     );
+    // Global keyboard shortcuts arrive as a command object and dispatch like a phone tap.
+    add(listen<{ cmd?: string; dir?: string }>("hotkey", (e) => phoneCmdRef.current(e.payload)));
     add(listen<CaptureCommand>("capture-command", (e) => captureCmdRef.current(e.payload)));
     return () => {
       cancelled = true;

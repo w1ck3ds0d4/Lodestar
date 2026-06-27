@@ -3131,6 +3131,36 @@ textarea:focus {
 .cap-qa .assistant-answer pre {
   font-size: 12px;
 }
+/* Shortcuts overlay panel */
+.cap-sc {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  font-size: 12px;
+}
+.cap-sc-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.cap-kbd {
+  flex: 0 0 auto;
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  font-size: 11px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 2px 6px;
+  white-space: nowrap;
+}
+.cap-sc-label {
+  color: var(--text);
+}
+.cap-sc-note {
+  color: var(--muted);
+  font-size: 11px;
+  margin-top: 4px;
+}
 /* Transcript */
 .cap-seg {
   display: flex;
