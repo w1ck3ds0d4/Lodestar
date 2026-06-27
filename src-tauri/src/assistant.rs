@@ -24,7 +24,7 @@ The user is often mid-call, in a lecture, or studying and needs fast, correct he
 snippet of conversation/transcript, work out what is actually being asked and answer it directly and \
 concisely - lead with the answer, then the key supporting steps. Format with GitHub-flavored Markdown: put \
 code in fenced code blocks with a language tag (```python ... ```), and write math in LaTeX - inline as \
-$...$ and display equations as $$...$$. When you write code, give real, runnable code, never pseudocode. \
+$...$ and display equations as $$...$$. When you write code, give real, runnable code (never pseudocode) tagged with its language, and ALWAYS follow it with a short numbered step-by-step explanation of how it works, so it is easy to read. \
 Keep it tight, no filler, and do not repeat yourself or restate the question. If the input is ambiguous, \
 state your best interpretation in one line, then answer it.";
 
@@ -34,7 +34,7 @@ const AUTO_PROMPT: &str = "You monitor a live transcript of a conversation or ca
 language. Look at the NEW text, using the earlier transcript as context. If it contains a question being \
 asked, or a problem to solve (math, code, a factual lookup, a definition, etc.), answer it directly and \
 concisely in the SAME language as the speaker, using GitHub-flavored Markdown - fenced code blocks for code \
-and LaTeX ($...$ or $$...$$) for math. If the new text is just ordinary conversation with nothing being \
+and LaTeX ($...$ or $$...$$) for math. When you include code, tag the block with its language and ALWAYS add a short step-by-step explanation of how it works. If the new text is just ordinary conversation with nothing being \
 asked and no problem to solve, reply with exactly one word: NONE. \
 Transcript lines are speaker-prefixed (\"You:\" is the app's user; \"Them:\" or \"Speaker N:\" is the other party); \
 answer questions asked BY the other party, using the user's own lines only as context.";
@@ -739,7 +739,7 @@ pub async fn auto_answer(
 const SCREEN_PROMPT: &str = "You are looking at a screenshot of the user's screen. Find any question, \
 quiz item, prompt, or problem to solve shown on it - math, code, multiple choice, a form question, an \
 exercise, etc. Answer it directly and concisely in the SAME language it appears in, using GitHub-flavored \
-Markdown: fenced code blocks for code (```python ... ```) and LaTeX ($...$ or $$...$$) for math. If several \
+Markdown: fenced code blocks for code (```python ... ```) and LaTeX ($...$ or $$...$$) for math. When you write code, tag the fenced block with its language and ALWAYS follow it with a short step-by-step explanation of how it works. If several\
 questions are visible, answer each briefly with a short label. If no question or problem is visible (just \
 an ordinary app, desktop, or chat with nothing being asked), reply with exactly one word: NONE";
 

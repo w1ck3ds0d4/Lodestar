@@ -3,6 +3,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
+import rehypeHighlight from "rehype-highlight";
 import "katex/dist/katex.min.css";
 
 // rehype-katex must not throw: answers stream in token by token, so the markdown is
@@ -15,7 +16,14 @@ const KATEX_OPTS = { throwOnError: false, errorColor: "#e06c75" } as const;
 export const Answer = memo(function Answer({ text }: { text: string }) {
   return (
     <div className="assistant-answer">
-      <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[[rehypeKatex, KATEX_OPTS]]}>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm, remarkMath]}
+        rehypePlugins={[
+          [rehypeKatex, KATEX_OPTS],
+          // ignoreMissing: an unknown language tag (or a half-streamed fence) must not throw.
+          [rehypeHighlight, { ignoreMissing: true }],
+        ]}
+      >
         {text}
       </ReactMarkdown>
     </div>
