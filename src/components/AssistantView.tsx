@@ -1169,9 +1169,17 @@ export function AssistantView() {
 
   // Commands arriving from a phone are dispatched through this ref, reassigned every
   // render so the once-registered listener always invokes the latest handlers.
-  const phoneCmdRef = useRef<(c: { cmd?: string; text?: string; dir?: string; monitor?: number }) => void>(
-    () => {},
-  );
+  const phoneCmdRef = useRef<
+    (c: {
+      cmd?: string;
+      text?: string;
+      dir?: string;
+      monitor?: number;
+      panel?: string;
+      snap?: string;
+      nudge?: string;
+    }) => void
+  >(() => {});
   phoneCmdRef.current = (c) => {
     switch (c.cmd) {
       case "listen":
@@ -1199,6 +1207,10 @@ export function AssistantView() {
       case "panels":
         // Only meaningful once panels exist; a no-op otherwise.
         if (captureOn) void api.toggleCapturePanels().catch(() => {});
+        break;
+      case "move_panel":
+        // Reposition a panel (or "all") from the phone: snap to a corner/center or nudge.
+        if (captureOn) void api.moveCapturePanel(c.panel || "all", c.snap, c.nudge).catch(() => {});
         break;
       case "watch":
         setWatchingScreen((v) => !v);

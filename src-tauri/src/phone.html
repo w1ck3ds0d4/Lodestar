@@ -45,6 +45,17 @@
       .sheet-btns { display: flex; flex-direction: column; gap: 10px; }
       .sheet-btns button { border: 1px solid var(--accent); color: var(--accent2); background: rgba(16,185,129,.14); border-radius: 12px; padding: 14px; font-size: 16px; font-weight: 600; cursor: pointer; }
       .sheet-cancel { border: 1px solid var(--border); color: var(--muted); background: var(--panel2); border-radius: 12px; padding: 11px; cursor: pointer; }
+
+      /* Panels sheet: show/hide + a chooser and a 3x3 move pad (corners snap, arrows nudge). */
+      .sheet-toggle { border: 1px solid var(--accent); color: var(--accent2); background: rgba(16,185,129,.14); border-radius: 12px; padding: 12px; font-size: 15px; font-weight: 600; cursor: pointer; }
+      .seg { display: flex; flex-wrap: wrap; gap: 8px; }
+      .seg button { flex: 1 1 28%; border: 1px solid var(--border); background: var(--panel2); color: var(--muted); border-radius: 10px; padding: 9px 6px; font-size: 13px; cursor: pointer; }
+      .seg button.seg-on { border-color: var(--accent); color: var(--accent2); background: rgba(16,185,129,.16); }
+      .pad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+      .pad button { border: 1px solid var(--border); background: var(--panel2); color: var(--text); border-radius: 12px; padding: 14px 0; font-size: 19px; cursor: pointer; }
+      .pad button.snap { color: var(--accent2); }
+      .pad button:active { transform: scale(0.95); }
+      .pad-hint { color: var(--muted); font-size: 12px; text-align: center; }
     </style>
   </head>
   <body>
@@ -65,7 +76,7 @@
       <button class="tile" id="opDown"><span class="tl">Opacity −</span><span class="st">More see-through</span></button>
       <button class="tile" id="screen"><span class="tl">Read &amp; Answer</span><span class="st">Full page + screen</span></button>
       <button class="tile" id="watch"><span class="tl">Watch Screen</span><span class="st" id="watchSt">Off</span></button>
-      <button class="tile" id="panels"><span class="tl">Hide / Show</span><span class="st">Overlay panels</span></button>
+      <button class="tile" id="panels"><span class="tl">Panels</span><span class="st">Move / show-hide</span></button>
       <button class="tile" id="ask"><span class="tl">Ask</span><span class="st">Type a question</span></button>
     </div>
 
@@ -75,6 +86,34 @@
         <div class="sheet-title">Answer which screen?</div>
         <div id="monBtns" class="sheet-btns"></div>
         <button class="sheet-cancel" id="monCancel">Cancel</button>
+      </div>
+    </div>
+
+    <!-- Panels sheet: show/hide the overlay, pick a panel, and move it (corners snap, arrows nudge) -->
+    <div id="panelModal" class="modal hidden">
+      <div class="sheet">
+        <div class="sheet-title">Panels</div>
+        <button class="sheet-toggle" id="panelToggle">Hide / Show panels</button>
+        <div class="seg" id="panelPick">
+          <button data-p="all" class="seg-on">All</button>
+          <button data-p="cap-answers">Answers</button>
+          <button data-p="cap-transcript">Transcript</button>
+          <button data-p="cap-controls">Controls</button>
+          <button data-p="cap-shortcuts">Shortcuts</button>
+        </div>
+        <div class="pad">
+          <button class="snap" data-snap="tl">◤</button>
+          <button data-nudge="up">↑</button>
+          <button class="snap" data-snap="tr">◥</button>
+          <button data-nudge="left">←</button>
+          <button class="snap" data-snap="center">◎</button>
+          <button data-nudge="right">→</button>
+          <button class="snap" data-snap="bl">◣</button>
+          <button data-nudge="down">↓</button>
+          <button class="snap" data-snap="br">◢</button>
+        </div>
+        <div class="pad-hint">Corners snap · arrows nudge</div>
+        <button class="sheet-cancel" id="panelClose">Close</button>
       </div>
     </div>
 
@@ -98,7 +137,7 @@
         else cmd({ cmd: "answer_screen", monitor: 0 });
       };
       $("watch").onclick   = function () { cmd({ cmd: "watch" }); };
-      $("panels").onclick  = function () { cmd({ cmd: "panels" }); };
+      $("panels").onclick  = function () { show($("panelModal"), true); };
       $("ask").onclick     = function () {
         var v = (window.prompt("Ask a question") || "").trim();
         if (v) cmd({ cmd: "ask", text: v });
@@ -119,6 +158,26 @@
         show($("monModal"), true);
       }
       $("monCancel").onclick = function () { show($("monModal"), false); };
+
+      // Panels sheet: a Show/Hide toggle, a panel chooser, and a 3x3 move pad. The chosen
+      // panel ("all" by default) is what the corner-snap and arrow-nudge buttons move.
+      var selPanel = "all";
+      $("panelToggle").onclick = function () { cmd({ cmd: "panels" }); };
+      $("panelClose").onclick = function () { show($("panelModal"), false); };
+      Array.prototype.forEach.call($("panelPick").children, function (b) {
+        b.onclick = function () {
+          selPanel = b.getAttribute("data-p");
+          Array.prototype.forEach.call($("panelPick").children, function (o) {
+            o.classList.toggle("seg-on", o === b);
+          });
+        };
+      });
+      Array.prototype.forEach.call(document.querySelectorAll(".pad button"), function (b) {
+        b.onclick = function () {
+          var snap = b.getAttribute("data-snap"), nudge = b.getAttribute("data-nudge");
+          cmd({ cmd: "move_panel", panel: selPanel, snap: snap || undefined, nudge: nudge || undefined });
+        };
+      });
 
       function connect() {
         pin = $("pin").value.trim();

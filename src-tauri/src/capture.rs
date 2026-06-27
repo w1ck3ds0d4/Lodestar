@@ -224,3 +224,106 @@ pub fn toggle_visibility(app: &AppHandle) -> bool {
     }
     show
 }
+
+/// Reposition one overlay panel - or "all" of them as a group - from the phone remote.
+/// `snap` (tl/tr/bl/br/center) moves the panel flush to that anchor of its monitor; `nudge`
+/// (up/down/left/right) shifts it a step. With "all", the panels move together so their
+/// relative layout is preserved (snap aligns their combined bounding box to the anchor).
+pub fn move_panel(
+    app: &AppHandle,
+    panel: &str,
+    snap: Option<&str>,
+    nudge: Option<&str>,
+) -> Result<(), String> {
+    // Resolve the target panel label(s).
+    let labels: Vec<&str> = if panel == "all" {
+        PANELS.iter().map(|p| p.0).collect()
+    } else if PANELS.iter().any(|p| p.0 == panel) {
+        vec![panel]
+    } else {
+        return Err(format!("unknown panel: {panel}"));
+    };
+
+    // Collect each open, visible target's window + current physical geometry.
+    type WinGeom = (
+        tauri::WebviewWindow,
+        tauri::PhysicalPosition<i32>,
+        tauri::PhysicalSize<u32>,
+    );
+    let mut wins: Vec<WinGeom> = Vec::new();
+    for label in &labels {
+        if let Some(w) = app.get_webview_window(label) {
+            if !w.is_visible().unwrap_or(false) {
+                continue;
+            }
+            let pos = w.outer_position().map_err(|e| e.to_string())?;
+            let size = w.outer_size().map_err(|e| e.to_string())?;
+            wins.push((w, pos, size));
+        }
+    }
+    if wins.is_empty() {
+        return Ok(()); // nothing open/visible to move
+    }
+
+    let mon = wins[0].0.current_monitor().ok().flatten();
+    let scale = mon.as_ref().map(|m| m.scale_factor()).unwrap_or(1.0);
+
+    let apply = |off_x: i32, off_y: i32| {
+        for (w, pos, _) in &wins {
+            let _ = w.set_position(tauri::Position::Physical(tauri::PhysicalPosition {
+                x: pos.x + off_x,
+                y: pos.y + off_y,
+            }));
+        }
+    };
+
+    if let Some(dir) = nudge {
+        let step = (54.0 * scale).round() as i32;
+        let (dx, dy) = match dir {
+            "left" => (-step, 0),
+            "right" => (step, 0),
+            "up" => (0, -step),
+            "down" => (0, step),
+            _ => return Err(format!("unknown nudge: {dir}")),
+        };
+        apply(dx, dy);
+        return Ok(());
+    }
+
+    if let Some(corner) = snap {
+        let m = mon.ok_or("no monitor for the panel")?;
+        let (mx, my) = (m.position().x, m.position().y);
+        let (mw, mh) = (m.size().width as i32, m.size().height as i32);
+        let margin = (14.0 * scale).round() as i32;
+        // Combined bounding box of the targets (a single panel's box is itself).
+        let min_x = wins.iter().map(|(_, p, _)| p.x).min().unwrap();
+        let min_y = wins.iter().map(|(_, p, _)| p.y).min().unwrap();
+        let max_x = wins
+            .iter()
+            .map(|(_, p, s)| p.x + s.width as i32)
+            .max()
+            .unwrap();
+        let max_y = wins
+            .iter()
+            .map(|(_, p, s)| p.y + s.height as i32)
+            .max()
+            .unwrap();
+        let (bw, bh) = (max_x - min_x, max_y - min_y);
+        let left = mx + margin;
+        let right = mx + mw - margin - bw;
+        let cx = mx + (mw - bw) / 2;
+        let top = my + margin;
+        let bottom = my + mh - margin - bh;
+        let cy = my + (mh - bh) / 2;
+        let (tx, ty) = match corner {
+            "tl" => (left, top),
+            "tr" => (right, top),
+            "bl" => (left, bottom),
+            "br" => (right, bottom),
+            "center" => (cx, cy),
+            _ => return Err(format!("unknown snap: {corner}")),
+        };
+        apply(tx - min_x, ty - min_y);
+    }
+    Ok(())
+}

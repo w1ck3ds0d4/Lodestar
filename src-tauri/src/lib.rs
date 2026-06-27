@@ -358,6 +358,7 @@ pub fn run() {
             commands::close_capture_panels,
             commands::set_capture_opacity,
             commands::toggle_capture_panels,
+            commands::move_capture_panel,
             commands::set_capture_protection,
             window_fx::set_window_opacity,
             window_fx::set_window_always_on_top,
