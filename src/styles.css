@@ -1575,6 +1575,13 @@ select:focus {
 .qa-q {
   font-weight: 600;
   margin-bottom: 6px;
+  font-size: 12px;
+  color: var(--muted);
+  /* The interviewer's question can be long; keep it a short header (hover shows the full text). */
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 .assistant-panes {
   display: flex;

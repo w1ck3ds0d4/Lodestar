@@ -220,7 +220,9 @@ function SnipOverlay({
 const QaCard = memo(function QaCard({ e }: { e: QA }) {
   return (
     <div className="qa">
-      <div className="qa-q">{e.q}</div>
+      <div className="qa-q" title={e.q}>
+        {e.q}
+      </div>
       {e.error ? (
         <div className="assistant-error">{e.error}</div>
       ) : e.pending && !e.a ? (
@@ -799,6 +801,15 @@ export function AssistantView() {
       if (newSegs.length === 0) return;
       const latest = transcriptText(newSegs).trim();
       if (latest.length < 2) return;
+      // Card header = the interviewer's words only. The user's stutter-y "You:" lines are
+      // context for the model (still sent in `latest`), not the question being answered, so
+      // showing only the "Them:" text keeps the header short and readable.
+      const themOnly = newSegs
+        .filter((s) => s.role === "them")
+        .map((s) => s.text)
+        .join(" ")
+        .trim();
+      const displayQ = themOnly || latest;
       const ctx = transcriptText(segments.slice(0, answeredIdx.current));
       answeredIdx.current = segments.length;
       void (async () => {
@@ -816,7 +827,7 @@ export function AssistantView() {
             if (!created) {
               if (looksNone(acc)) return; // still ambiguous (N / NO / NON / NONE)
               created = true;
-              setQa((prev) => [{ id, q: latest, a: acc, pending: true }, ...prev]);
+              setQa((prev) => [{ id, q: displayQ, a: acc, pending: true }, ...prev]);
             } else {
               setQa((prev) => prev.map((e) => (e.id === id ? { ...e, a: acc, pending: true } : e)));
             }
@@ -828,7 +839,7 @@ export function AssistantView() {
             }
             if (!created) {
               created = true;
-              setQa((prev) => [{ id, q: latest, a: full, pending: false }, ...prev]);
+              setQa((prev) => [{ id, q: displayQ, a: full, pending: false }, ...prev]);
             } else {
               setQa((prev) => prev.map((e) => (e.id === id ? { ...e, a: full, pending: false } : e)));
             }
@@ -2238,7 +2249,7 @@ export function AssistantView() {
                   {segments.map((s, i) => {
                     const prev = segments[i - 1];
                     // Gap since the other speaker's previous line = how long this turn took to start.
-                    const gap = prev && prev.role !== s.role ? s.ts - prev.ts : null;
+                    const gap = prev && prev.role !== s.role && prev.ts && s.ts ? s.ts - prev.ts : null;
                     return (
                       <div key={s.id} className={"seg-msg seg-" + s.role}>
                         <div className="seg-head">
