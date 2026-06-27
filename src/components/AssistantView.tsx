@@ -404,9 +404,14 @@ export function AssistantView() {
   }, []);
 
   // Overlay window controls. Applied after mount (hwnd() errors before the window
-  // exists); opacity is debounced so dragging the slider doesn't spam invoke.
+  // exists); opacity is debounced so dragging the slider doesn't spam invoke. The same
+  // value also dims the capture overlay panels (a no-op when none are open), so the opacity
+  // slider and the phone's opacity buttons fade the floating panels along with the window.
   useEffect(() => {
-    const t = setTimeout(() => void api.setWindowOpacity(opacity).catch(() => {}), 60);
+    const t = setTimeout(() => {
+      void api.setWindowOpacity(opacity).catch(() => {});
+      void api.setCaptureOpacity(opacity).catch(() => {});
+    }, 60);
     return () => clearTimeout(t);
   }, [opacity]);
   useEffect(() => {
