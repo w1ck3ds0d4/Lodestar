@@ -1653,6 +1653,19 @@ select:focus {
 .level-fill.live {
   background: linear-gradient(90deg, var(--accent), var(--accent-2));
 }
+.level-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.level-row .level-track {
+  flex: 1;
+}
+.level-label {
+  flex: 0 0 84px;
+  font-size: 12px;
+  color: var(--muted);
+}
 .transcript-text {
   white-space: pre-wrap;
   line-height: 1.5;

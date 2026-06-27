@@ -496,6 +496,8 @@ async fn connect_and_stream(
                 std::mem::take(&mut *g)
             };
             if samples.is_empty() {
+                // Report a zero level for this source so its meter bar decays when it goes quiet.
+                let _ = app.emit("listen-level", level_payload(meta.kind, 0.0));
                 idle += 1;
                 if idle >= 40 {
                     let _ = write
@@ -509,7 +511,7 @@ async fn connect_and_stream(
             let mono = downmix_mono(&samples, meta.channels);
             let resampled = resample(&mono, meta.rate, TARGET_RATE);
             let peak = resampled.iter().fold(0f32, |m, &s| m.max(s.abs()));
-            let _ = app.emit("listen-level", json!({ "peak": peak, "buffered": 0 }));
+            let _ = app.emit("listen-level", level_payload(meta.kind, peak));
             pending_secs += resampled.len() as f64 / TARGET_RATE as f64;
             if pending_secs >= 15.0 {
                 crate::usage::record_deepgram_seconds(pending_secs);
@@ -630,6 +632,16 @@ fn dominant_speaker(alt: &Value) -> Option<String> {
         .map(|(spk, _)| format!("Speaker {}", spk + 1))
 }
 
+/// One source's level for the capture meter, keyed by which side it is: "mic" is your input
+/// (your voice), "sys" is the other side's loopback (the output device). Lets the UI show a
+/// separate bar per side, so a flat "Them" bar pinpoints which side isn't being captured.
+fn level_payload(kind: SrcKind, peak: f32) -> serde_json::Value {
+    match kind {
+        SrcKind::System => json!({ "sys": peak }),
+        SrcKind::Mic => json!({ "mic": peak }),
+    }
+}
+
 /// Local Whisper driver: peek the buffers ~5x/sec for a live input-level meter, and
 /// drain + transcribe a ~4s chunk per source on each interval. A flat meter at 0 means
 /// no audio is reaching the chosen device (wrong output for loopback); a moving meter
@@ -647,18 +659,24 @@ fn run_local_chunked(
     while flag.load(Ordering::SeqCst) {
         std::thread::sleep(tick);
 
-        let mut live_peak = 0f32;
+        let mut mic_peak = 0f32;
+        let mut sys_peak = 0f32;
         let mut buffered = 0usize;
         for src in sources {
             let g = src.buffer.lock().unwrap();
             buffered += g.len();
+            let mut p = 0f32;
             for &s in g.iter() {
-                live_peak = live_peak.max(s.abs());
+                p = p.max(s.abs());
+            }
+            match src.kind {
+                SrcKind::System => sys_peak = sys_peak.max(p),
+                SrcKind::Mic => mic_peak = mic_peak.max(p),
             }
         }
         let _ = app.emit(
             "listen-level",
-            json!({ "peak": live_peak, "buffered": buffered }),
+            json!({ "mic": mic_peak, "sys": sys_peak, "buffered": buffered }),
         );
 
         tick_count += 1;

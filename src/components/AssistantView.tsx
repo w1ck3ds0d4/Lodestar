@@ -277,7 +277,11 @@ export function AssistantView() {
   const [listenError, setListenError] = useState("");
   const [autoAnswer, setAutoAnswer] = useState(true);
   const [captureInfo, setCaptureInfo] = useState<CaptureDevice[]>([]);
-  const [level, setLevel] = useState<{ peak: number; buffered: number }>({ peak: 0, buffered: 0 });
+  const [level, setLevel] = useState<{ mic: number; sys: number; buffered: number }>({
+    mic: 0,
+    sys: 0,
+    buffered: 0,
+  });
 
   const [monitors, setMonitors] = useState<MonitorInfo[]>([]);
   const [screenMonitor, setScreenMonitor] = useState(0);
@@ -712,7 +716,12 @@ export function AssistantView() {
     add(listen<string>("listen-status", (e) => setListenStatus(String(e.payload))));
     add(listen<string>("listen-error", (e) => setListenError(String(e.payload))));
     add(listen<CaptureDevice[]>("listen-device", (e) => setCaptureInfo(e.payload)));
-    add(listen<{ peak: number; buffered: number }>("listen-level", (e) => setLevel(e.payload)));
+    // Levels arrive per side ("mic" and/or "sys"), sometimes one at a time, so merge them.
+    add(
+      listen<Partial<{ mic: number; sys: number; buffered: number }>>("listen-level", (e) =>
+        setLevel((prev) => ({ ...prev, ...e.payload })),
+      ),
+    );
     add(
       listen("listen-stopped", () => {
         // Flush any open live utterance so a sentence in progress isn't lost on stop.
@@ -729,7 +738,7 @@ export function AssistantView() {
         setListening(false);
         setListenStatus("");
         setCaptureInfo([]);
-        setLevel({ peak: 0, buffered: 0 });
+        setLevel({ mic: 0, sys: 0, buffered: 0 });
       }),
     );
     return () => {
@@ -1493,18 +1502,28 @@ export function AssistantView() {
               {listenError && <div className="assistant-error">{listenError}</div>}
 
               {listening && (
-                <div className={"capture-diag" + (level.peak < 0.005 ? " warn" : " ok")}>
+                <div className={"capture-diag" + (Math.max(level.mic, level.sys) < 0.005 ? " warn" : " ok")}>
                   <div className="capture-diag-head">
                     <span className="muted sm">Capture diagnostics</span>
-                    <span className="muted sm">
-                      peak {level.peak.toFixed(3)} · {Math.round(level.buffered / 1000)}k buffered
-                    </span>
+                    <span className="muted sm">{Math.round(level.buffered / 1000)}k buffered</span>
                   </div>
-                  <div className="level-track">
-                    <div
-                      className={"level-fill" + (level.peak >= 0.005 ? " live" : "")}
-                      style={{ width: `${Math.min(100, Math.round(level.peak * 140))}%` }}
-                    />
+                  <div className="level-row">
+                    <span className="level-label">You (mic)</span>
+                    <div className="level-track">
+                      <div
+                        className={"level-fill" + (level.mic >= 0.005 ? " live" : "")}
+                        style={{ width: `${Math.min(100, Math.round(level.mic * 140))}%` }}
+                      />
+                    </div>
+                  </div>
+                  <div className="level-row">
+                    <span className="level-label">Them (output)</span>
+                    <div className="level-track">
+                      <div
+                        className={"level-fill" + (level.sys >= 0.005 ? " live" : "")}
+                        style={{ width: `${Math.min(100, Math.round(level.sys * 140))}%` }}
+                      />
+                    </div>
                   </div>
                   {captureInfo.length === 0 ? (
                     <div className="muted sm">Opening capture device…</div>
@@ -1516,9 +1535,11 @@ export function AssistantView() {
                     ))
                   )}
                   <div className="diag-hint muted sm">
-                    {level.peak < 0.005
-                      ? "No sound reaching this device. If capturing System audio, set the Output device above to the one your call plays through."
-                      : "Audio is being captured. If nothing transcribes, it's the transcription engine, not capture."}
+                    {level.sys < 0.005 && level.mic < 0.005
+                      ? "No audio on either source. Check the capture devices below match what's playing your call."
+                      : level.sys < 0.005
+                        ? "Your mic is captured, but no other-side audio. In Windows Sound settings (Volume mixer), make sure the call app - browser, Teams, etc. - is set to output to the device shown above."
+                        : "Audio is being captured."}
                   </div>
                 </div>
               )}
