@@ -55,6 +55,7 @@ import {
   type Profile,
   type UsageReport,
 } from "../types";
+import { isNoneAnswer, looksNone } from "../lib/answer";
 import { extractResumeText } from "../lib/extractText";
 import { ApplicationKit } from "./ApplicationKit";
 import { Answer } from "./MarkdownAnswer";
@@ -885,10 +886,6 @@ export function AssistantView() {
         const id = ++idRef.current;
         let acc = "";
         let created = false;
-        // Letters-only upper, so we can tell the "NONE" sentinel from a real answer even
-        // through punctuation/whitespace, and hold the bubble until the stream diverges.
-        const stripped = (s: string) => s.replace(/[^a-z]/gi, "").toUpperCase();
-        const looksNone = (s: string) => "NONE".startsWith(stripped(s));
         const channel = new Channel<api.AnswerChunk>();
         channel.onmessage = (msg) => {
           if (msg.kind === "delta") {
@@ -902,10 +899,9 @@ export function AssistantView() {
             }
           } else if (msg.kind === "done") {
             const full = (msg.text || acc).trim();
-            // Ignore any trailing "Next:" heads-up line when testing for the NONE sentinel,
-            // so a stray hint can never make a filler reply look like a real answer.
-            const core = full.replace(/(?:^|\n)[ \t]*Next:[ \t]*[^\n]*$/i, "").trim();
-            if (!core || stripped(core) === "NONE") {
+            // isNoneAnswer ignores any trailing "Next:" hint, so a stray hint can never make a
+            // filler reply look like a real answer (see lib/answer).
+            if (isNoneAnswer(full)) {
               if (created) setQa((prev) => prev.filter((e) => e.id !== id)); // retract a NONE
               return;
             }

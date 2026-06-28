@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
@@ -13,5 +14,10 @@ export default defineConfig({
     host: host || false,
     hmr: host ? { protocol: "ws", host, port: 1421 } : undefined,
     watch: { ignored: ["**/src-tauri/**"] },
+  },
+  // Unit tests for pure logic (no DOM/Tauri needed); run with `pnpm test`.
+  test: {
+    environment: "node",
+    include: ["src/**/*.test.ts"],
   },
 });
