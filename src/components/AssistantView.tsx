@@ -69,6 +69,9 @@ interface QA {
   a: string;
   pending: boolean;
   error?: string;
+  // A thumbnail (base64 PNG) of the screen/image the answer is about, shown as the question
+  // for screen and image asks (where `q` is only a generic label like "From your screen").
+  image?: string;
 }
 
 // One captured audio source reported by the backend for the diagnostics panel.
@@ -103,15 +106,14 @@ function fmtLogClock(ts: number): string {
   return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 }
 
-// Convert a pasted/dropped image (Blob/File) to a base64 PNG, downscaling the longest side to
-// <= maxSide px (Claude's efficient max) to keep the payload small. Resolves to base64 with no
-// "data:" prefix. Normalizing to PNG means the backend's media_type is always correct.
-function imageToPngBase64(file: Blob, maxSide = 1568): Promise<string> {
+// Downscale an image (given an <img> src) to a base64 PNG whose longest side is <= maxSide,
+// resolving to base64 with no "data:" prefix. `onSettled` runs once the source has loaded/failed
+// (used to revoke object URLs).
+function srcToPngBase64(src: string, maxSide: number, onSettled?: () => void): Promise<string> {
   return new Promise((resolve, reject) => {
-    const url = URL.createObjectURL(file);
     const img = new Image();
     img.onload = () => {
-      URL.revokeObjectURL(url);
+      onSettled?.();
       const scale = Math.min(1, maxSide / Math.max(img.naturalWidth, img.naturalHeight));
       const w = Math.max(1, Math.round(img.naturalWidth * scale));
       const h = Math.max(1, Math.round(img.naturalHeight * scale));
@@ -124,11 +126,23 @@ function imageToPngBase64(file: Blob, maxSide = 1568): Promise<string> {
       resolve(canvas.toDataURL("image/png").split(",")[1] || "");
     };
     img.onerror = () => {
-      URL.revokeObjectURL(url);
+      onSettled?.();
       reject(new Error("could not read the image"));
     };
-    img.src = url;
+    img.src = src;
   });
+}
+
+// A pasted/dropped image file -> base64 PNG (longest side <= maxSide, Claude's efficient max).
+// Normalizing to PNG means the backend's media_type is always correct.
+function imageToPngBase64(file: Blob, maxSide = 1568): Promise<string> {
+  const url = URL.createObjectURL(file);
+  return srcToPngBase64(url, maxSide, () => URL.revokeObjectURL(url));
+}
+
+// A base64 PNG -> a small base64 PNG thumbnail, shown as the "question" for screen/image asks.
+function pngThumb(base64: string, maxSide = 400): Promise<string> {
+  return srcToPngBase64("data:image/png;base64," + base64, maxSide);
 }
 
 // Stable colour bucket for a speaker name (so each speaker keeps one chip hue).
@@ -259,6 +273,13 @@ function SnipOverlay({
 const QaCard = memo(function QaCard({ e }: { e: QA }) {
   return (
     <div className="qa">
+      {e.image && (
+        <img
+          className="qa-image"
+          src={"data:image/png;base64," + e.image}
+          alt="the screen or image this answers"
+        />
+      )}
       <div className="qa-q" title={e.q}>
         {e.q}
       </div>
@@ -434,6 +455,11 @@ export function AssistantView() {
   useEffect(() => {
     qaRef.current = qa;
   }, [qa]);
+  // Synchronous mirror of `listening` so the once-registered read handlers can gate on it.
+  const listeningRef = useRef(false);
+  useEffect(() => {
+    listeningRef.current = listening;
+  }, [listening]);
 
   // Follow the conversation: scroll the dialog to the newest line whenever a segment
   // commits or the live tail grows - unless the user has scrolled up to read back.
@@ -476,6 +502,43 @@ export function AssistantView() {
       window.setTimeout(() => setPageMsg(""), 3500);
     },
     [pushLog],
+  );
+
+  // Answer a read-in page directly: the page text becomes the question, streamed into a card
+  // labelled "From the page" (so the whole page isn't shown as the header). Capped so a huge
+  // page can't blow the request up.
+  const answerPage = useCallback((pageText: string) => {
+    const text = pageText.trim().slice(0, 40000);
+    if (text.length < 2) return;
+    const id = ++idRef.current;
+    setQa((prev) => [{ id, q: "From the page", a: "", pending: true }, ...prev]);
+    const channel = new Channel<api.AnswerChunk>();
+    channel.onmessage = (msg) => {
+      setQa((prev) =>
+        prev.map((e) => {
+          if (e.id !== id) return e;
+          if (msg.kind === "delta") return { ...e, a: e.a + msg.text, pending: true };
+          if (msg.kind === "done") return { ...e, a: msg.text || e.a, pending: false };
+          return { ...e, error: msg.message, pending: false };
+        }),
+      );
+    };
+    void api
+      .askAssistant(text, null, channel)
+      .catch((err) =>
+        setQa((prev) => prev.map((x) => (x.id === id ? { ...x, error: String(err), pending: false } : x))),
+      );
+  }, []);
+
+  // Attach a read-in page as context AND, when NOT in a live call, answer it - so an explicit
+  // page read (Read full page / Alt+Shift+R / clipboard) also solves the exercise instead of only
+  // attaching context. While listening, the read stays context-only (the audio drives answers).
+  const readPageAndAnswer = useCallback(
+    (text: string, label: string) => {
+      addToContext(text, label);
+      if (!listeningRef.current) answerPage(text);
+    },
+    [addToContext, answerPage],
   );
 
   // Overlay window controls. Applied after mount (hwnd() errors before the window
@@ -637,6 +700,12 @@ export function AssistantView() {
         // Feed the recent conversation so the screen answer is context-aware.
         const convo = transcriptText(segmentsRef.current).trim();
         const ctx = convo ? convo.slice(-1500) : null;
+        // Grab a thumbnail of the screen we're answering (in parallel), to show as the card's
+        // "question" - otherwise a screen answer's only header is the generic "From your screen".
+        const thumbP = api
+          .captureScreenPng(mon)
+          .then((b) => pngThumb(b))
+          .catch(() => undefined);
         // Hybrid (phone Read & Answer) also reads the full page text via accessibility, so a
         // coding exercise scrolled off-screen is still captured; desktop stays screenshot-only.
         const res = hybrid
@@ -648,9 +717,13 @@ export function AssistantView() {
         // terse answer ("True", "O(n)"), and that would wrongly swallow the second.
         const tag = hybrid ? "Read & answer" : force ? "Answer screen" : "Watch tick";
         if (res.changed && a && a.toUpperCase() !== "NONE") {
-          setQa((prev) => [{ id: ++idRef.current, q: "From your screen", a, pending: false }, ...prev]);
+          const id = ++idRef.current;
+          setQa((prev) => [{ id, q: "From your screen", a, pending: false }, ...prev]);
           setScreenNote("");
           pushLog("screen", `${tag}: answered (Display ${mon + 1})`);
+          void thumbP.then((t) => {
+            if (t) setQa((prev) => prev.map((e) => (e.id === id ? { ...e, image: t } : e)));
+          });
         } else if (!res.changed) {
           // Skipped because the screen looks the same as the last one answered.
           pushLog("screen", `${tag}: screen unchanged, skipped (Display ${mon + 1})`);
@@ -685,27 +758,27 @@ export function AssistantView() {
         window.setTimeout(() => setPageMsg(""), 3500);
         return;
       }
-      addToContext(text, "Read page");
+      readPageAndAnswer(text, "Read page");
     } catch (e) {
       setPageMsg("Couldn't read the clipboard: " + String(e));
     }
-  }, [addToContext]);
+  }, [readPageAndAnswer]);
 
   // Read full page: pull the WHOLE focused page via accessibility (including content scrolled
-  // off-screen) and attach it as context (dedupe + accumulate via addToContext - no answer, so
-  // it can't duplicate responses). Reads the last external window, so it works from an in-app
-  // button or the phone even though those focus JobRadar itself.
+  // off-screen), attach it as context (dedupe + accumulate) AND answer it when not in a live
+  // call. Reads the last external window, so it works from an in-app button or the phone even
+  // though those focus JobRadar itself.
   const readFullPage = useCallback(async () => {
     setPageMsg("Reading the full page...");
     try {
       const text = await api.readActivePage();
-      addToContext(text, "Read page");
+      readPageAndAnswer(text, "Read page");
     } catch (e) {
       setPageMsg("Read full page: " + String(e));
       pushLog("read", "Read full page failed: " + String(e));
       window.setTimeout(() => setPageMsg(""), 4000);
     }
-  }, [addToContext, pushLog]);
+  }, [readPageAndAnswer, pushLog]);
 
   // Snip & explain: capture the chosen monitor, then crop a region to explain.
   const startSnip = useCallback(async () => {
@@ -775,6 +848,10 @@ export function AssistantView() {
   const askImageQ = useCallback(async (q: string, image: string, ctx: string | null) => {
     const id = ++idRef.current;
     setQa((prev) => [{ id, q: q.trim() || "Image", a: "", pending: true }, ...prev]);
+    // Show a thumbnail of the asked image as the card's question.
+    void pngThumb(image)
+      .then((t) => setQa((prev) => prev.map((e) => (e.id === id ? { ...e, image: t } : e))))
+      .catch(() => {});
     const channel = new Channel<api.AnswerChunk>();
     channel.onmessage = (msg) => {
       setQa((prev) =>
@@ -892,7 +969,7 @@ export function AssistantView() {
     let cancelled = false;
     const unlisteners: UnlistenFn[] = [];
     const add = (p: Promise<UnlistenFn>) => void p.then((u) => (cancelled ? u() : unlisteners.push(u)));
-    add(listen<string>("window-text", (e) => addToContext(String(e.payload), "Read window")));
+    add(listen<string>("window-text", (e) => readPageAndAnswer(String(e.payload), "Read window")));
     add(
       listen<string>("window-text-error", (e) => {
         setPageMsg("Read window: " + String(e.payload));
@@ -904,7 +981,7 @@ export function AssistantView() {
       cancelled = true;
       unlisteners.forEach((u) => u());
     };
-  }, [addToContext, pushLog]);
+  }, [readPageAndAnswer, pushLog]);
 
   // Auto-answer: send each batch of new dialog segments to the model, which answers
   // it if it is a question or problem (in any language) and replies "NONE" otherwise.
@@ -2598,13 +2675,22 @@ export function AssistantView() {
                 <div className="pane-title">
                   <span>Live answers</span>
                   {qa.length > 0 && (
-                    <button
-                      className="link-btn"
-                      onClick={() => setQa([])}
-                      title="Clear the answers and the code/math derived from them"
-                    >
-                      Clear
-                    </button>
+                    <span className="pane-actions">
+                      <button
+                        className="link-btn"
+                        onClick={() => void saveSession()}
+                        title="Save the transcript + these answers as a reviewable session (also auto-saves when you stop listening)"
+                      >
+                        {sessionSaved ? "Saved ✓" : "Save"}
+                      </button>
+                      <button
+                        className="link-btn"
+                        onClick={() => setQa([])}
+                        title="Clear the answers and the code/math derived from them"
+                      >
+                        Clear
+                      </button>
+                    </span>
                   )}
                 </div>
                 <div className="col-scroll">

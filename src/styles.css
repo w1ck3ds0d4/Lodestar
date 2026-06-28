@@ -1752,13 +1752,28 @@ select:focus {
 .qa-q {
   font-weight: 600;
   margin-bottom: 6px;
-  font-size: 12px;
-  color: var(--muted);
-  /* The interviewer's question can be long; keep it a short header (hover shows the full text). */
+  font-size: 13px;
+  color: var(--text);
+  /* The question can be long; keep it a readable header clamped to a few lines (hover, via the
+     title attribute, shows the full text). */
   display: -webkit-box;
-  -webkit-line-clamp: 3;
+  -webkit-line-clamp: 4;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+/* The screen/image a screen- or image-answer is about, shown as the question. */
+.qa-image {
+  display: block;
+  max-width: 100%;
+  max-height: 180px;
+  margin-bottom: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+/* Groups the Save/Clear buttons on the right of a pane title. */
+.pane-actions {
+  display: inline-flex;
+  gap: 10px;
 }
 .assistant-panes {
   display: flex;
