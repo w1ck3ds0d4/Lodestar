@@ -35,6 +35,9 @@ jobs:
       - name: Type-check and build frontend
         run: pnpm build
 
+      - name: Frontend unit tests
+        run: pnpm test
+
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy

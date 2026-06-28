@@ -165,7 +165,15 @@ export function TrackerView({ onOpen }: { onOpen: (url: string) => void }) {
   );
 }
 
-function AppCard({ item, onChanged, onOpen }: { item: Tracked; onChanged: () => void; onOpen: (url: string) => void }) {
+function AppCard({
+  item,
+  onChanged,
+  onOpen,
+}: {
+  item: Tracked;
+  onChanged: () => void;
+  onOpen: (url: string) => void;
+}) {
   const [notes, setNotes] = useState(item.notes);
   const [nextAction, setNextAction] = useState(item.nextAction ?? "");
   const [prepping, setPrepping] = useState(false);
@@ -181,7 +189,8 @@ function AppCard({ item, onChanged, onOpen }: { item: Tracked; onChanged: () => 
     onChanged();
   };
   const saveNotes = async () => {
-    if (notes !== item.notes) await api.updateTracked(item.id, item.status, notes, item.progress, item.deadline);
+    if (notes !== item.notes)
+      await api.updateTracked(item.id, item.status, notes, item.progress, item.deadline);
   };
   const saveNextAction = async () => {
     if (nextAction !== (item.nextAction ?? "")) await api.setTrackedNextAction(item.id, nextAction);
@@ -214,14 +223,20 @@ function AppCard({ item, onChanged, onOpen }: { item: Tracked; onChanged: () => 
         >
           <GripVertical size={14} />
         </span>
-        <button className="link-title" onClick={() => item.url && onOpen(item.url)}>{item.title}</button>
-        <button className="icon-btn danger sm" title="Remove" onClick={del}><Trash2 size={14} /></button>
+        <button className="link-title" onClick={() => item.url && onOpen(item.url)}>
+          {item.title}
+        </button>
+        <button className="icon-btn danger sm" title="Remove" onClick={del}>
+          <Trash2 size={14} />
+        </button>
       </div>
       {item.org && <div className="muted sm">{item.org}</div>}
       <div className="track-row">
         <select value={item.status} onChange={(e) => move(e.target.value)}>
           {APP_STATUSES.map((s) => (
-            <option key={s} value={s}>{APP_STATUS_LABELS[s]}</option>
+            <option key={s} value={s}>
+              {APP_STATUS_LABELS[s]}
+            </option>
           ))}
         </select>
         <input
@@ -260,7 +275,15 @@ function AppCard({ item, onChanged, onOpen }: { item: Tracked; onChanged: () => 
   );
 }
 
-function ProgramCard({ item, onChanged, onOpen }: { item: Tracked; onChanged: () => void; onOpen: (url: string) => void }) {
+function ProgramCard({
+  item,
+  onChanged,
+  onOpen,
+}: {
+  item: Tracked;
+  onChanged: () => void;
+  onOpen: (url: string) => void;
+}) {
   const [notes, setNotes] = useState(item.notes);
   const [newMs, setNewMs] = useState("");
 
@@ -282,14 +305,20 @@ function ProgramCard({ item, onChanged, onOpen }: { item: Tracked; onChanged: ()
   return (
     <div className="prog-card">
       <div className="track-card-head">
-        <button className="link-title" onClick={() => item.url && onOpen(item.url)}>{item.title}</button>
-        <button className="icon-btn danger sm" title="Remove" onClick={del}><Trash2 size={14} /></button>
+        <button className="link-title" onClick={() => item.url && onOpen(item.url)}>
+          {item.title}
+        </button>
+        <button className="icon-btn danger sm" title="Remove" onClick={del}>
+          <Trash2 size={14} />
+        </button>
       </div>
       {item.org && <div className="muted sm">{item.org}</div>}
       <div className="prog-row">
         <select value={item.status} onChange={(e) => patch(e.target.value, item.deadline, notes)}>
           {PROGRAM_STATUSES.map((s) => (
-            <option key={s} value={s}>{PROGRAM_STATUS_LABELS[s]}</option>
+            <option key={s} value={s}>
+              {PROGRAM_STATUS_LABELS[s]}
+            </option>
           ))}
         </select>
         <input
@@ -298,7 +327,9 @@ function ProgramCard({ item, onChanged, onOpen }: { item: Tracked; onChanged: ()
           onChange={(e) => patch(item.status, e.target.value || null, notes)}
         />
       </div>
-      <div className="progress-bar"><div className="progress-fill" style={{ width: `${item.progress}%` }} /></div>
+      <div className="progress-bar">
+        <div className="progress-fill" style={{ width: `${item.progress}%` }} />
+      </div>
       <div className="ms-list">
         {item.milestones.map((m) => (
           <label key={m.id} className="ms-item">
@@ -332,7 +363,9 @@ function ProgramCard({ item, onChanged, onOpen }: { item: Tracked; onChanged: ()
               if (e.key === "Enter") void addMs();
             }}
           />
-          <button className="icon-btn" title="Add milestone" onClick={addMs}><Plus size={14} /></button>
+          <button className="icon-btn" title="Add milestone" onClick={addMs}>
+            <Plus size={14} />
+          </button>
         </div>
       </div>
       <textarea
@@ -373,16 +406,35 @@ function AddProgram({ onChanged }: { onChanged: () => void }) {
     <div className="add-program">
       <div className="catalog">
         {PROGRAM_CATALOG.map((p) => (
-          <button key={p.name} className="catalog-chip" title={`${p.org} - ${p.tag}`} onClick={() => addCatalog(p)}>
+          <button
+            key={p.name}
+            className="catalog-chip"
+            title={`${p.org} - ${p.tag}`}
+            onClick={() => addCatalog(p)}
+          >
             <Plus size={12} /> {p.name}
           </button>
         ))}
       </div>
       <div className="add-row">
-        <input placeholder="Custom program / platform" value={custom.title} onChange={(e) => setCustom({ ...custom, title: e.target.value })} />
-        <input placeholder="Org (optional)" value={custom.org} onChange={(e) => setCustom({ ...custom, org: e.target.value })} />
-        <input placeholder="URL (optional)" value={custom.url} onChange={(e) => setCustom({ ...custom, url: e.target.value })} />
-        <button className="btn-open" onClick={addCustom}><Plus size={14} /> Add</button>
+        <input
+          placeholder="Custom program / platform"
+          value={custom.title}
+          onChange={(e) => setCustom({ ...custom, title: e.target.value })}
+        />
+        <input
+          placeholder="Org (optional)"
+          value={custom.org}
+          onChange={(e) => setCustom({ ...custom, org: e.target.value })}
+        />
+        <input
+          placeholder="URL (optional)"
+          value={custom.url}
+          onChange={(e) => setCustom({ ...custom, url: e.target.value })}
+        />
+        <button className="btn-open" onClick={addCustom}>
+          <Plus size={14} /> Add
+        </button>
       </div>
     </div>
   );

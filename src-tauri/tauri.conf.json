@@ -18,6 +18,7 @@
         "height": 760,
         "minWidth": 760,
         "minHeight": 520,
+        "decorations": false,
         "contentProtected": true
       }
     ],

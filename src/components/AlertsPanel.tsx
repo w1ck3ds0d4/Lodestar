@@ -32,7 +32,9 @@ export function AlertsPanel({
       <div className="drawer" onClick={(e) => e.stopPropagation()}>
         <div className="drawer-head">
           <h2>Alerts</h2>
-          <button className="icon-btn" onClick={onClose}>✕</button>
+          <button className="icon-btn" onClick={onClose}>
+            ✕
+          </button>
         </div>
         <div className="drawer-body">
           <p className="muted">Get a desktop notification when new jobs matching a saved search arrive.</p>
@@ -48,7 +50,9 @@ export function AlertsPanel({
               <input type="checkbox" checked={remoteOnly} onChange={(e) => setRemoteOnly(e.target.checked)} />
               <span>Remote only</span>
             </label>
-            <button className="btn-open" onClick={add}><Plus size={14} /> Create alert</button>
+            <button className="btn-open" onClick={add}>
+              <Plus size={14} /> Create alert
+            </button>
           </div>
 
           <div className="src-list">
@@ -60,7 +64,9 @@ export function AlertsPanel({
                   <span className="src-label-static">{a.query.trim() || "(any job)"}</span>
                   {a.remoteOnly && <span className="badge badge-remote">Remote</span>}
                   <div className="spacer" />
-                  <button className="icon-btn danger" onClick={() => del(a.id)}><Trash2 size={16} /></button>
+                  <button className="icon-btn danger" onClick={() => del(a.id)}>
+                    <Trash2 size={16} />
+                  </button>
                 </div>
               </div>
             ))}

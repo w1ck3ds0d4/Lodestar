@@ -168,6 +168,14 @@ export interface CaptureAnswer {
   a: string;
   pending: boolean;
 }
+// One activity-log line, so the user can see what each action/shortcut actually did
+// (e.g. that "watch" and "read page" are different) and whether it fired.
+export interface LogEntry {
+  id: number;
+  ts: number;
+  kind: string;
+  msg: string;
+}
 export interface CaptureState {
   listening: boolean;
   watching: boolean;
@@ -175,6 +183,10 @@ export interface CaptureState {
   protect?: boolean;
   segments: CaptureSegment[];
   answers: CaptureAnswer[];
+  // Overlay translucency (0.3..1), shared so every opacity control stays in sync.
+  opacity?: number;
+  // Recent activity log, mirrored to the floating Log panel.
+  log?: LogEntry[];
 }
 // A command sent from an overlay window (panel or control bar) to the main window.
 export interface CaptureCommand {
@@ -188,12 +200,21 @@ export interface CaptureCommand {
     | "answer_screen"
     | "protect"
     | "read_page"
+    | "read_full_page"
     | "opacity";
   text?: string;
   value?: number; // for "opacity" (0..1)
 }
 
-export const APP_STATUSES = ["saved", "applied", "screen", "interview", "offer", "accepted", "rejected"] as const;
+export const APP_STATUSES = [
+  "saved",
+  "applied",
+  "screen",
+  "interview",
+  "offer",
+  "accepted",
+  "rejected",
+] as const;
 export const APP_STATUS_LABELS: Record<string, string> = {
   saved: "Saved",
   applied: "Applied",
@@ -227,18 +248,33 @@ export const PROGRAM_CATALOG: CatalogProgram[] = [
   { name: "Andela", org: "Andela", url: "https://www.andela.com/", tag: "Remote marketplace" },
   { name: "Toptal", org: "Toptal", url: "https://www.toptal.com/", tag: "Remote marketplace" },
   { name: "Arc.dev", org: "Arc", url: "https://arc.dev/", tag: "Remote marketplace" },
-  { name: "LinkedIn REACH", org: "LinkedIn", url: "https://careers.linkedin.com/reach", tag: "Paid apprenticeship" },
+  {
+    name: "LinkedIn REACH",
+    org: "LinkedIn",
+    url: "https://careers.linkedin.com/reach",
+    tag: "Paid apprenticeship",
+  },
   {
     name: "Amazon Technical Academy",
     org: "Amazon",
     url: "https://www.amazon.jobs/content/en/teams/amazon-web-services/technical-apprenticeships",
     tag: "Paid apprenticeship",
   },
-  { name: "Microsoft LEAP", org: "Microsoft", url: "https://leap.microsoft.com/", tag: "Paid apprenticeship" },
+  {
+    name: "Microsoft LEAP",
+    org: "Microsoft",
+    url: "https://leap.microsoft.com/",
+    tag: "Paid apprenticeship",
+  },
   { name: "Multiverse", org: "Multiverse", url: "https://www.multiverse.io/", tag: "Apprenticeships" },
   { name: "Year Up", org: "Year Up United", url: "https://www.yearup.org/", tag: "Free + stipend" },
   { name: "Per Scholas", org: "Per Scholas", url: "https://perscholas.org/", tag: "Free + stipend" },
-  { name: "apprenticeship.gov", org: "US DOL", url: "https://www.apprenticeship.gov/", tag: "Registered apprenticeships" },
+  {
+    name: "apprenticeship.gov",
+    org: "US DOL",
+    url: "https://www.apprenticeship.gov/",
+    tag: "Registered apprenticeships",
+  },
 ];
 
 export const SOURCE_KINDS = [
@@ -335,9 +371,7 @@ export const CONFIG_FIELDS: Record<string, { key: string; label: string; placeho
     { key: "url", label: "Feed URL (RSS or Atom)", placeholder: "https://example.com/jobs.rss" },
     { key: "company", label: "Company (optional)", placeholder: "overrides the feed author" },
   ],
-  weworkremotely: [
-    { key: "category", label: "Category (optional)", placeholder: "remote-programming-jobs" },
-  ],
+  weworkremotely: [{ key: "category", label: "Category (optional)", placeholder: "remote-programming-jobs" }],
   adzuna: [
     { key: "app_id", label: "App ID" },
     { key: "app_key", label: "App key" },
@@ -463,8 +497,20 @@ export const ANSWER_STYLES: { id: string; label: string; note: string }[] = [
   { id: "code", label: "Code", note: "solution + complexity" },
 ];
 
-export const ASSISTANT_MODELS: { id: string; label: string; note: string; inPrice: number; outPrice: number }[] = [
-  { id: "claude-opus-4-8", label: "Claude Opus 4.8", note: "most capable, slower", inPrice: 15, outPrice: 75 },
+export const ASSISTANT_MODELS: {
+  id: string;
+  label: string;
+  note: string;
+  inPrice: number;
+  outPrice: number;
+}[] = [
+  {
+    id: "claude-opus-4-8",
+    label: "Claude Opus 4.8",
+    note: "most capable, slower",
+    inPrice: 15,
+    outPrice: 75,
+  },
   { id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6", note: "balanced", inPrice: 3, outPrice: 15 },
   { id: "claude-haiku-4-5", label: "Claude Haiku 4.5", note: "fastest", inPrice: 1, outPrice: 5 },
 ];
@@ -498,6 +544,39 @@ export interface PhoneInfo {
   url: string;
   pin: string;
   qr: string; // SVG data: URL
+}
+
+// A switchable interview persona: the context the assistant uses to tailor live answers.
+export interface Profile {
+  id: number;
+  name: string;
+  role: string;
+  company: string;
+  resume: string;
+  notes: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+// Per-profile job-search preferences: the saved search filters that travel with a profile.
+export interface JobPrefs {
+  workplaces: string[];
+  levels: string[];
+  remoteEligible: boolean;
+  relocationOnly: boolean;
+  postedWithin: number | null;
+  minSalary: number | null;
+  langs: string[];
+  minMatch: number | null;
+}
+
+// Result of the networking/firewall pre-flight for the phone server (Windows).
+export interface PhoneNetStatus {
+  ok: boolean; // nothing obvious should block the phone
+  publicNetwork: boolean; // network is categorized Public (blocks inbound LAN)
+  ruleMissing: boolean; // no inbound firewall allow-rule for the port
+  canFix: boolean; // an automatic, one-click fix is available on this platform
+  message: string; // user-facing explanation
 }
 
 // Deepgram Nova-2 streaming, approximate USD per minute (pay-as-you-go). Estimate only.

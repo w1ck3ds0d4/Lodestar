@@ -26,12 +26,15 @@ const PANELS: &[(&str, &str, f64, f64, f64, f64)] = &[
     ("cap-answers", "Answers", 24.0, 64.0, 320.0, 300.0),
     ("cap-transcript", "Transcript", 24.0, 372.0, 320.0, 200.0),
     ("cap-controls", "Controls", 24.0, 580.0, 320.0, 132.0),
+    ("cap-shortcuts", "Shortcuts", 360.0, 64.0, 280.0, 250.0),
+    ("cap-log", "Log", 360.0, 324.0, 300.0, 240.0),
 ];
 
 /// Shared window flags for every capture overlay: borderless, always-on-top, hidden
 /// from the taskbar, and (when `protected`) excluded from screen capture/sharing.
 /// `protected` is normally true so the panels stay invisible to a shared/recorded
 /// screen; the user can turn it off to screenshot the panels themselves.
+#[allow(clippy::too_many_arguments)]
 fn build_overlay(
     app: &AppHandle,
     label: &str,
@@ -60,7 +63,11 @@ fn build_overlay(
 }
 
 /// Geometry of one capture window, captured so it can be recreated in place.
-pub type PanelGeom = (&'static str, tauri::PhysicalPosition<i32>, tauri::PhysicalSize<u32>);
+pub type PanelGeom = (
+    &'static str,
+    tauri::PhysicalPosition<i32>,
+    tauri::PhysicalSize<u32>,
+);
 
 /// Snapshot each open capture window's geometry and destroy it, returning the geometry.
 /// Recreating (rather than toggling `set_content_protected` on a live window) is the
@@ -130,7 +137,13 @@ fn tauri_bounds(app: &AppHandle, w: u32, h: u32) -> Option<(f64, f64, f64, f64, 
         .find(|m| m.size().width == w && m.size().height == h)
         .or_else(|| mons.first())?;
     let (p, sz) = (m.position(), m.size());
-    Some((p.x as f64, p.y as f64, sz.width as f64, sz.height as f64, m.scale_factor()))
+    Some((
+        p.x as f64,
+        p.y as f64,
+        sz.width as f64,
+        sz.height as f64,
+        m.scale_factor(),
+    ))
 }
 
 /// Open (or re-focus) the control bar and overlay panels. Idempotent. `protected` sets
@@ -138,7 +151,11 @@ fn tauri_bounds(app: &AppHandle, w: u32, h: u32) -> Option<(f64, f64, f64, f64, 
 /// chosen monitor's physical bounds + scale in Tauri's coordinate space (see
 /// [`monitor_bounds`]). New windows are built hidden, positioned on that monitor via
 /// `Position::Physical`, then shown - so they never flash on, or stick to, the wrong one.
-pub fn open_panels(app: &AppHandle, protected: bool, mon: (f64, f64, f64, f64, f64)) -> Result<(), String> {
+pub fn open_panels(
+    app: &AppHandle,
+    protected: bool,
+    mon: (f64, f64, f64, f64, f64),
+) -> Result<(), String> {
     let (mx, my, mw, mh, scale) = mon;
     // Physical top-left for a window of LOGICAL size (lw,lh) at LOGICAL offset (lx,ly)
     // within the monitor, clamped to the monitor's physical box (so nothing opens
@@ -147,7 +164,10 @@ pub fn open_panels(app: &AppHandle, protected: bool, mon: (f64, f64, f64, f64, f
         let (pw, ph) = (lw * scale, lh * scale);
         let px = (mx + lx * scale).min(mx + (mw - pw).max(0.0)).max(mx);
         let py = (my + ly * scale).min(my + (mh - ph).max(0.0)).max(my);
-        tauri::PhysicalPosition { x: px.round() as i32, y: py.round() as i32 }
+        tauri::PhysicalPosition {
+            x: px.round() as i32,
+            y: py.round() as i32,
+        }
     };
     // Place a freshly-built (hidden) window on the chosen monitor, then reveal it.
     let setup = |label: &str, pos: tauri::PhysicalPosition<i32>| {
@@ -204,4 +224,204 @@ pub fn toggle_visibility(app: &AppHandle) -> bool {
         }
     }
     show
+}
+
+/// The (dx, dy) step for a nudge in `dir`, scaled to the monitor's DPI. None for an unknown dir.
+fn nudge_delta(dir: &str, scale: f64) -> Option<(i32, i32)> {
+    let step = (54.0 * scale).round() as i32;
+    Some(match dir {
+        "left" => (-step, 0),
+        "right" => (step, 0),
+        "up" => (0, -step),
+        "down" => (0, step),
+        _ => return None,
+    })
+}
+
+/// The (dx, dy) offset that brings a bounding box `(min_x, min_y, max_x, max_y)` flush to
+/// `corner` (tl/tr/bl/br/center) of a monitor `(mx, my, mw, mh)`, leaving `margin` px of gap.
+/// None for an unknown corner.
+fn snap_offset(
+    corner: &str,
+    bbox: (i32, i32, i32, i32),
+    mon: (i32, i32, i32, i32),
+    margin: i32,
+) -> Option<(i32, i32)> {
+    let (min_x, min_y, max_x, max_y) = bbox;
+    let (mx, my, mw, mh) = mon;
+    let (bw, bh) = (max_x - min_x, max_y - min_y);
+    let left = mx + margin;
+    let right = mx + mw - margin - bw;
+    let cx = mx + (mw - bw) / 2;
+    let top = my + margin;
+    let bottom = my + mh - margin - bh;
+    let cy = my + (mh - bh) / 2;
+    let (tx, ty) = match corner {
+        "tl" => (left, top),
+        "tr" => (right, top),
+        "bl" => (left, bottom),
+        "br" => (right, bottom),
+        "center" => (cx, cy),
+        _ => return None,
+    };
+    Some((tx - min_x, ty - min_y))
+}
+
+/// The scale factor for a resize step (grow / shrink), or None for an unknown action.
+fn resize_factor(action: &str) -> Option<f64> {
+    match action {
+        "grow" => Some(1.15),
+        "shrink" => Some(1.0 / 1.15),
+        _ => None,
+    }
+}
+
+/// Reposition or resize one overlay panel - or "all" of them - from the phone remote.
+/// `snap` (tl/tr/bl/br/center) moves the panel flush to that anchor of its monitor; `nudge`
+/// (up/down/left/right) shifts it a step; `resize` (grow/shrink) scales it by a step (clamped
+/// to a sane minimum). With "all", the panels move together so their relative layout is
+/// preserved (snap aligns their combined bounding box to the anchor) and each one resizes.
+pub fn move_panel(
+    app: &AppHandle,
+    panel: &str,
+    snap: Option<&str>,
+    nudge: Option<&str>,
+    resize: Option<&str>,
+) -> Result<(), String> {
+    // Resolve the target panel label(s).
+    let labels: Vec<&str> = if panel == "all" {
+        PANELS.iter().map(|p| p.0).collect()
+    } else if PANELS.iter().any(|p| p.0 == panel) {
+        vec![panel]
+    } else {
+        return Err(format!("unknown panel: {panel}"));
+    };
+
+    // Collect each open, visible target's window + current physical geometry.
+    type WinGeom = (
+        tauri::WebviewWindow,
+        tauri::PhysicalPosition<i32>,
+        tauri::PhysicalSize<u32>,
+    );
+    let mut wins: Vec<WinGeom> = Vec::new();
+    for label in &labels {
+        if let Some(w) = app.get_webview_window(label) {
+            if !w.is_visible().unwrap_or(false) {
+                continue;
+            }
+            let pos = w.outer_position().map_err(|e| e.to_string())?;
+            let size = w.outer_size().map_err(|e| e.to_string())?;
+            wins.push((w, pos, size));
+        }
+    }
+    if wins.is_empty() {
+        return Ok(()); // nothing open/visible to move
+    }
+
+    let mon = wins[0].0.current_monitor().ok().flatten();
+    let scale = mon.as_ref().map(|m| m.scale_factor()).unwrap_or(1.0);
+
+    let apply = |off_x: i32, off_y: i32| {
+        for (w, pos, _) in &wins {
+            let _ = w.set_position(tauri::Position::Physical(tauri::PhysicalPosition {
+                x: pos.x + off_x,
+                y: pos.y + off_y,
+            }));
+        }
+    };
+
+    if let Some(action) = resize {
+        let factor = resize_factor(action).ok_or_else(|| format!("unknown resize: {action}"))?;
+        // Don't let a panel shrink below a usable size (scale-aware physical px).
+        let min_w = (160.0 * scale).round() as u32;
+        let min_h = (90.0 * scale).round() as u32;
+        for (w, _pos, size) in &wins {
+            let nw = ((size.width as f64 * factor).round() as u32).max(min_w);
+            let nh = ((size.height as f64 * factor).round() as u32).max(min_h);
+            let _ = w.set_size(tauri::Size::Physical(tauri::PhysicalSize {
+                width: nw,
+                height: nh,
+            }));
+        }
+        return Ok(());
+    }
+
+    if let Some(dir) = nudge {
+        let (dx, dy) = nudge_delta(dir, scale).ok_or_else(|| format!("unknown nudge: {dir}"))?;
+        apply(dx, dy);
+        return Ok(());
+    }
+
+    if let Some(corner) = snap {
+        let m = mon.ok_or("no monitor for the panel")?;
+        let mon_box = (
+            m.position().x,
+            m.position().y,
+            m.size().width as i32,
+            m.size().height as i32,
+        );
+        let margin = (14.0 * scale).round() as i32;
+        // Combined bounding box of the targets (a single panel's box is itself).
+        let min_x = wins.iter().map(|(_, p, _)| p.x).min().unwrap();
+        let min_y = wins.iter().map(|(_, p, _)| p.y).min().unwrap();
+        let max_x = wins
+            .iter()
+            .map(|(_, p, s)| p.x + s.width as i32)
+            .max()
+            .unwrap();
+        let max_y = wins
+            .iter()
+            .map(|(_, p, s)| p.y + s.height as i32)
+            .max()
+            .unwrap();
+        let (off_x, off_y) = snap_offset(corner, (min_x, min_y, max_x, max_y), mon_box, margin)
+            .ok_or_else(|| format!("unknown snap: {corner}"))?;
+        apply(off_x, off_y);
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{nudge_delta, resize_factor, snap_offset};
+
+    #[test]
+    fn resize_grows_and_shrinks_by_inverse_steps() {
+        assert_eq!(resize_factor("grow"), Some(1.15));
+        let shrink = resize_factor("shrink").unwrap();
+        // grow then shrink returns (about) to the original size.
+        assert!((1.15 * shrink - 1.0).abs() < 1e-9);
+        assert_eq!(resize_factor("zoom"), None);
+    }
+
+    #[test]
+    fn nudge_scales_with_dpi_and_covers_every_direction() {
+        assert_eq!(nudge_delta("right", 1.0), Some((54, 0)));
+        assert_eq!(nudge_delta("left", 1.0), Some((-54, 0)));
+        assert_eq!(nudge_delta("up", 1.0), Some((0, -54)));
+        assert_eq!(nudge_delta("down", 1.0), Some((0, 54)));
+        assert_eq!(nudge_delta("right", 1.5), Some((81, 0))); // 54 * 1.5
+        assert_eq!(nudge_delta("sideways", 1.0), None);
+    }
+
+    #[test]
+    fn snap_aligns_the_bounding_box_to_each_anchor() {
+        // 100x100 box at (200,200) on a 1000x800 monitor at the origin, 10px margin.
+        let bbox = (200, 200, 300, 300);
+        let mon = (0, 0, 1000, 800);
+        assert_eq!(snap_offset("tl", bbox, mon, 10), Some((-190, -190)));
+        assert_eq!(snap_offset("tr", bbox, mon, 10), Some((690, -190)));
+        assert_eq!(snap_offset("bl", bbox, mon, 10), Some((-190, 490)));
+        assert_eq!(snap_offset("br", bbox, mon, 10), Some((690, 490)));
+        assert_eq!(snap_offset("center", bbox, mon, 10), Some((250, 150)));
+        assert_eq!(snap_offset("middle", bbox, mon, 10), None);
+    }
+
+    #[test]
+    fn snap_respects_a_monitor_offset() {
+        // Box on a second display whose top-left is at x=1920.
+        let bbox = (2000, 100, 2100, 200);
+        let mon = (1920, 0, 1000, 800);
+        assert_eq!(snap_offset("tl", bbox, mon, 10), Some((-70, -90)));
+    }
 }

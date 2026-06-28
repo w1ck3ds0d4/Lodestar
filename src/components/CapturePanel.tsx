@@ -2,17 +2,51 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { LogicalSize, type PhysicalSize } from "@tauri-apps/api/dpi";
-import { Camera, ChevronDown, ClipboardPaste, Crop, Ear, MessageSquare, Minus, ScanSearch, Send, Sparkles, Square, X } from "lucide-react";
+import {
+  Camera,
+  ChevronDown,
+  ClipboardPaste,
+  Crop,
+  Ear,
+  Keyboard,
+  MessageSquare,
+  Minus,
+  ScanSearch,
+  ScrollText,
+  Send,
+  Sparkles,
+  Square,
+  X,
+} from "lucide-react";
 import type { CaptureState } from "../types";
 import { Answer } from "./MarkdownAnswer";
 import { sendCaptureCommand as send, usePersistedBounds } from "../lib/captureWindow";
 
-export type PanelKind = "answers" | "transcript" | "controls";
+export type PanelKind = "answers" | "transcript" | "controls" | "shortcuts" | "log";
+
+// Wall-clock HH:MM:SS for an activity-log entry's timestamp.
+const fmtClock = (ts: number) => {
+  const d = new Date(ts);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+};
 
 const EMPTY: CaptureState = { listening: false, watching: false, segments: [], answers: [] };
 
 // Borderless windows have no native resize edges, so drive a resize from a corner grip.
 const startResize = () => void getCurrentWindow().startResizeDragging("SouthEast");
+
+// Cheat-sheet for the Shortcuts overlay panel. The keys are registered globally in the Rust
+// hotkey handler, so they fire even while the call app (browser/Teams) is the focused window.
+const SHORTCUTS: { keys: string; label: string }[] = [
+  { keys: "Alt+Shift+L", label: "Listen on / off" },
+  { keys: "Alt+Shift+A", label: "Answer the screen" },
+  { keys: "Alt+Shift+W", label: "Watch screen on / off" },
+  { keys: "Alt+Shift+↑ / ↓", label: "Opacity up / down" },
+  { keys: "Alt+Shift+C", label: "Show / hide panels" },
+  { keys: "Alt+Shift+R", label: "Read the focused page" },
+  { keys: "Alt+Shift+H", label: "Panic hide (whole app)" },
+];
 
 // One floating overlay window. The whole panel is its own borderless window; the
 // header is a drag region so it can be moved anywhere over a call. It is a thin
@@ -70,14 +104,22 @@ export function CapturePanel({ kind }: { kind: PanelKind }) {
     };
   }, []);
 
-  // Keep the transcript pinned to the newest line as it grows.
+  // Keep the local opacity slider in step with externally-driven changes (app slider, phone).
   useEffect(() => {
-    if (kind !== "answers") bodyRef.current?.scrollTo({ top: bodyRef.current.scrollHeight });
+    if (typeof st.opacity === "number") setOpacity(st.opacity);
+  }, [st.opacity]);
+
+  // Keep the transcript pinned to the newest line as it grows (Answers and Log are
+  // newest-first at the top, so they should not jump to the bottom).
+  useEffect(() => {
+    if (kind === "transcript") bodyRef.current?.scrollTo({ top: bodyRef.current.scrollHeight });
   }, [st.segments, kind]);
 
   const meta = useMemo(() => {
     if (kind === "answers") return { title: "Answers", Icon: Sparkles };
     if (kind === "transcript") return { title: "Transcript", Icon: MessageSquare };
+    if (kind === "shortcuts") return { title: "Shortcuts", Icon: Keyboard };
+    if (kind === "log") return { title: "Log", Icon: ScrollText };
     return { title: "Controls", Icon: ScanSearch };
   }, [kind]);
 
@@ -96,7 +138,10 @@ export function CapturePanel({ kind }: { kind: PanelKind }) {
           {!collapsed && meta.title}
         </span>
         {!collapsed && (
-          <span className={"cap-dot" + (st.listening ? " on" : "")} title={st.listening ? "Listening" : "Idle"} />
+          <span
+            className={"cap-dot" + (st.listening ? " on" : "")}
+            title={st.listening ? "Listening" : "Idle"}
+          />
         )}
         <button
           className="cap-x cap-min"
@@ -113,107 +158,152 @@ export function CapturePanel({ kind }: { kind: PanelKind }) {
       </div>
 
       {!collapsed && (
-      <>
-      <div className="cap-body" ref={bodyRef}>
-        {kind === "answers" &&
-          (st.answers.length === 0 ? (
-            <div className="cap-empty">No answers yet.</div>
-          ) : (
-            st.answers.map((a, i) => (
-              <div key={i} className="cap-qa">
-                <div className="cap-q">{a.q}</div>
-                {a.pending && !a.a ? (
-                  <div className="cap-a muted">Thinking...</div>
-                ) : (
-                  <Answer text={a.a} />
-                )}
-              </div>
-            ))
-          ))}
+        <>
+          <div className="cap-body" ref={bodyRef}>
+            {kind === "answers" &&
+              (st.answers.length === 0 ? (
+                <div className="cap-empty">No answers yet.</div>
+              ) : (
+                st.answers.map((a, i) => (
+                  <div key={i} className="cap-qa">
+                    <div className="cap-q">{a.q}</div>
+                    {a.pending && !a.a ? (
+                      <div className="cap-a stall-bridge">
+                        Good question - let me give you a structured answer.
+                      </div>
+                    ) : (
+                      <Answer text={a.a} live />
+                    )}
+                  </div>
+                ))
+              ))}
 
-        {kind === "transcript" &&
-          (st.segments.length === 0 ? (
-            <div className="cap-empty">No conversation yet.</div>
-          ) : (
-            st.segments.map((s, i) => (
-              <div key={i} className={"cap-seg" + (s.role === "you" ? " you" : "")}>
-                <span className="cap-who">{s.speaker}</span>
-                <span className="cap-txt">{s.text}</span>
-              </div>
-            ))
-          ))}
+            {kind === "transcript" &&
+              (st.segments.length === 0 ? (
+                <div className="cap-empty">No conversation yet.</div>
+              ) : (
+                st.segments.map((s, i) => (
+                  <div key={i} className={"cap-seg" + (s.role === "you" ? " you" : "")}>
+                    <span className="cap-who">{s.speaker}</span>
+                    <span className="cap-txt">{s.text}</span>
+                  </div>
+                ))
+              ))}
 
-        {kind === "controls" && (
-          <div className="cap-controls">
-            <div className="cap-btns">
-              <button className={"cap-btn" + (st.listening ? " on" : "")} onClick={() => send({ cmd: "listen" })}>
-                {st.listening ? <Square size={14} /> : <Ear size={14} />}
-                {st.listening ? "Stop" : "Listen"}
-              </button>
-              <button
-                className={"cap-btn" + (st.watching ? " on" : "")}
-                onClick={() => send({ cmd: "watch" })}
-                title="Continuously read the screen and answer what it shows"
-              >
-                <ScanSearch size={14} />
-                {st.watching ? "Watching" : "Watch screen"}
-              </button>
-              <button className="cap-btn" onClick={() => send({ cmd: "snip" })} title="Snip a region and explain it">
-                <Crop size={14} /> Snip
-              </button>
-            </div>
-            <div className="cap-btns">
-              <button
-                className="cap-btn"
-                onClick={() => send({ cmd: "answer_screen" })}
-                title="Answer whatever question/problem is on the screen right now"
-              >
-                <Camera size={14} /> Answer screen
-              </button>
-              <button
-                className="cap-btn"
-                onClick={() => send({ cmd: "read_page" })}
-                title="Read the page you copied (Ctrl+A then Ctrl+C in the exercise) as context - captures the whole page, including off-screen text"
-              >
-                <ClipboardPaste size={14} /> Read page
-              </button>
-            </div>
-            <label className="cap-opacity">
-              <span>Opacity</span>
-              <input
-                type="range"
-                min={0.3}
-                max={1}
-                step={0.05}
-                value={opacity}
-                title="Dim the whole overlay so it sits discreetly over your call"
-                onChange={(e) => {
-                  const v = Number(e.target.value);
-                  setOpacity(v);
-                  send({ cmd: "opacity", value: v });
-                }}
-              />
-              <span className="cap-opacity-val">{Math.round(opacity * 100)}%</span>
-            </label>
-            <div className="cap-ask">
-              <input
-                value={draft}
-                placeholder="Ask a question…"
-                onChange={(e) => setDraft(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") submitAsk();
-                }}
-              />
-              <button className="cap-btn" onClick={submitAsk} aria-label="Ask">
-                <Send size={14} />
-              </button>
-            </div>
+            {kind === "controls" && (
+              <div className="cap-controls">
+                <div className="cap-btns">
+                  <button
+                    className={"cap-btn" + (st.listening ? " on" : "")}
+                    onClick={() => send({ cmd: "listen" })}
+                  >
+                    {st.listening ? <Square size={14} /> : <Ear size={14} />}
+                    {st.listening ? "Stop" : "Listen"}
+                  </button>
+                  <button
+                    className={"cap-btn" + (st.watching ? " on" : "")}
+                    onClick={() => send({ cmd: "watch" })}
+                    title="Continuously read the screen and answer what it shows"
+                  >
+                    <ScanSearch size={14} />
+                    {st.watching ? "Watching" : "Watch screen"}
+                  </button>
+                  <button
+                    className="cap-btn"
+                    onClick={() => send({ cmd: "snip" })}
+                    title="Snip a region and explain it"
+                  >
+                    <Crop size={14} /> Snip
+                  </button>
+                </div>
+                <div className="cap-btns">
+                  <button
+                    className="cap-btn"
+                    onClick={() => send({ cmd: "answer_screen" })}
+                    title="Answer whatever question/problem is on the screen right now"
+                  >
+                    <Camera size={14} /> Answer screen
+                  </button>
+                  <button
+                    className="cap-btn"
+                    onClick={() => send({ cmd: "read_full_page" })}
+                    title="Read the WHOLE focused page automatically via accessibility - including off-screen content - and attach it as context. No copy needed; dedupes and accumulates."
+                  >
+                    <ScrollText size={14} /> Read full page
+                  </button>
+                </div>
+                <div className="cap-btns">
+                  <button
+                    className="cap-btn"
+                    onClick={() => send({ cmd: "read_page" })}
+                    title="Manual fallback: read the page you copied (Ctrl+A then Ctrl+C) from the clipboard as context"
+                  >
+                    <ClipboardPaste size={14} /> Read page (clipboard)
+                  </button>
+                </div>
+                <label className="cap-opacity">
+                  <span>Opacity</span>
+                  <input
+                    type="range"
+                    min={0.3}
+                    max={1}
+                    step={0.05}
+                    value={opacity}
+                    title="Dim the whole overlay so it sits discreetly over your call"
+                    onChange={(e) => {
+                      const v = Number(e.target.value);
+                      setOpacity(v);
+                      send({ cmd: "opacity", value: v });
+                    }}
+                  />
+                  <span className="cap-opacity-val">{Math.round(opacity * 100)}%</span>
+                </label>
+                <div className="cap-ask">
+                  <input
+                    value={draft}
+                    placeholder="Ask a question…"
+                    onChange={(e) => setDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") submitAsk();
+                    }}
+                  />
+                  <button className="cap-btn" onClick={submitAsk} aria-label="Ask">
+                    <Send size={14} />
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {kind === "shortcuts" && (
+              <div className="cap-sc">
+                {SHORTCUTS.map((s) => (
+                  <div className="cap-sc-row" key={s.keys}>
+                    <kbd className="cap-kbd">{s.keys}</kbd>
+                    <span className="cap-sc-label">{s.label}</span>
+                  </div>
+                ))}
+                <div className="cap-sc-note">Global - they fire even while your call app is focused.</div>
+              </div>
+            )}
+
+            {kind === "log" &&
+              (!st.log || st.log.length === 0 ? (
+                <div className="cap-empty">No activity yet.</div>
+              ) : (
+                <div className="cap-log">
+                  {st.log.map((l) => (
+                    <div className={"cap-log-row k-" + l.kind} key={l.id}>
+                      <span className="cap-log-time">{fmtClock(l.ts)}</span>
+                      <span className="cap-log-kind">{l.kind}</span>
+                      <span className="cap-log-msg">{l.msg}</span>
+                    </div>
+                  ))}
+                </div>
+              ))}
           </div>
-        )}
-      </div>
 
-      <div className="cap-grip" onMouseDown={startResize} title="Drag to resize" />
-      </>
+          <div className="cap-grip" onMouseDown={startResize} title="Drag to resize" />
+        </>
       )}
     </div>
   );

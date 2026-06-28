@@ -21,6 +21,21 @@
   box-sizing: border-box;
 }
 
+/* Global preference: the mouse pointer never changes shape on hover - no hand,
+   help, grab, crosshair, move, or resize cursors anywhere. Editable fields keep
+   their natural text I-beam so typing still reads correctly. Remove these two
+   rules to restore the per-element cursors set throughout this file. */
+*,
+*::before,
+*::after {
+  cursor: default !important;
+}
+input,
+textarea,
+[contenteditable="true"] {
+  cursor: text !important;
+}
+
 html,
 body,
 #root {
@@ -33,7 +48,11 @@ body {
     radial-gradient(1100px 560px at 100% -8%, rgba(16, 185, 129, 0.06), transparent 60%),
     radial-gradient(900px 500px at -5% 0%, rgba(52, 211, 153, 0.04), transparent 55%), var(--bg);
   color: var(--text);
-  font: 14px/1.5 system-ui, "Segoe UI", Roboto, sans-serif;
+  font:
+    14px/1.5 system-ui,
+    "Segoe UI",
+    Roboto,
+    sans-serif;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
@@ -164,6 +183,85 @@ select:focus {
 
 .brand-icon {
   color: var(--accent-2);
+}
+
+/* --- Custom window chrome (the main window is borderless; the top bar is the title bar) --- */
+.win-controls {
+  display: inline-flex;
+  gap: 2px;
+  margin-left: 4px;
+}
+.win-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 30px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+}
+.win-btn:hover {
+  background: var(--panel);
+  color: var(--text);
+}
+.win-close:hover {
+  background: var(--danger);
+  color: #fff;
+}
+/* Invisible edge/corner handles restoring native-feeling resize on the borderless window. */
+.rz {
+  position: fixed;
+  z-index: 9999;
+}
+.rz-n {
+  top: 0;
+  left: 8px;
+  right: 8px;
+  height: 5px;
+}
+.rz-s {
+  bottom: 0;
+  left: 8px;
+  right: 8px;
+  height: 5px;
+}
+.rz-e {
+  top: 8px;
+  bottom: 8px;
+  right: 0;
+  width: 5px;
+}
+.rz-w {
+  top: 8px;
+  bottom: 8px;
+  left: 0;
+  width: 5px;
+}
+.rz-ne {
+  top: 0;
+  right: 0;
+  width: 9px;
+  height: 9px;
+}
+.rz-nw {
+  top: 0;
+  left: 0;
+  width: 9px;
+  height: 9px;
+}
+.rz-se {
+  bottom: 0;
+  right: 0;
+  width: 9px;
+  height: 9px;
+}
+.rz-sw {
+  bottom: 0;
+  left: 0;
+  width: 9px;
+  height: 9px;
 }
 
 .stat-pill {
@@ -496,6 +594,24 @@ select:focus {
 .seg-them .seg-bubble {
   border-bottom-left-radius: 4px;
 }
+.seg-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.seg-time {
+  font-size: 10.5px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.seg-gap {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--accent-2);
+  background: rgba(16, 185, 129, 0.12);
+  border-radius: 999px;
+  padding: 0 6px;
+}
 .seg-chip {
   font-size: 11px;
   font-weight: 600;
@@ -522,7 +638,7 @@ select:focus {
 }
 
 /* Live (interim) line: the words being spoken right now, before the utterance is
-   finalized. Dimmed + dashed to read as provisional, with a blinking caret. */
+   finalized. Dimmed + dashed to read as provisional, with a static caret. */
 .seg-interim .seg-bubble {
   opacity: 0.72;
   border-style: dashed;
@@ -549,7 +665,6 @@ select:focus {
   margin-left: 2px;
   vertical-align: text-bottom;
   background: var(--accent-2);
-  animation: pulse-dot 1s steps(1) infinite;
 }
 @keyframes pulse-dot {
   0%,
@@ -806,6 +921,99 @@ select:focus {
 .phone-url {
   font-size: 13px;
   word-break: break-all;
+}
+.phone-fw-warn {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid rgba(217, 164, 65, 0.45);
+  border-radius: 8px;
+  background: rgba(217, 164, 65, 0.1);
+}
+
+/* Profile hub: a slide-over from the right that becomes full-width on a narrow screen. */
+.hub-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 60;
+  display: flex;
+  justify-content: flex-end;
+}
+.hub-panel {
+  width: min(440px, 100%);
+  height: 100%;
+  background: var(--panel);
+  border-left: 1px solid var(--border);
+  box-shadow: var(--shadow-lg);
+  padding: 18px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.hub-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.hub-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  font-size: 16px;
+}
+.hub-profiles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.hub-chip {
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 7px 14px;
+  font-size: 13px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.hub-chip.active {
+  border-color: var(--accent);
+  color: var(--accent-2);
+  background: rgba(16, 185, 129, 0.14);
+}
+.hub-chip.add {
+  border-style: dashed;
+}
+.hub-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.hub-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.hub-stories {
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+@media (max-width: 520px) {
+  .hub-panel {
+    width: 100%;
+    border-left: none;
+    padding: 14px;
+  }
 }
 .phone-pin {
   font-size: 20px;
@@ -1365,6 +1573,50 @@ select:focus {
 .assistant-answer p {
   margin: 0.5em 0;
 }
+/* Live (teleprompter) variant: the user reads these sentences aloud, so they render larger
+   and well-spaced, one sentence per visual line. The first paragraph (the spoken roadmap)
+   and the last (the handoff) are accented so the eye finds where to START and where to LAND. */
+.assistant-answer--live {
+  font-size: 15.5px;
+  line-height: 1.6;
+}
+/* Cap the width of spoken PROSE only (one sentence per line), not code blocks - a 62ch cap
+   on the whole answer was clipping code and forcing horizontal scroll. */
+.assistant-answer--live p {
+  margin: 0.7em 0;
+  max-width: 62ch;
+}
+/* In the narrow live / teleprompter panels, wrap long code lines so the whole snippet is
+   readable without horizontal scrolling - essential for reading a coding exercise to type it
+   out. Indentation (leading whitespace) is preserved; only over-long lines wrap. */
+.assistant-answer--live pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.assistant-answer--live p:first-child {
+  color: var(--accent-2);
+  font-weight: 600;
+}
+.assistant-answer--live p:last-of-type {
+  color: var(--accent-2);
+}
+/* The dim, non-spoken "Next:" follow-up hint, pinned under the answer (never read aloud). */
+.answer-next {
+  margin-top: 10px;
+  font-size: 11px;
+  color: var(--muted);
+  opacity: 0.6;
+}
+/* A sayable bridge shown while the answer streams, so there is never dead air on screen. */
+.stall-bridge {
+  font-size: 13px;
+  color: var(--muted);
+  font-style: italic;
+}
+/* Tighter teleprompter size inside the small floating capture panel. */
+.cap-qa .assistant-answer--live {
+  font-size: 14.5px;
+}
 .assistant-answer pre {
   background: var(--bg-2);
   border: 1px solid var(--border);
@@ -1380,6 +1632,54 @@ select:focus {
   background: var(--bg-2);
   padding: 1px 5px;
   border-radius: 4px;
+}
+/* Syntax highlighting (rehype-highlight / highlight.js) - editor-style token colours. */
+.assistant-answer .hljs-comment,
+.assistant-answer .hljs-quote {
+  color: #7c8499;
+  font-style: italic;
+}
+.assistant-answer .hljs-keyword,
+.assistant-answer .hljs-selector-tag,
+.assistant-answer .hljs-literal,
+.assistant-answer .hljs-doctag {
+  color: #c678dd;
+}
+.assistant-answer .hljs-string,
+.assistant-answer .hljs-regexp,
+.assistant-answer .hljs-addition {
+  color: #98c379;
+}
+.assistant-answer .hljs-number,
+.assistant-answer .hljs-symbol,
+.assistant-answer .hljs-bullet {
+  color: #d19a66;
+}
+.assistant-answer .hljs-title,
+.assistant-answer .hljs-title.function_,
+.assistant-answer .hljs-section,
+.assistant-answer .hljs-name {
+  color: #61afef;
+}
+.assistant-answer .hljs-built_in,
+.assistant-answer .hljs-title.class_,
+.assistant-answer .hljs-type {
+  color: #e5c07b;
+}
+.assistant-answer .hljs-attr,
+.assistant-answer .hljs-attribute,
+.assistant-answer .hljs-variable,
+.assistant-answer .hljs-template-variable {
+  color: #e06c75;
+}
+.assistant-answer .hljs-meta {
+  color: #56b6c2;
+}
+.assistant-answer .hljs-emphasis {
+  font-style: italic;
+}
+.assistant-answer .hljs-strong {
+  font-weight: 700;
 }
 .assistant-answer ul,
 .assistant-answer ol {
@@ -1398,6 +1698,13 @@ select:focus {
 .qa-q {
   font-weight: 600;
   margin-bottom: 6px;
+  font-size: 12px;
+  color: var(--muted);
+  /* The interviewer's question can be long; keep it a short header (hover shows the full text). */
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 .assistant-panes {
   display: flex;
@@ -1417,6 +1724,10 @@ select:focus {
   text-transform: uppercase;
   letter-spacing: 0.5px;
   color: var(--muted);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
 .transcript-head {
   display: flex;
@@ -1542,6 +1853,19 @@ select:focus {
 .level-fill.live {
   background: linear-gradient(90deg, var(--accent), var(--accent-2));
 }
+.level-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.level-row .level-track {
+  flex: 1;
+}
+.level-label {
+  flex: 0 0 84px;
+  font-size: 12px;
+  color: var(--muted);
+}
 .transcript-text {
   white-space: pre-wrap;
   line-height: 1.5;
@@ -1647,7 +1971,9 @@ select:focus {
   font-weight: 600;
   font-size: 12.5px;
   cursor: pointer;
-  transition: color 0.12s, background 0.12s;
+  transition:
+    color 0.12s,
+    background 0.12s;
 }
 .seg-btn:hover:not(.on):not(:disabled) {
   color: var(--text);
@@ -2021,7 +2347,6 @@ select:focus {
 .card-head {
   display: flex;
   align-items: flex-start;
-  justify-content: space-between;
   gap: 12px;
 }
 
@@ -2032,6 +2357,10 @@ select:focus {
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
+  /* Take the leftover width so the trailing badges (source, match, ...) cluster on the
+     right instead of being spread across the row by the old space-between. */
+  flex: 1;
+  min-width: 0;
 }
 
 .link-title {
@@ -2949,6 +3278,124 @@ textarea:focus {
 }
 .cap-qa .assistant-answer pre {
   font-size: 12px;
+}
+/* Shortcuts overlay panel */
+.cap-sc {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  font-size: 12px;
+}
+.cap-sc-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.cap-kbd {
+  flex: 0 0 auto;
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  font-size: 11px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 2px 6px;
+  white-space: nowrap;
+}
+.cap-sc-label {
+  color: var(--text);
+}
+.cap-sc-note {
+  color: var(--muted);
+  font-size: 11px;
+  margin-top: 4px;
+}
+/* Activity log panel: one line per action (newest first) so it's clear what each fired. */
+.cap-log {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 11.5px;
+}
+.cap-log-row {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  gap: 6px;
+  align-items: baseline;
+}
+.cap-log-time {
+  color: var(--muted);
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  font-size: 10.5px;
+  white-space: nowrap;
+}
+.cap-log-kind {
+  font-size: 9.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 700;
+  color: var(--muted);
+  align-self: center;
+}
+.cap-log-row.k-screen .cap-log-kind {
+  color: var(--accent-2);
+}
+.cap-log-row.k-read .cap-log-kind {
+  color: #d19a66;
+}
+.cap-log-row.k-watch .cap-log-kind {
+  color: #61afef;
+}
+.cap-log-row.k-shortcut .cap-log-kind {
+  color: #c678dd;
+}
+.cap-log-msg {
+  color: var(--text);
+  word-break: break-word;
+}
+/* Main-window Activity log (Setup accordion): same data, roomier. */
+.act-log {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 240px;
+  overflow-y: auto;
+  margin: 8px 0;
+  font-size: 12px;
+}
+.act-log-row {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  gap: 8px;
+  align-items: baseline;
+}
+.act-log-time {
+  color: var(--muted);
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.act-log-kind {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 700;
+  color: var(--muted);
+}
+.act-log-row.k-screen .act-log-kind {
+  color: var(--accent-2);
+}
+.act-log-row.k-read .act-log-kind {
+  color: #d19a66;
+}
+.act-log-row.k-watch .act-log-kind {
+  color: #61afef;
+}
+.act-log-row.k-shortcut .act-log-kind {
+  color: #c678dd;
+}
+.act-log-msg {
+  color: var(--text);
+  word-break: break-word;
 }
 /* Transcript */
 .cap-seg {

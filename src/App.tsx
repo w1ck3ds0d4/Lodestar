@@ -1,8 +1,35 @@
-import { useCallback, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { Bell, Bot, ChevronDown, ClipboardList, Eye, EyeOff, GraduationCap, HelpCircle, Radar, RefreshCw, Search, Settings, X } from "lucide-react";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import {
+  Bell,
+  Bot,
+  ChevronDown,
+  ClipboardList,
+  Eye,
+  EyeOff,
+  GraduationCap,
+  HelpCircle,
+  Radar,
+  RefreshCw,
+  Search,
+  Settings,
+  UserRound,
+  X,
+} from "lucide-react";
 import * as api from "./api";
-import { KIND_LABELS, LANG_LABELS, LEVELS, WORKPLACES, type Alert, type AtsScore, type Job, type Source, type Stats } from "./types";
+import {
+  KIND_LABELS,
+  LANG_LABELS,
+  LEVELS,
+  WORKPLACES,
+  type Alert,
+  type AtsScore,
+  type Job,
+  type JobPrefs,
+  type Source,
+  type Stats,
+} from "./types";
 import { JobCard, htmlToText } from "./components/JobCard";
 import { AtsScoreCard } from "./components/AtsScoreCard";
 import { SourcesPanel } from "./components/SourcesPanel";
@@ -12,6 +39,13 @@ import { StudyView } from "./components/StudyView";
 import { AssistantView } from "./components/AssistantView";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { GettingStarted } from "./components/GettingStarted";
+import { ProfileHub } from "./components/ProfileHub";
+import { ResizeHandles, WindowControls } from "./components/WindowChrome";
+
+// The main window is borderless (decorations off), so it draws its own title bar (the top
+// bar) and window controls. In a plain browser (Vite preview) there is no Tauri window, so
+// skip the chrome there.
+const HAS_TAURI = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
 type View = "search" | "tracker" | "study" | "assistant";
 
@@ -63,6 +97,11 @@ export default function App() {
   // The launch splash (static markup in index.html) is dismissed once the first search
   // resolves, i.e. the UI is populated and interactive.
   const [booted, setBooted] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+  // Per-profile filter sync guards: prefsReady gates saving until the first load completes;
+  // skipNextSave swallows the save that a programmatic load (mount or switch) would trigger.
+  const prefsReady = useRef(false);
+  const skipNextSave = useRef(false);
 
   const refreshSources = useCallback(async () => setSources(await api.listSources()), []);
   const refreshAlerts = useCallback(async () => setAlerts(await api.listAlerts()), []);
@@ -108,11 +147,82 @@ export default function App() {
     workCountry,
   ]);
 
+  // --- Per-profile job preferences: each profile remembers its own search filters. ---
+  // Apply a saved prefs JSON blob to the filter state (missing keys fall back to defaults),
+  // marking skipNextSave so the resulting change is not echoed straight back to disk.
+  const applyPrefs = useCallback((json: string) => {
+    let p: Partial<JobPrefs> = {};
+    try {
+      p = json ? (JSON.parse(json) as Partial<JobPrefs>) : {};
+    } catch {
+      p = {};
+    }
+    skipNextSave.current = true;
+    setWorkplaces(p.workplaces ?? []);
+    setLevels(p.levels ?? []);
+    setRemoteEligible(p.remoteEligible ?? false);
+    setRelocationOnly(p.relocationOnly ?? false);
+    setPostedWithin(p.postedWithin ?? null);
+    setMinSalary(p.minSalary ?? null);
+    setLangs(p.langs ?? []);
+    setMinMatch(p.minMatch ?? null);
+  }, []);
+
+  // Load the active profile's saved filters once on mount.
+  useEffect(() => {
+    void (async () => {
+      try {
+        applyPrefs(await api.getJobPrefs());
+      } catch {
+        /* no profile yet; leave the defaults */
+      }
+      prefsReady.current = true;
+    })();
+  }, [applyPrefs]);
+
+  // Persist filter changes back onto the active profile (debounced). Skips the initial load
+  // and any programmatic apply, so loading a profile never echoes a save.
+  useEffect(() => {
+    if (skipNextSave.current) {
+      skipNextSave.current = false;
+      return;
+    }
+    if (!prefsReady.current) return;
+    const t = setTimeout(() => {
+      const prefs: JobPrefs = {
+        workplaces,
+        levels,
+        remoteEligible,
+        relocationOnly,
+        postedWithin,
+        minSalary,
+        langs,
+        minMatch,
+      };
+      void api.setJobPrefs(JSON.stringify(prefs)).catch(() => {});
+    }, 400);
+    return () => clearTimeout(t);
+  }, [workplaces, levels, remoteEligible, relocationOnly, postedWithin, minSalary, langs, minMatch]);
+
+  // When the active profile changes (from the Profile hub), load its filters and re-search:
+  // the resume changed too, so match scores differ even if the filters happen to be the same.
+  const onProfileChanged = useCallback(async () => {
+    try {
+      applyPrefs(await api.getJobPrefs());
+    } catch {
+      /* ignore */
+    }
+    void runSearch();
+  }, [applyPrefs, runSearch]);
+
   useEffect(() => {
     void refreshSources();
     void refreshAlerts();
     void refreshStats();
-    void api.workCountry().then(setWorkCountry).catch(() => {});
+    void api
+      .workCountry()
+      .then(setWorkCountry)
+      .catch(() => {});
   }, [refreshSources, refreshAlerts, refreshStats]);
 
   // Fade out and remove the launch splash once booted; a fallback timer ensures it
@@ -246,19 +356,41 @@ export default function App() {
 
   return (
     <div className="app">
-      <header className="topbar">
-        <div className="brand">
+      {HAS_TAURI && <ResizeHandles />}
+      <header
+        className="topbar"
+        data-tauri-drag-region
+        onDoubleClick={(e) => {
+          // Double-clicking the title-bar area (the drag regions, not a button) maximizes.
+          if (HAS_TAURI && (e.target as HTMLElement).hasAttribute("data-tauri-drag-region")) {
+            void getCurrentWindow().toggleMaximize();
+          }
+        }}
+      >
+        <div className="brand" data-tauri-drag-region>
           <Radar size={22} className="brand-icon" />
           <span>JobRadar</span>
         </div>
         <nav className="nav">
-          <button className={"nav-btn" + (view === "search" ? " active" : "")} onClick={() => setView("search")} title="Search">
+          <button
+            className={"nav-btn" + (view === "search" ? " active" : "")}
+            onClick={() => setView("search")}
+            title="Search"
+          >
             <Search size={15} /> <span className="nav-label">Search</span>
           </button>
-          <button className={"nav-btn" + (view === "tracker" ? " active" : "")} onClick={() => setView("tracker")} title="Tracker">
+          <button
+            className={"nav-btn" + (view === "tracker" ? " active" : "")}
+            onClick={() => setView("tracker")}
+            title="Tracker"
+          >
             <ClipboardList size={15} /> <span className="nav-label">Tracker</span>
           </button>
-          <button className={"nav-btn" + (view === "study" ? " active" : "")} onClick={() => setView("study")} title="Study">
+          <button
+            className={"nav-btn" + (view === "study" ? " active" : "")}
+            onClick={() => setView("study")}
+            title="Study"
+          >
             <GraduationCap size={15} /> <span className="nav-label">Study</span>
           </button>
           <button
@@ -270,27 +402,47 @@ export default function App() {
           </button>
         </nav>
         <div className="topbar-actions">
-        <button
-          className={"icon-btn" + (capHidden ? " active" : "")}
-          title={capHidden ? "Hidden from screen capture - click to show in shares" : "Visible to screen capture - click to hide"}
-          onClick={toggleCapture}
-        >
-          {capHidden ? <EyeOff size={18} /> : <Eye size={18} />}
-        </button>
-        <button className="icon-btn" title="Getting started" onClick={() => setShowIntro(true)}><HelpCircle size={18} /></button>
-        <button className="icon-btn" title="Alerts" onClick={() => setPanel("alerts")}><Bell size={18} /></button>
-        <button className="icon-btn" title="Sources" onClick={() => setPanel("sources")}><Settings size={18} /></button>
-        <button
-          className="btn-sync"
-          onClick={onSync}
-          disabled={syncing}
-          title={syncing ? "Syncing…" : "Sync now"}
-        >
-          <RefreshCw size={16} className={syncing ? "spin" : ""} />
-          <span className="btn-label">{syncing ? "Syncing…" : "Sync now"}</span>
-        </button>
+          <button
+            className={"icon-btn" + (capHidden ? " active" : "")}
+            title={
+              capHidden
+                ? "Hidden from screen capture - click to show in shares"
+                : "Visible to screen capture - click to hide"
+            }
+            onClick={toggleCapture}
+          >
+            {capHidden ? <EyeOff size={18} /> : <Eye size={18} />}
+          </button>
+          <button className="icon-btn" title="Your profiles" onClick={() => setProfileOpen(true)}>
+            <UserRound size={18} />
+          </button>
+          <button className="icon-btn" title="Getting started" onClick={() => setShowIntro(true)}>
+            <HelpCircle size={18} />
+          </button>
+          <button className="icon-btn" title="Alerts" onClick={() => setPanel("alerts")}>
+            <Bell size={18} />
+          </button>
+          <button className="icon-btn" title="Sources" onClick={() => setPanel("sources")}>
+            <Settings size={18} />
+          </button>
+          <button
+            className="btn-sync"
+            onClick={onSync}
+            disabled={syncing}
+            title={syncing ? "Syncing…" : "Sync now"}
+          >
+            <RefreshCw size={16} className={syncing ? "spin" : ""} />
+            <span className="btn-label">{syncing ? "Syncing…" : "Sync now"}</span>
+          </button>
+          {HAS_TAURI && <WindowControls />}
         </div>
       </header>
+
+      <ProfileHub
+        open={profileOpen}
+        onClose={() => setProfileOpen(false)}
+        onActiveChange={() => void onProfileChanged()}
+      />
 
       {view === "search" ? (
         <>
@@ -325,178 +477,178 @@ export default function App() {
 
             {filtersOpen && (
               <div className="filter-grid" id="filter-grid">
-              <span className="filter-label">Workplace</span>
-              <div className="chip-row">
-                {WORKPLACES.map((w) => (
-                  <button
-                    key={w.key}
-                    className={"chip" + (workplaces.includes(w.key) ? " active" : "")}
-                    onClick={() => toggle(setWorkplaces, w.key)}
-                  >
-                    {w.label}
-                  </button>
-                ))}
-              </div>
+                <span className="filter-label">Workplace</span>
+                <div className="chip-row">
+                  {WORKPLACES.map((w) => (
+                    <button
+                      key={w.key}
+                      className={"chip" + (workplaces.includes(w.key) ? " active" : "")}
+                      onClick={() => toggle(setWorkplaces, w.key)}
+                    >
+                      {w.label}
+                    </button>
+                  ))}
+                </div>
 
-              <span className="filter-label">Level</span>
-              <div className="chip-row">
-                {LEVELS.map((l) => (
-                  <button
-                    key={l.key}
-                    className={"chip" + (levels.includes(l.key) ? " active" : "")}
-                    onClick={() => toggle(setLevels, l.key)}
-                  >
-                    {l.label}
-                  </button>
-                ))}
-              </div>
+                <span className="filter-label">Level</span>
+                <div className="chip-row">
+                  {LEVELS.map((l) => (
+                    <button
+                      key={l.key}
+                      className={"chip" + (levels.includes(l.key) ? " active" : "")}
+                      onClick={() => toggle(setLevels, l.key)}
+                    >
+                      {l.label}
+                    </button>
+                  ))}
+                </div>
 
-              <span className="filter-label">Remote fit</span>
-              <div className="chip-row">
-                <button
-                  className={"chip" + (remoteEligible ? " active" : "")}
-                  title={`Remote roles workable from ${locationName}: hides ones restricted to another region`}
-                  onClick={() => setRemoteEligible((v) => !v)}
-                >
-                  Workable from <span className="chip-country">{locationName}</span>
-                </button>
-                {editingCountry ? (
-                  <input
-                    className="country-input"
-                    autoFocus
-                    maxLength={2}
-                    placeholder="MT"
-                    defaultValue={workCountry}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") (e.target as HTMLInputElement).blur();
-                      if (e.key === "Escape") setEditingCountry(false);
-                    }}
-                    onBlur={async (e) => {
-                      const code = e.currentTarget.value.trim();
-                      await api.setWorkCountry(code);
-                      setWorkCountry(code ? code.toUpperCase() : await api.workCountry());
-                      setEditingCountry(false);
-                    }}
-                  />
-                ) : (
+                <span className="filter-label">Remote fit</span>
+                <div className="chip-row">
                   <button
-                    className="chip-edit"
-                    title="Change the country you can work from (2-letter code, blank to auto-detect)"
-                    onClick={() => setEditingCountry(true)}
+                    className={"chip" + (remoteEligible ? " active" : "")}
+                    title={`Remote roles workable from ${locationName}: hides ones restricted to another region`}
+                    onClick={() => setRemoteEligible((v) => !v)}
                   >
-                    change
+                    Workable from <span className="chip-country">{locationName}</span>
                   </button>
+                  {editingCountry ? (
+                    <input
+                      className="country-input"
+                      autoFocus
+                      maxLength={2}
+                      placeholder="MT"
+                      defaultValue={workCountry}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                        if (e.key === "Escape") setEditingCountry(false);
+                      }}
+                      onBlur={async (e) => {
+                        const code = e.currentTarget.value.trim();
+                        await api.setWorkCountry(code);
+                        setWorkCountry(code ? code.toUpperCase() : await api.workCountry());
+                        setEditingCountry(false);
+                      }}
+                    />
+                  ) : (
+                    <button
+                      className="chip-edit"
+                      title="Change the country you can work from (2-letter code, blank to auto-detect)"
+                      onClick={() => setEditingCountry(true)}
+                    >
+                      change
+                    </button>
+                  )}
+                  <button
+                    className={"chip" + (relocationOnly ? " active" : "")}
+                    title="Only jobs whose description mentions relocation help"
+                    onClick={() => setRelocationOnly((v) => !v)}
+                  >
+                    Pays relocation
+                  </button>
+                  <button
+                    className={"chip" + (hideScams ? " active" : "")}
+                    title="Hide postings flagged as likely scams (the warning badge still shows on others)"
+                    onClick={() => setHideScams((v) => !v)}
+                  >
+                    Hide likely scams
+                  </button>
+                </div>
+
+                <span className="filter-label">Posted</span>
+                <div className="chip-row">
+                  {[
+                    { label: "Any time", days: null },
+                    { label: "24h", days: 1 },
+                    { label: "7 days", days: 7 },
+                    { label: "30 days", days: 30 },
+                  ].map((o) => (
+                    <button
+                      key={o.label}
+                      className={"chip" + (postedWithin === o.days ? " active" : "")}
+                      onClick={() => setPostedWithin(o.days)}
+                    >
+                      {o.label}
+                    </button>
+                  ))}
+                </div>
+
+                <span className="filter-label">Min salary</span>
+                <div className="chip-row">
+                  {[
+                    { label: "Any", v: null },
+                    { label: "50k+", v: 50000 },
+                    { label: "80k+", v: 80000 },
+                    { label: "100k+", v: 100000 },
+                    { label: "150k+", v: 150000 },
+                  ].map((o) => (
+                    <button
+                      key={o.label}
+                      className={"chip" + (minSalary === o.v ? " active" : "")}
+                      title="Nominal, in the posting's own currency; postings with no listed salary are kept"
+                      onClick={() => setMinSalary(o.v)}
+                    >
+                      {o.label}
+                    </button>
+                  ))}
+                </div>
+
+                <span className="filter-label">Resume match</span>
+                <div className="chip-row">
+                  <button
+                    className={"chip" + (sortMode === "match" ? " active" : "")}
+                    title="Sort by fit to your saved resume (set one in the Assistant first)"
+                    onClick={() => setSortMode((m) => (m === "match" ? "default" : "match"))}
+                  >
+                    Best match
+                  </button>
+                  {[
+                    { label: "Any", v: null },
+                    { label: "25%+", v: 25 },
+                    { label: "50%+", v: 50 },
+                    { label: "75%+", v: 75 },
+                  ].map((o) => (
+                    <button
+                      key={o.label}
+                      className={"chip" + (minMatch === o.v ? " active" : "")}
+                      title="Keep only jobs that cover at least this share of your resume keywords"
+                      onClick={() => setMinMatch(o.v)}
+                    >
+                      {o.label}
+                    </button>
+                  ))}
+                </div>
+
+                <span className="filter-label">Language</span>
+                <div className="chip-row">
+                  {Object.entries(LANG_LABELS).map(([code, label]) => (
+                    <button
+                      key={code}
+                      className={"chip" + (langs.includes(code) ? " active" : "")}
+                      title="Show only these languages; postings whose language can't be detected are kept"
+                      onClick={() => toggle(setLangs, code)}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+
+                {availableKinds.length > 0 && (
+                  <>
+                    <span className="filter-label">Source</span>
+                    <div className="chip-row">
+                      {availableKinds.map((k) => (
+                        <button
+                          key={k}
+                          className={"chip" + (selectedKinds.includes(k) ? " active" : "")}
+                          onClick={() => toggle(setSelectedKinds, k)}
+                        >
+                          {KIND_LABELS[k] ?? k}
+                        </button>
+                      ))}
+                    </div>
+                  </>
                 )}
-                <button
-                  className={"chip" + (relocationOnly ? " active" : "")}
-                  title="Only jobs whose description mentions relocation help"
-                  onClick={() => setRelocationOnly((v) => !v)}
-                >
-                  Pays relocation
-                </button>
-                <button
-                  className={"chip" + (hideScams ? " active" : "")}
-                  title="Hide postings flagged as likely scams (the warning badge still shows on others)"
-                  onClick={() => setHideScams((v) => !v)}
-                >
-                  Hide likely scams
-                </button>
-              </div>
-
-              <span className="filter-label">Posted</span>
-              <div className="chip-row">
-                {[
-                  { label: "Any time", days: null },
-                  { label: "24h", days: 1 },
-                  { label: "7 days", days: 7 },
-                  { label: "30 days", days: 30 },
-                ].map((o) => (
-                  <button
-                    key={o.label}
-                    className={"chip" + (postedWithin === o.days ? " active" : "")}
-                    onClick={() => setPostedWithin(o.days)}
-                  >
-                    {o.label}
-                  </button>
-                ))}
-              </div>
-
-              <span className="filter-label">Min salary</span>
-              <div className="chip-row">
-                {[
-                  { label: "Any", v: null },
-                  { label: "50k+", v: 50000 },
-                  { label: "80k+", v: 80000 },
-                  { label: "100k+", v: 100000 },
-                  { label: "150k+", v: 150000 },
-                ].map((o) => (
-                  <button
-                    key={o.label}
-                    className={"chip" + (minSalary === o.v ? " active" : "")}
-                    title="Nominal, in the posting's own currency; postings with no listed salary are kept"
-                    onClick={() => setMinSalary(o.v)}
-                  >
-                    {o.label}
-                  </button>
-                ))}
-              </div>
-
-              <span className="filter-label">Resume match</span>
-              <div className="chip-row">
-                <button
-                  className={"chip" + (sortMode === "match" ? " active" : "")}
-                  title="Sort by fit to your saved resume (set one in the Assistant first)"
-                  onClick={() => setSortMode((m) => (m === "match" ? "default" : "match"))}
-                >
-                  Best match
-                </button>
-                {[
-                  { label: "Any", v: null },
-                  { label: "25%+", v: 25 },
-                  { label: "50%+", v: 50 },
-                  { label: "75%+", v: 75 },
-                ].map((o) => (
-                  <button
-                    key={o.label}
-                    className={"chip" + (minMatch === o.v ? " active" : "")}
-                    title="Keep only jobs that cover at least this share of your resume keywords"
-                    onClick={() => setMinMatch(o.v)}
-                  >
-                    {o.label}
-                  </button>
-                ))}
-              </div>
-
-              <span className="filter-label">Language</span>
-              <div className="chip-row">
-                {Object.entries(LANG_LABELS).map(([code, label]) => (
-                  <button
-                    key={code}
-                    className={"chip" + (langs.includes(code) ? " active" : "")}
-                    title="Show only these languages; postings whose language can't be detected are kept"
-                    onClick={() => toggle(setLangs, code)}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-
-              {availableKinds.length > 0 && (
-                <>
-                  <span className="filter-label">Source</span>
-                  <div className="chip-row">
-                    {availableKinds.map((k) => (
-                      <button
-                        key={k}
-                        className={"chip" + (selectedKinds.includes(k) ? " active" : "")}
-                        onClick={() => toggle(setSelectedKinds, k)}
-                      >
-                        {KIND_LABELS[k] ?? k}
-                      </button>
-                    ))}
-                  </div>
-                </>
-              )}
               </div>
             )}
 
@@ -527,8 +679,8 @@ export default function App() {
                 </button>
               )}
               <span className="corpus-stat">
-                {stats.totalJobs.toLocaleString()} jobs · {stats.companies.toLocaleString()} companies in
-                your radar
+                {stats.totalJobs.toLocaleString()} jobs · {stats.companies.toLocaleString()} companies in your
+                radar
               </span>
             </div>
           </div>

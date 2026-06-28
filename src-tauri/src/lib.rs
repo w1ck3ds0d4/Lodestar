@@ -7,9 +7,11 @@ mod ingest;
 mod listen;
 mod local_stt;
 mod model;
+mod netcheck;
 mod phone;
 mod scam;
 mod screen;
+mod secret;
 mod sources;
 mod usage;
 mod util;
@@ -47,11 +49,13 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
-        // Global hotkeys:
-        //  - Alt+Shift+C: show/hide the capture overlay panels (instant, focus-free).
-        //  - Alt+Shift+H: panic-hide - instantly toggle the main window's visibility.
-        //  - Alt+Shift+R: read the focused window's text via UI Automation, for pages
-        //    that block copy/paste (runs on a fresh thread; COM + UIA can be slow).
+        // Global hotkeys (all Alt+Shift, so they never collide with browser shortcuts):
+        //  - C: show/hide the capture overlay panels (instant, focus-free).
+        //  - H: panic-hide - instantly toggle the main window's visibility.
+        //  - R: read the focused window's text via UI Automation (pages that block copy/paste;
+        //    runs on a fresh thread, COM + UIA can be slow).
+        //  - L / A / W: listen / answer screen / watch - relayed to the Assistant view.
+        //  - Up / Down: raise / lower opacity - relayed to the Assistant view.
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, shortcut, event| {
@@ -74,6 +78,34 @@ pub fn run() {
                                 let _ = win.set_focus();
                             }
                         }
+                        return;
+                    }
+                    // Capture-mode actions: emit a command the Assistant view dispatches
+                    // through the same handler the phone uses (listen/answer/watch/opacity).
+                    if shortcut.matches(alt_shift, Code::KeyL) {
+                        let _ = app.emit("hotkey", serde_json::json!({ "cmd": "listen" }));
+                        return;
+                    }
+                    if shortcut.matches(alt_shift, Code::KeyA) {
+                        let _ = app.emit("hotkey", serde_json::json!({ "cmd": "answer_screen" }));
+                        return;
+                    }
+                    if shortcut.matches(alt_shift, Code::KeyW) {
+                        let _ = app.emit("hotkey", serde_json::json!({ "cmd": "watch" }));
+                        return;
+                    }
+                    if shortcut.matches(alt_shift, Code::ArrowUp) {
+                        let _ = app.emit(
+                            "hotkey",
+                            serde_json::json!({ "cmd": "opacity", "dir": "up" }),
+                        );
+                        return;
+                    }
+                    if shortcut.matches(alt_shift, Code::ArrowDown) {
+                        let _ = app.emit(
+                            "hotkey",
+                            serde_json::json!({ "cmd": "opacity", "dir": "down" }),
+                        );
                         return;
                     }
                     if shortcut.matches(alt_shift, Code::KeyR) {
@@ -112,19 +144,30 @@ pub fn run() {
                 phone: Arc::new(Mutex::new(None)),
             });
 
-            // Register the global "read focused window" hotkey. Alt+Shift+R is unlikely
-            // to collide with a browser shortcut; failure (e.g. already taken) is
-            // non-fatal so the rest of the app still starts.
+            // Register the global Alt+Shift+<key> hotkeys, by Code so they match the handler
+            // exactly. Alt+Shift combos don't collide with browser shortcuts, and these are
+            // OS-level anyway. Each failure (e.g. already taken) is non-fatal so the app still
+            // starts. R: read page, H: panic-hide, C: show/hide panels, L: listen, A: answer
+            // screen, W: watch, Up/Down: opacity.
             {
-                use tauri_plugin_global_shortcut::GlobalShortcutExt;
-                for sc in ["Alt+Shift+R", "Alt+Shift+H"] {
-                    if let Err(e) = app.global_shortcut().register(sc) {
-                        tracing::warn!("could not register hotkey {sc}: {e}");
+                use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut};
+                let alt_shift = Modifiers::ALT | Modifiers::SHIFT;
+                for code in [
+                    Code::KeyR,
+                    Code::KeyH,
+                    Code::KeyC,
+                    Code::KeyL,
+                    Code::KeyA,
+                    Code::KeyW,
+                    Code::ArrowUp,
+                    Code::ArrowDown,
+                ] {
+                    if let Err(e) = app
+                        .global_shortcut()
+                        .register(Shortcut::new(Some(alt_shift), code))
+                    {
+                        tracing::warn!("could not register hotkey {code:?}: {e}");
                     }
-                }
-                // Alt+Shift+C toggles the capture overlay panels' visibility.
-                if let Err(e) = app.global_shortcut().register("Alt+Shift+C") {
-                    tracing::warn!("could not register capture-toggle hotkey: {e}");
                 }
             }
 
@@ -137,6 +180,65 @@ pub fn run() {
                         capture::close_panels(&h);
                     }
                 });
+            }
+
+            // Track the last external foreground window so a "Read full page" button/phone tap
+            // can read the page the user was on (clicking a button focuses JobRadar itself).
+            winauto::start_foreground_tracker();
+
+            // System-tray icon: a discreet, always-available access point - especially when
+            // the window is hidden from the taskbar and Alt+Tab. Left-click (or the Show item)
+            // reveals and focuses the window; right-click opens a small menu.
+            {
+                use tauri::menu::{Menu, MenuItem};
+                use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+
+                let reveal = |app: &tauri::AppHandle| {
+                    if let Some(w) = app.get_webview_window("main") {
+                        let _ = w.show();
+                        let _ = w.unminimize();
+                        let _ = w.set_focus();
+                    }
+                };
+                let show_i =
+                    MenuItem::with_id(app, "tray_show", "Show JobRadar", true, None::<&str>)?;
+                let hide_i = MenuItem::with_id(app, "tray_hide", "Hide", true, None::<&str>)?;
+                let quit_i = MenuItem::with_id(app, "tray_quit", "Quit", true, None::<&str>)?;
+                let menu = Menu::with_items(app, &[&show_i, &hide_i, &quit_i])?;
+
+                let mut builder = TrayIconBuilder::new()
+                    .tooltip("JobRadar")
+                    .menu(&menu)
+                    .show_menu_on_left_click(false)
+                    .on_menu_event(move |app, event| match event.id.as_ref() {
+                        "tray_show" => reveal(app),
+                        "tray_hide" => {
+                            if let Some(w) = app.get_webview_window("main") {
+                                let _ = w.hide();
+                            }
+                        }
+                        "tray_quit" => app.exit(0),
+                        _ => {}
+                    })
+                    .on_tray_icon_event(|tray, event| {
+                        if let TrayIconEvent::Click {
+                            button: MouseButton::Left,
+                            button_state: MouseButtonState::Up,
+                            ..
+                        } = event
+                        {
+                            let app = tray.app_handle();
+                            if let Some(w) = app.get_webview_window("main") {
+                                let _ = w.show();
+                                let _ = w.unminimize();
+                                let _ = w.set_focus();
+                            }
+                        }
+                    });
+                if let Some(icon) = app.default_window_icon() {
+                    builder = builder.icon(icon.clone());
+                }
+                builder.build(app)?;
             }
 
             // Background scheduler: sync due sources, then poll on an interval.
@@ -196,6 +298,14 @@ pub fn run() {
             commands::update_story,
             commands::remove_story,
             commands::draft_story,
+            commands::list_profiles,
+            commands::active_profile,
+            commands::set_active_profile,
+            commands::create_profile,
+            commands::update_profile,
+            commands::delete_profile,
+            commands::get_job_prefs,
+            commands::set_job_prefs,
             commands::application_doc,
             commands::score_ats,
             commands::practice_question,
@@ -236,6 +346,7 @@ pub fn run() {
             commands::set_capture_source,
             commands::list_monitors,
             commands::answer_screen,
+            commands::answer_screen_hybrid,
             commands::capture_screen_png,
             commands::explain_region,
             commands::list_audio_devices,
@@ -246,13 +357,18 @@ pub fn run() {
             commands::start_phone_server,
             commands::stop_phone_server,
             commands::phone_broadcast,
+            commands::phone_network_status,
+            commands::phone_allow_firewall,
             commands::open_capture_panels,
             commands::close_capture_panels,
             commands::set_capture_opacity,
             commands::toggle_capture_panels,
+            commands::move_capture_panel,
+            commands::read_active_page,
             commands::set_capture_protection,
             window_fx::set_window_opacity,
             window_fx::set_window_always_on_top,
+            window_fx::set_window_skip_taskbar,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

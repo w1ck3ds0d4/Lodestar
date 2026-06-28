@@ -20,7 +20,7 @@ use rand::Rng;
 use tauri::{AppHandle, Emitter};
 use tokio::sync::{broadcast, oneshot};
 
-const PORT: u16 = 8420;
+pub const PORT: u16 = 8420;
 const PAGE: &str = include_str!("phone.html");
 
 /// Handle to a running companion server, stored in `AppState`.

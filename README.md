@@ -66,12 +66,18 @@ Built with Tauri v2 (Rust) + React + Vite. The Rust core owns ingestion, storage
 - **Streaming answers** rendered as Markdown with fenced code blocks and LaTeX (KaTeX); answers and their extracted code/equation snippets are grouped per question
 - **Transcription engine**: Deepgram realtime streaming (cloud) with a per-language setting and an optional "separate speakers" (diarization) toggle, or fully on-device Whisper (local); **Answer engine**: Claude (cloud, default) or a local Ollama model
 - **Answer style**: Auto, Concise (glanceable bullets), STAR, or Code (solution + complexity) - shapes every live and manual answer
-- **Context capture**: **Read page** pulls a copied page (including content scrolled off-screen) from the clipboard as context; **Read window** (Alt+Shift+R) reads a focused window's text via UI Automation for pages that block copy/paste; plus screen "Watch"/"Snip" vision
+- **Context capture**: **Read full page** reads the whole focused page (including off-screen content) via UI Automation and attaches it as context; **Read page (clipboard)** is a manual fallback for apps that expose no accessible text; plus screen "Watch" / "Answer screen" / "Snip" vision
 - **Story bank**: save real STAR stories once (or draft them from notes) so behavioral answers ground in your actual experience; an **Application kit** tailors resume bullets, a cover letter, an ATS keyword match, and a thank-you note to a pasted job description
 - **Session history**: save a live session's transcript + answers, then run an AI "review & coach" pass that surfaces weak areas and a prioritized study list
 - **Usage & cost** panel: live Deepgram balance, a local Claude token/cost estimate, and entered top-up credits with remaining
 - **Interview context**: attach your role, resume, notes, and the company, so answers are tailored; generate a company briefing plus questions to ask the interviewer
-- **Overlay**: window opacity slider and always-on-top for a discreet overlay over a call, plus a hide-from-screen-capture toggle (excluded from Zoom/Meet/Teams shares and recorders on Windows)
+- **Spoken, teleprompter-style answers**: live answers are written as a few complete first-person sentences you can read aloud verbatim (a one-line spoken roadmap for multi-part questions, trade-offs stated inline, a closing hand-off), with optional depth and a dim non-spoken "Next:" follow-up hint - not study-note bullets
+- **Read full page**: one click reads the whole focused page (including content scrolled off-screen) via UI Automation and attaches it as de-duplicated, accumulating context; works from an in-app button or the phone because it targets the last window you were on, not JobRadar
+- **Global shortcuts**: `Alt+Shift+` hotkeys (listen, answer screen, watch, read page, show/hide panels, opacity, panic-hide) that fire even while the call app is focused, with a Shortcuts cheat-sheet overlay
+- **Activity log**: a timestamped record of what each shortcut/action actually did (answered / screen unchanged / page chars attached / ...), as a main-window panel and a floating overlay panel
+- **Switchable profiles**: keep several interview personas (role, resume, notes, per-profile stories and job-search filters) and pick which one drives the answers, the screen reader, the phone, and resume matching
+- **Phone remote**: a LAN web remote (no install) reached by QR / PIN that mirrors the transcript and answers and drives listening, screen-answering, opacity, and panel placement from your phone as a discreet second screen
+- **Overlay & stealth**: window opacity and always-on-top for a discreet overlay; a hide-from-screen-capture toggle (excluded from Zoom/Meet/Teams shares and recorders on Windows); a custom borderless title bar; an optional "Hide from taskbar & Alt+Tab" mode with a system-tray icon and `Alt+Shift+H` panic-hide to bring the window back
 - **Adaptive layout**: a three-column copilot workspace on wide windows that collapses to a Setup / Dialog / Answers tab switcher when narrow
 
 ### Local-first and privacy
@@ -86,23 +92,23 @@ Built with Tauri v2 (Rust) + React + Vite. The Rust core owns ingestion, storage
 
 ## Tech Stack
 
-| Layer            | Technology                                                  |
-| ---------------- | ----------------------------------------------------------- |
-| Desktop          | Tauri v2 (Rust)                                             |
-| Frontend         | React 19 + TypeScript + Vite                                |
-| Storage          | SQLite (rusqlite, bundled) with FTS5                        |
-| Search           | FTS5 full-text, BM25 ranking                                |
-| HTTP             | reqwest (rustls, no OpenSSL)                                |
-| Async runtime    | tokio                                                       |
-| Audio capture    | cpal (WASAPI loopback + microphone)                         |
-| Local STT        | Candle (pure-Rust Whisper), tokenizers                      |
-| Cloud STT        | Deepgram (optional)                                         |
-| Answer models    | Claude Messages API (streaming) and/or local Ollama         |
-| Screen capture   | xcap                                                        |
-| Markdown / math  | react-markdown, remark-gfm, remark-math, KaTeX              |
-| Notifications    | tauri-plugin-notification                                   |
-| Icons            | lucide-react                                                |
-| Package manager  | pnpm                                                        |
+| Layer           | Technology                                          |
+| --------------- | --------------------------------------------------- |
+| Desktop         | Tauri v2 (Rust)                                     |
+| Frontend        | React 19 + TypeScript + Vite                        |
+| Storage         | SQLite (rusqlite, bundled) with FTS5                |
+| Search          | FTS5 full-text, BM25 ranking                        |
+| HTTP            | reqwest (rustls, no OpenSSL)                        |
+| Async runtime   | tokio                                               |
+| Audio capture   | cpal (WASAPI loopback + microphone)                 |
+| Local STT       | Candle (pure-Rust Whisper), tokenizers              |
+| Cloud STT       | Deepgram (optional)                                 |
+| Answer models   | Claude Messages API (streaming) and/or local Ollama |
+| Screen capture  | xcap                                                |
+| Markdown / math | react-markdown, remark-gfm, remark-math, KaTeX      |
+| Notifications   | tauri-plugin-notification                           |
+| Icons           | lucide-react                                        |
+| Package manager | pnpm                                                |
 
 ---
 
@@ -145,22 +151,77 @@ The database is created at the OS-standard app-data directory on first launch. E
 
 Keyless (work out of the box):
 
-| Source                | Kind         | Notes                                                              |
-| --------------------- | ------------ | ------------------------------------------------------------------ |
-| Greenhouse            | `greenhouse` | Public ATS board per company. Config: `{ "company": "stripe" }`.   |
-| Lever                 | `lever`      | Public ATS board per company. Config: `{ "company": "..." }`.      |
-| Ashby                 | `ashby`      | Public job board per company. Honors the `isListed` flag.          |
-| Arbeitnow             | `arbeitnow`  | Global / EU + remote feed. No config.                              |
-| Remotive              | `remotive`   | Remote-jobs feed. Polled politely (6h), attributed to Remotive.    |
-| Jobicy                | `jobicy`     | Remote-jobs feed. Polled hourly, attributed to Jobicy.             |
-| Career page (JSON-LD) | `jsonld`     | Parses schema.org `JobPosting` markup from any careers URL.        |
+| Source                | Kind         | Notes                                                            |
+| --------------------- | ------------ | ---------------------------------------------------------------- |
+| Greenhouse            | `greenhouse` | Public ATS board per company. Config: `{ "company": "stripe" }`. |
+| Lever                 | `lever`      | Public ATS board per company. Config: `{ "company": "..." }`.    |
+| Ashby                 | `ashby`      | Public job board per company. Honors the `isListed` flag.        |
+| Arbeitnow             | `arbeitnow`  | Global / EU + remote feed. No config.                            |
+| Remotive              | `remotive`   | Remote-jobs feed. Polled politely (6h), attributed to Remotive.  |
+| Jobicy                | `jobicy`     | Remote-jobs feed. Polled hourly, attributed to Jobicy.           |
+| Career page (JSON-LD) | `jsonld`     | Parses schema.org `JobPosting` markup from any careers URL.      |
 
 Credential-gated (add your own free key in the Sources drawer):
 
-| Source  | Kind      | Config                                                                          |
-| ------- | --------- | ------------------------------------------------------------------------------- |
-| Adzuna  | `adzuna`  | `{ "app_id", "app_key", "country", "what", "where" }`                           |
-| USAJOBS | `usajobs` | `{ "email", "api_key", "keyword" }`                                             |
+| Source  | Kind      | Config                                                |
+| ------- | --------- | ----------------------------------------------------- |
+| Adzuna  | `adzuna`  | `{ "app_id", "app_key", "country", "what", "where" }` |
+| USAJOBS | `usajobs` | `{ "email", "api_key", "keyword" }`                   |
+
+---
+
+## Using Assistant mode
+
+Assistant mode turns JobRadar into a live interview/study copilot: it listens to a call, transcribes both sides, and answers the other party's questions on the spot. Everything below is optional and lives under the **Assistant** tab.
+
+### 1. Set up audio and a model
+
+In **Setup** (the gear/sliders on the Assistant tab):
+
+- **Capture source**: `System` (the other side of the call, via WASAPI loopback), `Mic` (you), or `Both`. Pick the **output device** the call app plays to and your **input device**. The two-bar level meter (You / Them) confirms both sides are being captured - a flat "Them" bar usually means the call app is playing to a different output device than the one selected.
+- **Transcription engine**: Deepgram (cloud, realtime, per-language, optional speaker diarization) or on-device Whisper (local, no key, slower on CPU).
+- **Answer engine**: Claude (cloud, default) or a local Ollama model.
+- Add your **Anthropic** and/or **Deepgram** API keys in Setup. Keys are stored in the local database only.
+
+### 2. Pick a profile
+
+Open the **person icon** (top bar) to manage **profiles** - switchable interview personas, each with its own role, resume, notes, STAR stories, and job-search filters. The **active profile** drives the live answers (behavioral/fit questions are grounded in that persona; technical questions stay generic), the screen reader, the phone, and resume matching. Select the active profile from the Assistant view.
+
+### 3. Answer live
+
+Press **Listen** (or `Alt+Shift+L`). The dialog transcribes with You/Them attribution and per-line timestamps. When the other party asks something, the **auto-answer** streams a short, spoken answer you can read aloud. Answers are deliberately teleprompter-shaped: a one-line roadmap for multi-part questions, trade-offs inline, a closing hand-off, plus a dim "Next:" hint that is metadata only. You can also type a question into **Ask**.
+
+### Keyboard shortcuts
+
+All global (they fire even while your call app / browser is focused), all `Alt+Shift+`:
+
+| Shortcut          | Action                                                           |
+| ----------------- | ---------------------------------------------------------------- |
+| `Alt+Shift+L`     | Listen on / off                                                  |
+| `Alt+Shift+A`     | Answer whatever is on the screen now                             |
+| `Alt+Shift+W`     | Watch screen on / off (re-reads and answers it)                  |
+| `Alt+Shift+R`     | Read the focused page (full text, incl. off-screen) into context |
+| `Alt+Shift+C`     | Show / hide the capture overlay panels                           |
+| `Alt+Shift+↑ / ↓` | Opacity up / down                                                |
+| `Alt+Shift+H`     | Panic-hide: instantly hide / show the window                     |
+
+The same actions are listed in a **Shortcuts** overlay panel during capture mode.
+
+### Reading the screen vs. the page
+
+- **Watch screen** / **Answer screen**: screenshot the display and answer what is visible (good for on-screen multiple-choice, diagrams). "Watch" re-reads every few seconds and skips unchanged screens.
+- **Read full page** (button / phone / `Alt+Shift+R`): reads the _entire_ focused page's text via UI Automation - including content scrolled off-screen - and attaches it as context with de-duplication and accumulation, so it never duplicates answers or loses context. Use this for long prompts and coding exercises, then Answer/Ask once.
+- **Read page (clipboard)**: a manual fallback for apps that expose no accessible text - copy with `Ctrl+A`, `Ctrl+C`, then click.
+
+The **Activity log** (a Setup panel and a floating overlay panel) shows what each of these actually did, so it is clear which fired and how much it captured.
+
+### Capture overlay & stealth
+
+**Capture mode** opens small always-on-top panels (Answers, Transcript, Controls, Shortcuts, Log) you can drag, resize, and dim anywhere over a call; they are excluded from screen capture/sharing by default. For discretion, **Overlay → Setup** also offers opacity, always-on-top, and an optional **Hide from taskbar & Alt+Tab** mode (the window keeps a normal frame via a custom title bar, and you bring it back from the system-tray icon or `Alt+Shift+H`).
+
+### Phone remote (discreet second screen)
+
+In **Setup → Phone control**, start the LAN server and scan the QR (or enter the PIN) on your phone - no app to install. The phone shows the live transcript and answers and gives an 8-tile remote: Listen, Screen Capture, Opacity +/-, Read & Answer (with a monitor chooser when you have more than one display), Watch, Panels, Ask, and Read full page. The **Panels** sheet shows/hides the overlay and moves a chosen panel (or all of them) by snapping it to a corner/center or nudging it, so you can rearrange the overlay from your phone. The phone stays on your own Wi-Fi; the server is PIN-gated and scoped to the local subnet.
 
 ---
 

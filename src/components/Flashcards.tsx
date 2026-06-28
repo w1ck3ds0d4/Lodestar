@@ -61,8 +61,8 @@ export function Flashcards() {
         <Layers size={16} /> Flashcards
       </h3>
       <p className="muted sm">
-        Spaced repetition for your weak areas. Paste a session review, weak spots, or a topic, generate
-        cards, then review the ones due.
+        Spaced repetition for your weak areas. Paste a session review, weak spots, or a topic, generate cards,
+        then review the ones due.
       </p>
       <textarea
         rows={3}

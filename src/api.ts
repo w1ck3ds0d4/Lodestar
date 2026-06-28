@@ -10,6 +10,8 @@ import type {
   Job,
   MonitorInfo,
   PhoneInfo,
+  PhoneNetStatus,
+  Profile,
   ScreenAnswer,
   Session,
   Skill,
@@ -116,8 +118,12 @@ export const setWorkCountry = (code: string) => invoke<void>("set_work_country",
 
 export const listSources = () => invoke<Source[]>("list_sources");
 
-export const addSource = (kind: string, label: string, config: Record<string, string>, minIntervalSecs: number) =>
-  invoke<number>("add_source", { kind, label, config, minIntervalSecs });
+export const addSource = (
+  kind: string,
+  label: string,
+  config: Record<string, string>,
+  minIntervalSecs: number,
+) => invoke<number>("add_source", { kind, label, config, minIntervalSecs });
 
 export const updateSource = (
   id: number,
@@ -158,8 +164,13 @@ export const addTracked = (t: {
   sourceJobId: number | null;
 }) => invoke<number>("add_tracked", t);
 
-export const updateTracked = (id: number, status: string, notes: string, progress: number, deadline: string | null) =>
-  invoke<void>("update_tracked", { id, status, notes, progress, deadline });
+export const updateTracked = (
+  id: number,
+  status: string,
+  notes: string,
+  progress: number,
+  deadline: string | null,
+) => invoke<void>("update_tracked", { id, status, notes, progress, deadline });
 
 export const removeTracked = (id: number) => invoke<void>("remove_tracked", { id });
 export const setTrackedNextAction = (id: number, text: string) =>
@@ -167,7 +178,8 @@ export const setTrackedNextAction = (id: number, text: string) =>
 export const prepApplication = (id: number, title: string, org: string) =>
   invoke<string>("prep_application", { id, title, org });
 
-export const addMilestone = (trackedId: number, label: string) => invoke<number>("add_milestone", { trackedId, label });
+export const addMilestone = (trackedId: number, label: string) =>
+  invoke<number>("add_milestone", { trackedId, label });
 export const setMilestone = (id: number, done: boolean) => invoke<void>("set_milestone", { id, done });
 export const removeMilestone = (id: number) => invoke<void>("remove_milestone", { id });
 
@@ -188,6 +200,24 @@ export const updateStory = (id: number, title: string, content: string, tags: st
   invoke<void>("update_story", { id, title, content, tags });
 export const removeStory = (id: number) => invoke<void>("remove_story", { id });
 export const draftStory = (notes: string) => invoke<string>("draft_story", { notes });
+
+// --- Profiles (switchable interview personas; the active one drives the assistant) ---
+export const listProfiles = () => invoke<Profile[]>("list_profiles");
+export const activeProfile = () => invoke<number>("active_profile");
+export const setActiveProfile = (id: number) => invoke<void>("set_active_profile", { id });
+export const createProfile = (name: string) => invoke<Profile>("create_profile", { name });
+export const updateProfile = (
+  id: number,
+  name: string,
+  role: string,
+  company: string,
+  resume: string,
+  notes: string,
+) => invoke<void>("update_profile", { id, name, role, company, resume, notes });
+export const deleteProfile = (id: number) => invoke<void>("delete_profile", { id });
+// Per-profile job-search preferences, stored as an opaque JSON string the frontend owns.
+export const getJobPrefs = () => invoke<string>("get_job_prefs");
+export const setJobPrefs = (prefs: string) => invoke<void>("set_job_prefs", { prefs });
 
 // --- Application kit: tailor resume/cover/ATS/thank-you to a job ---
 // kind: "bullets" | "cover" | "ats" | "thanks"; input is the JD (or transcript for "thanks").
@@ -218,8 +248,7 @@ export const sessionReview = (transcript: string, answers: string) =>
 // resolves to the file path written.
 export const exportSession = (id: number) => invoke<string>("export_session", { id });
 // Export every saved session; resolves to { dir, count }.
-export const exportAllSessions = () =>
-  invoke<{ dir: string; count: number }>("export_all_sessions");
+export const exportAllSessions = () => invoke<{ dir: string; count: number }>("export_all_sessions");
 
 // --- Screen privacy (exclude window from screen capture / sharing) ---
 export const setScreenPrivacy = (enabled: boolean) => invoke<void>("set_screen_privacy", { enabled });
@@ -239,9 +268,7 @@ export const setInterviewContext = (role: string, company: string, resume: strin
   invoke<void>("set_interview_context", { role, company, resume, notes });
 // Streamed answer chunks from `ask_assistant` (over a Tauri channel).
 export type AnswerChunk =
-  | { kind: "delta"; text: string }
-  | { kind: "done"; text: string }
-  | { kind: "error"; message: string };
+  { kind: "delta"; text: string } | { kind: "done"; text: string } | { kind: "error"; message: string };
 export const askAssistant = (question: string, context: string | null, onEvent: Channel<AnswerChunk>) =>
   invoke<void>("ask_assistant", { question, context, onEvent });
 // Streams the auto-answer over a channel (delta/done/error), same shape as askAssistant.
@@ -279,30 +306,44 @@ export const stopListening = () => invoke<void>("stop_listening");
 export const startPhoneServer = () => invoke<PhoneInfo>("start_phone_server");
 export const stopPhoneServer = () => invoke<void>("stop_phone_server");
 export const phoneBroadcast = (payload: string) => invoke<void>("phone_broadcast", { payload });
+// Pre-flight: is Windows networking/firewall likely to block the phone, and can we fix it?
+export const phoneNetworkStatus = () => invoke<PhoneNetStatus>("phone_network_status");
+export const phoneAllowFirewall = () => invoke<PhoneNetStatus>("phone_allow_firewall");
 
 // --- Capture mode (floating overlay panels) ---
-export const openCapturePanels = (monitor: number) =>
-  invoke<void>("open_capture_panels", { monitor });
+export const openCapturePanels = (monitor: number) => invoke<void>("open_capture_panels", { monitor });
 export const closeCapturePanels = () => invoke<void>("close_capture_panels");
 // Translucency (0..1) of the whole capture overlay (bar + panels) together.
-export const setCaptureOpacity = (opacity: number) =>
-  invoke<void>("set_capture_opacity", { opacity });
+export const setCaptureOpacity = (opacity: number) => invoke<void>("set_capture_opacity", { opacity });
 // Whether the capture panels are hidden from screen capture/sharing. Pass false to make
 // them appear in screenshots/shares (so you can capture the panels); true re-hides them.
 export const setCaptureProtection = (protected_: boolean) =>
   invoke<void>("set_capture_protection", { protected: protected_ });
 // Show/hide the panels (control bar stays); resolves to the new visibility.
 export const toggleCapturePanels = () => invoke<boolean>("toggle_capture_panels");
+// Move or resize a panel ("all" or a cap-* label) from the phone: snap, nudge, or grow/shrink.
+export const moveCapturePanel = (panel: string, snap?: string, nudge?: string, resize?: string) =>
+  invoke<void>("move_capture_panel", {
+    panel,
+    snap: snap ?? null,
+    nudge: nudge ?? null,
+    resize: resize ?? null,
+  });
+// Read the full text of the page the user is on (incl. scrolled-off content) for context.
+export const readActivePage = () => invoke<string>("read_active_page");
 
 // --- Screen watcher (capture a monitor -> Claude vision) ---
 export const listMonitors = () => invoke<MonitorInfo[]>("list_monitors");
 export const answerScreen = (monitor: number, force: boolean, context: string | null = null) =>
   invoke<ScreenAnswer>("answer_screen", { monitor, force, context });
+// Hybrid: full focused-page text (scroll-independent) plus the screenshot, for the phone remote.
+export const answerScreenHybrid = (monitor: number, force: boolean, context: string | null = null) =>
+  invoke<ScreenAnswer>("answer_screen_hybrid", { monitor, force, context });
 // Snip-to-explain: grab the monitor as a base64 PNG, crop client-side, explain the crop.
 export const captureScreenPng = (monitor: number) => invoke<string>("capture_screen_png", { monitor });
 export const explainRegion = (pngBase64: string) => invoke<string>("explain_region", { pngBase64 });
 
 // --- Overlay window controls (translucency + always-on-top; Windows-backed) ---
 export const setWindowOpacity = (opacity: number) => invoke<void>("set_window_opacity", { opacity });
-export const setWindowAlwaysOnTop = (onTop: boolean) =>
-  invoke<void>("set_window_always_on_top", { onTop });
+export const setWindowAlwaysOnTop = (onTop: boolean) => invoke<void>("set_window_always_on_top", { onTop });
+export const setWindowSkipTaskbar = (skip: boolean) => invoke<void>("set_window_skip_taskbar", { skip });
