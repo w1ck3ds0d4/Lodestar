@@ -959,7 +959,7 @@ fn api_error_message(status: u16, payload: &Value) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_ats_json, parse_cards_json, style_directive};
+    use super::{parse_ats_json, parse_cards_json, style_directive, with_profile};
 
     #[test]
     fn ats_weighted_overall_and_clamping() {
@@ -1005,6 +1005,52 @@ mod tests {
     fn auto_and_unknown_styles_add_no_directive() {
         assert_eq!(style_directive("auto"), "");
         assert_eq!(style_directive("anything-else"), "");
+    }
+
+    #[test]
+    fn concise_style_wants_full_sentences_read_aloud() {
+        let d = style_directive("concise");
+        assert!(d.contains("sentence"), "concise should ask for sentences");
+        assert!(
+            d.contains("not fragments"),
+            "concise should forbid fragments"
+        );
+        assert!(
+            d.contains("aloud"),
+            "concise is read aloud mid-conversation"
+        );
+    }
+
+    #[test]
+    fn star_style_is_first_person_for_behavioral() {
+        let d = style_directive("star");
+        assert!(d.contains("STAR"));
+        assert!(d.contains("first"), "STAR answers are first person");
+    }
+
+    #[test]
+    fn with_profile_is_a_noop_without_a_usable_profile() {
+        assert_eq!(with_profile("BASE", None), "BASE");
+        // Whitespace-only profiles trim to nothing and must not be appended.
+        assert_eq!(with_profile("BASE", Some("   ")), "BASE");
+    }
+
+    #[test]
+    fn with_profile_gates_behavioral_use_and_appends_the_profile() {
+        let out = with_profile("BASE", Some("Senior .NET engineer at Betsson"));
+        assert!(out.starts_with("BASE"), "the base prompt comes first");
+        assert!(
+            out.contains("Senior .NET engineer at Betsson"),
+            "the profile text is appended verbatim"
+        );
+        assert!(
+            out.contains("FIRST PERSON"),
+            "behavioral answers should be written in the first person"
+        );
+        assert!(
+            out.contains("technical"),
+            "technical questions should not force the profile in"
+        );
     }
 
     #[test]

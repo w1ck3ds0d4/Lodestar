@@ -226,6 +226,47 @@ pub fn toggle_visibility(app: &AppHandle) -> bool {
     show
 }
 
+/// The (dx, dy) step for a nudge in `dir`, scaled to the monitor's DPI. None for an unknown dir.
+fn nudge_delta(dir: &str, scale: f64) -> Option<(i32, i32)> {
+    let step = (54.0 * scale).round() as i32;
+    Some(match dir {
+        "left" => (-step, 0),
+        "right" => (step, 0),
+        "up" => (0, -step),
+        "down" => (0, step),
+        _ => return None,
+    })
+}
+
+/// The (dx, dy) offset that brings a bounding box `(min_x, min_y, max_x, max_y)` flush to
+/// `corner` (tl/tr/bl/br/center) of a monitor `(mx, my, mw, mh)`, leaving `margin` px of gap.
+/// None for an unknown corner.
+fn snap_offset(
+    corner: &str,
+    bbox: (i32, i32, i32, i32),
+    mon: (i32, i32, i32, i32),
+    margin: i32,
+) -> Option<(i32, i32)> {
+    let (min_x, min_y, max_x, max_y) = bbox;
+    let (mx, my, mw, mh) = mon;
+    let (bw, bh) = (max_x - min_x, max_y - min_y);
+    let left = mx + margin;
+    let right = mx + mw - margin - bw;
+    let cx = mx + (mw - bw) / 2;
+    let top = my + margin;
+    let bottom = my + mh - margin - bh;
+    let cy = my + (mh - bh) / 2;
+    let (tx, ty) = match corner {
+        "tl" => (left, top),
+        "tr" => (right, top),
+        "bl" => (left, bottom),
+        "br" => (right, bottom),
+        "center" => (cx, cy),
+        _ => return None,
+    };
+    Some((tx - min_x, ty - min_y))
+}
+
 /// Reposition one overlay panel - or "all" of them as a group - from the phone remote.
 /// `snap` (tl/tr/bl/br/center) moves the panel flush to that anchor of its monitor; `nudge`
 /// (up/down/left/right) shifts it a step. With "all", the panels move together so their
@@ -279,22 +320,19 @@ pub fn move_panel(
     };
 
     if let Some(dir) = nudge {
-        let step = (54.0 * scale).round() as i32;
-        let (dx, dy) = match dir {
-            "left" => (-step, 0),
-            "right" => (step, 0),
-            "up" => (0, -step),
-            "down" => (0, step),
-            _ => return Err(format!("unknown nudge: {dir}")),
-        };
+        let (dx, dy) = nudge_delta(dir, scale).ok_or_else(|| format!("unknown nudge: {dir}"))?;
         apply(dx, dy);
         return Ok(());
     }
 
     if let Some(corner) = snap {
         let m = mon.ok_or("no monitor for the panel")?;
-        let (mx, my) = (m.position().x, m.position().y);
-        let (mw, mh) = (m.size().width as i32, m.size().height as i32);
+        let mon_box = (
+            m.position().x,
+            m.position().y,
+            m.size().width as i32,
+            m.size().height as i32,
+        );
         let margin = (14.0 * scale).round() as i32;
         // Combined bounding box of the targets (a single panel's box is itself).
         let min_x = wins.iter().map(|(_, p, _)| p.x).min().unwrap();
@@ -309,22 +347,45 @@ pub fn move_panel(
             .map(|(_, p, s)| p.y + s.height as i32)
             .max()
             .unwrap();
-        let (bw, bh) = (max_x - min_x, max_y - min_y);
-        let left = mx + margin;
-        let right = mx + mw - margin - bw;
-        let cx = mx + (mw - bw) / 2;
-        let top = my + margin;
-        let bottom = my + mh - margin - bh;
-        let cy = my + (mh - bh) / 2;
-        let (tx, ty) = match corner {
-            "tl" => (left, top),
-            "tr" => (right, top),
-            "bl" => (left, bottom),
-            "br" => (right, bottom),
-            "center" => (cx, cy),
-            _ => return Err(format!("unknown snap: {corner}")),
-        };
-        apply(tx - min_x, ty - min_y);
+        let (off_x, off_y) = snap_offset(corner, (min_x, min_y, max_x, max_y), mon_box, margin)
+            .ok_or_else(|| format!("unknown snap: {corner}"))?;
+        apply(off_x, off_y);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{nudge_delta, snap_offset};
+
+    #[test]
+    fn nudge_scales_with_dpi_and_covers_every_direction() {
+        assert_eq!(nudge_delta("right", 1.0), Some((54, 0)));
+        assert_eq!(nudge_delta("left", 1.0), Some((-54, 0)));
+        assert_eq!(nudge_delta("up", 1.0), Some((0, -54)));
+        assert_eq!(nudge_delta("down", 1.0), Some((0, 54)));
+        assert_eq!(nudge_delta("right", 1.5), Some((81, 0))); // 54 * 1.5
+        assert_eq!(nudge_delta("sideways", 1.0), None);
+    }
+
+    #[test]
+    fn snap_aligns_the_bounding_box_to_each_anchor() {
+        // 100x100 box at (200,200) on a 1000x800 monitor at the origin, 10px margin.
+        let bbox = (200, 200, 300, 300);
+        let mon = (0, 0, 1000, 800);
+        assert_eq!(snap_offset("tl", bbox, mon, 10), Some((-190, -190)));
+        assert_eq!(snap_offset("tr", bbox, mon, 10), Some((690, -190)));
+        assert_eq!(snap_offset("bl", bbox, mon, 10), Some((-190, 490)));
+        assert_eq!(snap_offset("br", bbox, mon, 10), Some((690, 490)));
+        assert_eq!(snap_offset("center", bbox, mon, 10), Some((250, 150)));
+        assert_eq!(snap_offset("middle", bbox, mon, 10), None);
+    }
+
+    #[test]
+    fn snap_respects_a_monitor_offset() {
+        // Box on a second display whose top-left is at x=1920.
+        let bbox = (2000, 100, 2100, 200);
+        let mon = (1920, 0, 1000, 800);
+        assert_eq!(snap_offset("tl", bbox, mon, 10), Some((-70, -90)));
+    }
 }
