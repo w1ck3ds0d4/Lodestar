@@ -582,7 +582,9 @@ fn dedupe_jobs(jobs: Vec<Job>) -> Vec<Job> {
 }
 
 fn row_to_source(r: &rusqlite::Row) -> rusqlite::Result<Source> {
-    let config_str: String = r.get(3)?;
+    // Config may be DPAPI-encrypted at rest (it can hold per-source API keys); unprotect is a
+    // no-op on legacy plaintext and on the keyless seeded sources, so older rows still parse.
+    let config_str = crate::secret::unprotect(&r.get::<_, String>(3)?);
     let config: Value =
         serde_json::from_str(&config_str).unwrap_or_else(|_| Value::Object(Default::default()));
     Ok(Source {
@@ -836,7 +838,12 @@ pub fn add_source(
 ) -> Result<i64> {
     conn.execute(
         "INSERT INTO sources (kind, label, config, enabled, min_interval_secs) VALUES (?1,?2,?3,1,?4)",
-        params![kind, label, config.to_string(), min_interval_secs],
+        params![
+            kind,
+            label,
+            crate::secret::protect(&config.to_string()),
+            min_interval_secs
+        ],
     )?;
     Ok(conn.last_insert_rowid())
 }
@@ -855,7 +862,7 @@ pub fn update_source(
             id,
             label,
             enabled as i64,
-            config.to_string(),
+            crate::secret::protect(&config.to_string()),
             min_interval_secs
         ],
     )?;

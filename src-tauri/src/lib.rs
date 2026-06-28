@@ -11,6 +11,7 @@ mod netcheck;
 mod phone;
 mod scam;
 mod screen;
+mod secret;
 mod sources;
 mod usage;
 mod util;

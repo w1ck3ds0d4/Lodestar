@@ -912,6 +912,7 @@ fn build_engine(conn: &rusqlite::Connection) -> Result<crate::assistant::Engine,
     } else {
         let key = db::get_setting(conn, "anthropic_api_key")
             .map_err(|e| e.to_string())?
+            .map(|k| crate::secret::unprotect(&k))
             .filter(|k| !k.trim().is_empty())
             .ok_or("No API key set. Add your Anthropic API key in the Assistant tab.")?;
         let model = db::get_setting(conn, "assistant_model")
@@ -1441,7 +1442,8 @@ pub fn set_api_key(state: State<'_, AppState>, key: String) -> Result<(), String
     if trimmed.is_empty() {
         db::delete_setting(&conn, "anthropic_api_key").map_err(|e| e.to_string())
     } else {
-        db::set_setting(&conn, "anthropic_api_key", trimmed).map_err(|e| e.to_string())
+        db::set_setting(&conn, "anthropic_api_key", &crate::secret::protect(trimmed))
+            .map_err(|e| e.to_string())
     }
 }
 
@@ -1790,7 +1792,8 @@ pub fn set_deepgram_key(state: State<'_, AppState>, key: String) -> Result<(), S
     if trimmed.is_empty() {
         db::delete_setting(&conn, "deepgram_api_key").map_err(|e| e.to_string())
     } else {
-        db::set_setting(&conn, "deepgram_api_key", trimmed).map_err(|e| e.to_string())
+        db::set_setting(&conn, "deepgram_api_key", &crate::secret::protect(trimmed))
+            .map_err(|e| e.to_string())
     }
 }
 
@@ -2035,6 +2038,7 @@ pub async fn deepgram_balance(state: State<'_, AppState>) -> Result<DeepgramBala
         let conn = state.db.lock().map_err(|_| "db poisoned")?;
         db::get_setting(&conn, "deepgram_api_key")
             .map_err(|e| e.to_string())?
+            .map(|k| crate::secret::unprotect(&k))
             .filter(|k| !k.trim().is_empty())
             .ok_or("No Deepgram API key set.")?
     };
@@ -2155,7 +2159,10 @@ pub fn start_listening(state: State<'_, AppState>, app: AppHandle) -> Result<(),
             let conn = state.db.lock().map_err(|_| "db poisoned")?;
             db::get_setting(&conn, "deepgram_api_key").map_err(|e| e.to_string())?
         };
-        let key = key.filter(|k| !k.trim().is_empty()).ok_or(
+        let key = key
+            .map(|k| crate::secret::unprotect(&k))
+            .filter(|k| !k.trim().is_empty())
+            .ok_or(
             "No Deepgram API key set. Add it in the Assistant tab, or switch the engine to Local.",
         )?;
         let (language, diarize, keyterms) = {
