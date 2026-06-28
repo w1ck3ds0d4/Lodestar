@@ -495,6 +495,7 @@ export const ANSWER_STYLES: { id: string; label: string; note: string }[] = [
   { id: "concise", label: "Concise", note: "glanceable bullets" },
   { id: "star", label: "STAR", note: "behavioral structure" },
   { id: "code", label: "Code", note: "solution + complexity" },
+  { id: "code-steps", label: "Code steps", note: "build it as you type, full code at the end" },
 ];
 
 export const ASSISTANT_MODELS: {

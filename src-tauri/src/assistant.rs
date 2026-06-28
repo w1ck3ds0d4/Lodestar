@@ -45,6 +45,14 @@ or factual questions, answer directly.",
 language-tagged fenced code block - real code, never pseudocode unless explicitly asked. Then at most a \
 1-2 line explanation and the time and space complexity. Give exactly one focused solution; do not restate \
 the problem, list alternatives, or repeat yourself. Keep prose minimal.",
+        "code-steps" => "\n\nANSWER FORMAT (coding): the user is TYPING the solution themselves, so build \
+it up in the order they should write it, so it makes sense as they go. Output NUMBERED steps; each step \
+is ONE short sentence saying what to add and why, immediately followed by ONLY the small code chunk for \
+that step in a language-tagged fenced block (real, runnable code, never pseudocode). Order the steps so \
+each builds on the last - signature/scaffold first, then the core logic, then edge cases - and keep the \
+chunks small enough to type along. After the final step, output a line '### Full solution' followed by \
+the COMPLETE program in one language-tagged fenced block, then a one-line time and space complexity. For \
+a non-coding question, ignore this and just answer it directly.",
         _ => "",
     }
 }
