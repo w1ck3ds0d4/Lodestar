@@ -185,6 +185,85 @@ select:focus {
   color: var(--accent-2);
 }
 
+/* --- Custom window chrome (the main window is borderless; the top bar is the title bar) --- */
+.win-controls {
+  display: inline-flex;
+  gap: 2px;
+  margin-left: 4px;
+}
+.win-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 30px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+}
+.win-btn:hover {
+  background: var(--panel);
+  color: var(--text);
+}
+.win-close:hover {
+  background: var(--danger);
+  color: #fff;
+}
+/* Invisible edge/corner handles restoring native-feeling resize on the borderless window. */
+.rz {
+  position: fixed;
+  z-index: 9999;
+}
+.rz-n {
+  top: 0;
+  left: 8px;
+  right: 8px;
+  height: 5px;
+}
+.rz-s {
+  bottom: 0;
+  left: 8px;
+  right: 8px;
+  height: 5px;
+}
+.rz-e {
+  top: 8px;
+  bottom: 8px;
+  right: 0;
+  width: 5px;
+}
+.rz-w {
+  top: 8px;
+  bottom: 8px;
+  left: 0;
+  width: 5px;
+}
+.rz-ne {
+  top: 0;
+  right: 0;
+  width: 9px;
+  height: 9px;
+}
+.rz-nw {
+  top: 0;
+  left: 0;
+  width: 9px;
+  height: 9px;
+}
+.rz-se {
+  bottom: 0;
+  right: 0;
+  width: 9px;
+  height: 9px;
+}
+.rz-sw {
+  bottom: 0;
+  left: 0;
+  width: 9px;
+  height: 9px;
+}
+
 .stat-pill {
   color: var(--muted);
   font-size: 12.5px;

@@ -39,6 +39,12 @@ import { AssistantView } from "./components/AssistantView";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { GettingStarted } from "./components/GettingStarted";
 import { ProfileHub } from "./components/ProfileHub";
+import { ResizeHandles, WindowControls } from "./components/WindowChrome";
+
+// The main window is borderless (decorations off), so it draws its own title bar (the top
+// bar) and window controls. In a plain browser (Vite preview) there is no Tauri window, so
+// skip the chrome there.
+const HAS_TAURI = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
 type View = "search" | "tracker" | "study" | "assistant";
 
@@ -349,8 +355,9 @@ export default function App() {
 
   return (
     <div className="app">
-      <header className="topbar">
-        <div className="brand">
+      {HAS_TAURI && <ResizeHandles />}
+      <header className="topbar" data-tauri-drag-region>
+        <div className="brand" data-tauri-drag-region>
           <Radar size={22} className="brand-icon" />
           <span>JobRadar</span>
         </div>
@@ -417,6 +424,7 @@ export default function App() {
             <RefreshCw size={16} className={syncing ? "spin" : ""} />
             <span className="btn-label">{syncing ? "Syncing…" : "Sync now"}</span>
           </button>
+          {HAS_TAURI && <WindowControls />}
         </div>
       </header>
 

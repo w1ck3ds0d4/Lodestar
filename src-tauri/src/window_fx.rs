@@ -28,11 +28,10 @@ pub fn set_window_always_on_top(window: tauri::WebviewWindow, on_top: bool) -> R
 
 /// Remove (or restore) the window from the taskbar AND the Alt+Tab switcher, so the app can
 /// sit fully discreetly - reachable only via the tray icon or the Alt+Shift+H hotkey. On
-/// Windows this gives the window a hidden OWNER window: an owned top-level window gets no
-/// taskbar button and is excluded from Alt+Tab, while keeping the FULL native frame (min/max
-/// and edge-resize included) - unlike WS_EX_TOOLWINDOW, which slims the title bar. The owner
-/// MUST be created on the UI thread for Windows to honor the ownership, so the work hops to the
-/// main thread. Elsewhere it falls back to Tauri's taskbar-skip.
+/// Windows this flips the WS_EX_TOOLWINDOW style, the one method Windows honors at runtime (a
+/// tool window shows in neither the taskbar nor Alt+Tab). It would slim a NATIVE title bar, but
+/// the main window is borderless (decorations off) with a custom HTML title bar, so there is no
+/// native frame to slim - the style flip is invisible. Elsewhere it falls back to Tauri's skip.
 #[tauri::command]
 pub fn set_window_skip_taskbar(window: tauri::WebviewWindow, skip: bool) -> Result<(), String> {
     set_skip_taskbar_impl(&window, skip)
@@ -40,70 +39,31 @@ pub fn set_window_skip_taskbar(window: tauri::WebviewWindow, skip: bool) -> Resu
 
 #[cfg(windows)]
 fn set_skip_taskbar_impl(window: &tauri::WebviewWindow, skip: bool) -> Result<(), String> {
-    let hwnd_val = window.hwnd().map_err(|e| format!("hwnd: {e}"))?.0 as isize;
-    window
-        .run_on_main_thread(move || apply_skip_taskbar(hwnd_val, skip))
-        .map_err(|e| format!("run_on_main_thread: {e}"))
-}
-
-/// Lazily create (once, on the calling = UI thread) a hidden zero-size owner window. It is a
-/// tool window so it never gets its own taskbar button, and it is never shown.
-#[cfg(windows)]
-fn stealth_owner() -> isize {
-    use std::sync::atomic::{AtomicIsize, Ordering};
-    use windows::core::w;
-    use windows::Win32::UI::WindowsAndMessaging::{CreateWindowExW, WS_EX_TOOLWINDOW, WS_POPUP};
-    static OWNER: AtomicIsize = AtomicIsize::new(0);
-    let cur = OWNER.load(Ordering::Relaxed);
-    if cur != 0 {
-        return cur;
-    }
-    let hwnd = unsafe {
-        CreateWindowExW(
-            WS_EX_TOOLWINDOW,
-            w!("STATIC"),
-            w!(""),
-            WS_POPUP,
-            0,
-            0,
-            0,
-            0,
-            None,
-            None,
-            None,
-            None,
-        )
-    };
-    match hwnd {
-        Ok(h) => {
-            let v = h.0 as isize;
-            OWNER.store(v, Ordering::Relaxed);
-            v
-        }
-        Err(_) => 0,
-    }
-}
-
-/// Runs on the UI thread: own (skip) or un-own the main window, cycling its visibility so the
-/// taskbar and Alt+Tab re-evaluate the change.
-#[cfg(windows)]
-fn apply_skip_taskbar(hwnd_val: isize, skip: bool) {
     use windows::Win32::Foundation::HWND;
     use windows::Win32::UI::WindowsAndMessaging::{
-        IsWindowVisible, SetWindowLongPtrW, ShowWindow, GWLP_HWNDPARENT, SW_HIDE, SW_SHOW,
+        GetWindowLongPtrW, SetWindowLongPtrW, ShowWindow, GWL_EXSTYLE, SW_HIDE, SW_SHOW,
+        WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
     };
-    let hwnd = HWND(hwnd_val as *mut core::ffi::c_void);
-    let owner = if skip { stealth_owner() } else { 0 };
+    let hwnd = HWND(window.hwnd().map_err(|e| format!("hwnd: {e}"))?.0);
+    let was_visible = window.is_visible().unwrap_or(true);
     unsafe {
-        let was_visible = IsWindowVisible(hwnd).as_bool();
+        // Alt+Tab/taskbar only re-read WS_EX_TOOLWINDOW after the window is hidden and shown
+        // again, so cycle visibility around the style change (skipped when already hidden).
         if was_visible {
             let _ = ShowWindow(hwnd, SW_HIDE);
         }
-        SetWindowLongPtrW(hwnd, GWLP_HWNDPARENT, owner);
+        let mut ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
+        if skip {
+            ex = (ex | WS_EX_TOOLWINDOW.0) & !WS_EX_APPWINDOW.0;
+        } else {
+            ex = (ex & !WS_EX_TOOLWINDOW.0) | WS_EX_APPWINDOW.0;
+        }
+        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex as isize);
         if was_visible {
             let _ = ShowWindow(hwnd, SW_SHOW);
         }
     }
+    Ok(())
 }
 
 #[cfg(not(windows))]
