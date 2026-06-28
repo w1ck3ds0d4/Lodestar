@@ -2508,9 +2508,19 @@ export function AssistantView() {
 
               {askImage && (
                 <div className="ask-image">
-                  <img src={"data:image/png;base64," + askImage} alt="attached" />
-                  <button className="ask-image-x" title="Remove image" onClick={() => setAskImage(null)}>
-                    <X size={12} />
+                  <div className="ask-image-thumb">
+                    <img src={"data:image/png;base64," + askImage} alt="attached" />
+                    <button
+                      className="ask-image-x"
+                      title="Remove image"
+                      aria-label="Remove image"
+                      onClick={() => setAskImage(null)}
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                  <button className="ask-image-remove" onClick={() => setAskImage(null)}>
+                    <X size={13} /> Remove image
                   </button>
                 </div>
               )}

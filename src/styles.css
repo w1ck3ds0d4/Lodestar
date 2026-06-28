@@ -1561,13 +1561,18 @@ select:focus {
 .assistant-ask .ask-attach {
   align-self: flex-end;
 }
-/* Attached-image preview shown above the Ask box. */
+/* Attached-image preview above the Ask box: a thumbnail with a corner X and a labelled Remove. */
 .ask-image {
-  position: relative;
-  display: inline-block;
+  display: flex;
+  align-items: center;
+  gap: 10px;
   margin-bottom: 8px;
 }
-.ask-image img {
+.ask-image-thumb {
+  position: relative;
+  display: inline-block;
+}
+.ask-image-thumb img {
   display: block;
   max-height: 120px;
   max-width: 240px;
@@ -1576,19 +1581,34 @@ select:focus {
 }
 .ask-image-x {
   position: absolute;
-  top: -7px;
-  right: -7px;
-  width: 20px;
-  height: 20px;
+  top: 4px;
+  right: 4px;
+  width: 22px;
+  height: 22px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   border-radius: 999px;
-  background: var(--panel);
+  background: rgba(0, 0, 0, 0.6);
   border: 1px solid var(--border);
-  color: var(--muted);
+  color: #fff;
 }
 .ask-image-x:hover {
+  background: var(--danger);
+  border-color: var(--danger);
+}
+.ask-image-remove {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--muted);
+  border-radius: 8px;
+  padding: 7px 11px;
+  font-size: 13px;
+}
+.ask-image-remove:hover {
   border-color: var(--danger);
   color: var(--danger);
 }
