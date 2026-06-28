@@ -272,6 +272,61 @@ pub async fn ask(
     }
 }
 
+/// Like [`ask`], but about an attached image (a pasted/dropped screenshot) plus an optional
+/// text question and context. Uses the same system prompt and answer style as the text Ask, so
+/// the answer is formatted identically (including the "code steps" style), and streams when
+/// `on_token` is given. The image must be a base64-encoded PNG (the frontend normalizes it).
+#[allow(clippy::too_many_arguments)]
+pub async fn ask_image(
+    http: &reqwest::Client,
+    engine: &Engine,
+    question: &str,
+    png_base64: &str,
+    context: Option<&str>,
+    profile: Option<&str>,
+    style: &str,
+    on_token: Option<&(dyn Fn(&str) + Send + Sync)>,
+) -> Result<String> {
+    // With no typed question, answer whatever the image shows.
+    let q = if question.trim().is_empty() {
+        "Answer the question or problem shown in this image."
+    } else {
+        question
+    };
+    let user_text = match context {
+        Some(ctx) if !ctx.trim().is_empty() => format!(
+            "Context (conversation/transcript or notes):\n{ctx}\n\nWhat I need help with:\n{q}"
+        ),
+        _ => q.to_string(),
+    };
+    let mut system = with_profile(SYSTEM_PROMPT, profile);
+    system.push_str(style_directive(style));
+    match engine {
+        Engine::Claude { api_key, model } => {
+            let content = json!([
+                {
+                    "type": "image",
+                    "source": { "type": "base64", "media_type": "image/png", "data": png_base64 }
+                },
+                { "type": "text", "text": user_text }
+            ]);
+            complete_content(http, api_key, model, &system, content, 4096, true, on_token).await
+        }
+        Engine::Ollama { url, model } => {
+            ollama_chat(
+                http,
+                url,
+                model,
+                &system,
+                user_text,
+                Some(png_base64),
+                on_token,
+            )
+            .await
+        }
+    }
+}
+
 /// System prompt for the Tracker's per-application interview prep.
 const PREP_PROMPT: &str = "You are an interview coach. Given a role and company the user is interviewing for \
 (plus their profile if provided), produce concise prep in GitHub-flavored Markdown: likely interview \

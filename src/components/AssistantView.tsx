@@ -21,6 +21,7 @@ import {
   FileText,
   Gauge,
   History,
+  ImagePlus,
   KeyRound,
   LayoutDashboard,
   MessageSquare,
@@ -100,6 +101,34 @@ function fmtLogClock(ts: number): string {
   const d = new Date(ts);
   const p = (n: number) => String(n).padStart(2, "0");
   return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+
+// Convert a pasted/dropped image (Blob/File) to a base64 PNG, downscaling the longest side to
+// <= maxSide px (Claude's efficient max) to keep the payload small. Resolves to base64 with no
+// "data:" prefix. Normalizing to PNG means the backend's media_type is always correct.
+function imageToPngBase64(file: Blob, maxSide = 1568): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const scale = Math.min(1, maxSide / Math.max(img.naturalWidth, img.naturalHeight));
+      const w = Math.max(1, Math.round(img.naturalWidth * scale));
+      const h = Math.max(1, Math.round(img.naturalHeight * scale));
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return reject(new Error("canvas unavailable"));
+      ctx.drawImage(img, 0, 0, w, h);
+      resolve(canvas.toDataURL("image/png").split(",")[1] || "");
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("could not read the image"));
+    };
+    img.src = url;
+  });
 }
 
 // Stable colour bucket for a speaker name (so each speaker keeps one chip hue).
@@ -351,6 +380,9 @@ export function AssistantView() {
   const [dgLoading, setDgLoading] = useState(false);
 
   const [question, setQuestion] = useState("");
+  // An image attached to the Ask box (base64 PNG) - pasted, dropped, or picked.
+  const [askImage, setAskImage] = useState<string | null>(null);
+  const imgInputRef = useRef<HTMLInputElement>(null);
   const [context, setContext] = useState("");
   const [qa, setQa] = useState<QA[]>([]);
 
@@ -734,6 +766,28 @@ export function AssistantView() {
     };
     try {
       await api.askAssistant(question, ctx && ctx.trim() ? ctx.trim() : null, channel);
+    } catch (e) {
+      setQa((prev) => prev.map((x) => (x.id === id ? { ...x, error: String(e), pending: false } : x)));
+    }
+  }, []);
+
+  // Ask about an attached image (a pasted/dropped screenshot) + optional text; streams like ask.
+  const askImageQ = useCallback(async (q: string, image: string, ctx: string | null) => {
+    const id = ++idRef.current;
+    setQa((prev) => [{ id, q: q.trim() || "Image", a: "", pending: true }, ...prev]);
+    const channel = new Channel<api.AnswerChunk>();
+    channel.onmessage = (msg) => {
+      setQa((prev) =>
+        prev.map((e) => {
+          if (e.id !== id) return e;
+          if (msg.kind === "delta") return { ...e, a: e.a + msg.text, pending: true };
+          if (msg.kind === "done") return { ...e, a: msg.text || e.a, pending: false };
+          return { ...e, error: msg.message, pending: false };
+        }),
+      );
+    };
+    try {
+      await api.askImage(q.trim(), image, ctx && ctx.trim() ? ctx.trim() : null, channel);
     } catch (e) {
       setQa((prev) => prev.map((x) => (x.id === id ? { ...x, error: String(e), pending: false } : x)));
     }
@@ -1171,8 +1225,15 @@ export function AssistantView() {
   }, [listening]);
 
   const askManual = () => {
+    const ctx = context.trim() || transcriptText(segments);
+    if (askImage) {
+      void askImageQ(question, askImage, ctx);
+      setQuestion("");
+      setAskImage(null);
+      return;
+    }
     if (!question.trim()) return;
-    void ask(question, context.trim() || transcriptText(segments));
+    void ask(question, ctx);
     setQuestion("");
   };
 
@@ -2445,17 +2506,70 @@ export function AssistantView() {
                 </div>
               )}
 
-              <div className="assistant-ask">
+              {askImage && (
+                <div className="ask-image">
+                  <img src={"data:image/png;base64," + askImage} alt="attached" />
+                  <button className="ask-image-x" title="Remove image" onClick={() => setAskImage(null)}>
+                    <X size={12} />
+                  </button>
+                </div>
+              )}
+              <div
+                className="assistant-ask"
+                onDragOver={(e) => {
+                  if (Array.from(e.dataTransfer.types).includes("Files")) e.preventDefault();
+                }}
+                onDrop={(e) => {
+                  const f = Array.from(e.dataTransfer.files).find((x) => x.type.startsWith("image/"));
+                  if (f) {
+                    e.preventDefault();
+                    void imageToPngBase64(f)
+                      .then(setAskImage)
+                      .catch(() => {});
+                  }
+                }}
+              >
                 <textarea
-                  placeholder="Ask directly, e.g. 'Solve 3x + 7 = 22' - or just hit Listen and let it auto-answer"
+                  placeholder="Ask directly, or paste / drop a screenshot - e.g. 'Solve 3x + 7 = 22'"
                   value={question}
                   onChange={(e) => setQuestion(e.target.value)}
+                  onPaste={(e) => {
+                    const item = Array.from(e.clipboardData.items).find((i) => i.type.startsWith("image/"));
+                    const blob = item?.getAsFile();
+                    if (blob) {
+                      e.preventDefault();
+                      void imageToPngBase64(blob)
+                        .then(setAskImage)
+                        .catch(() => {});
+                    }
+                  }}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) askManual();
                   }}
                   rows={2}
                 />
-                <button className="btn-sync" onClick={askManual} disabled={!question.trim()}>
+                <input
+                  ref={imgInputRef}
+                  type="file"
+                  accept="image/*"
+                  hidden
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f)
+                      void imageToPngBase64(f)
+                        .then(setAskImage)
+                        .catch(() => {});
+                    e.target.value = "";
+                  }}
+                />
+                <button
+                  className="icon-btn ask-attach"
+                  title="Attach an image (or paste / drop one)"
+                  onClick={() => imgInputRef.current?.click()}
+                >
+                  <ImagePlus size={16} />
+                </button>
+                <button className="btn-sync" onClick={askManual} disabled={!question.trim() && !askImage}>
                   <Send size={16} /> Ask
                 </button>
               </div>

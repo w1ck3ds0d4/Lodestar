@@ -271,6 +271,13 @@ export type AnswerChunk =
   { kind: "delta"; text: string } | { kind: "done"; text: string } | { kind: "error"; message: string };
 export const askAssistant = (question: string, context: string | null, onEvent: Channel<AnswerChunk>) =>
   invoke<void>("ask_assistant", { question, context, onEvent });
+// Ask about an attached image (base64 PNG, no data: prefix) with an optional text question.
+export const askImage = (
+  question: string,
+  image: string,
+  context: string | null,
+  onEvent: Channel<AnswerChunk>,
+) => invoke<void>("ask_image", { question, image, context, onEvent });
 // Streams the auto-answer over a channel (delta/done/error), same shape as askAssistant.
 // The full text is "NONE" when nothing is being asked - the caller suppresses it.
 export const autoAnswer = (transcript: string, latest: string, onEvent: Channel<AnswerChunk>) =>
