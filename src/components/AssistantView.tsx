@@ -455,11 +455,16 @@ export function AssistantView() {
   useEffect(() => {
     qaRef.current = qa;
   }, [qa]);
-  // Synchronous mirror of `listening` so the once-registered read handlers can gate on it.
-  const listeningRef = useRef(false);
+  // When ON, reading a page (Read full page / Alt+Shift+R / clipboard) also answers it - works
+  // whether or not you're in a live call (e.g. a live coding round). Turn OFF to only stack the
+  // page as context (e.g. read several parts, then Ask once). Persisted; a ref so the
+  // once-registered read handlers see the latest value.
+  const [solveOnRead, setSolveOnRead] = useState(() => localStorage.getItem("jr.solveOnRead") !== "0");
+  const solveOnReadRef = useRef(solveOnRead);
   useEffect(() => {
-    listeningRef.current = listening;
-  }, [listening]);
+    solveOnReadRef.current = solveOnRead;
+    localStorage.setItem("jr.solveOnRead", solveOnRead ? "1" : "0");
+  }, [solveOnRead]);
 
   // Follow the conversation: scroll the dialog to the newest line whenever a segment
   // commits or the live tail grows - unless the user has scrolled up to read back.
@@ -530,13 +535,13 @@ export function AssistantView() {
       );
   }, []);
 
-  // Attach a read-in page as context AND, when NOT in a live call, answer it - so an explicit
-  // page read (Read full page / Alt+Shift+R / clipboard) also solves the exercise instead of only
-  // attaching context. While listening, the read stays context-only (the audio drives answers).
+  // Attach a read-in page as context AND, when "Solve on read" is on, answer it - so an explicit
+  // page read (Read full page / Alt+Shift+R / clipboard) also solves the exercise, in a call or
+  // not. With the toggle off it stays context-only (stack several parts, then Ask once).
   const readPageAndAnswer = useCallback(
     (text: string, label: string) => {
       addToContext(text, label);
-      if (!listeningRef.current) answerPage(text);
+      if (solveOnReadRef.current) answerPage(text);
     },
     [addToContext, answerPage],
   );
@@ -1870,6 +1875,17 @@ export function AssistantView() {
                   <ClipboardPaste size={14} /> Read page (clipboard)
                 </button>
               </div>
+              <label
+                className="auto-toggle muted sm"
+                title="When on, reading a page also answers it (works in a live call too). Turn off to only stack the page as context, e.g. read several parts then Ask once."
+              >
+                <input
+                  type="checkbox"
+                  checked={solveOnRead}
+                  onChange={(e) => setSolveOnRead(e.target.checked)}
+                />
+                Solve on read (answer the page, even during a call)
+              </label>
               {pageMsg && <div className="muted sm">{pageMsg}</div>}
               <div className="muted sm">
                 <b>Read full page</b> reads the whole page (incl. off-screen) automatically - good for
