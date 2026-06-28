@@ -1228,6 +1228,7 @@ export function AssistantView() {
       panel?: string;
       snap?: string;
       nudge?: string;
+      resize?: string;
     }) => void
   >(() => {});
   phoneCmdRef.current = (c) => {
@@ -1259,8 +1260,8 @@ export function AssistantView() {
         if (captureOn) void api.toggleCapturePanels().catch(() => {});
         break;
       case "move_panel":
-        // Reposition a panel (or "all") from the phone: snap to a corner/center or nudge.
-        if (captureOn) void api.moveCapturePanel(c.panel || "all", c.snap, c.nudge).catch(() => {});
+        // Move or resize a panel (or "all") from the phone: snap, nudge, or grow/shrink.
+        if (captureOn) void api.moveCapturePanel(c.panel || "all", c.snap, c.nudge, c.resize).catch(() => {});
         break;
       case "read_full_page":
         // Read the whole page (incl. scrolled-off text) into context. Focus-safe: the phone

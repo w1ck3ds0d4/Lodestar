@@ -267,15 +267,26 @@ fn snap_offset(
     Some((tx - min_x, ty - min_y))
 }
 
-/// Reposition one overlay panel - or "all" of them as a group - from the phone remote.
+/// The scale factor for a resize step (grow / shrink), or None for an unknown action.
+fn resize_factor(action: &str) -> Option<f64> {
+    match action {
+        "grow" => Some(1.15),
+        "shrink" => Some(1.0 / 1.15),
+        _ => None,
+    }
+}
+
+/// Reposition or resize one overlay panel - or "all" of them - from the phone remote.
 /// `snap` (tl/tr/bl/br/center) moves the panel flush to that anchor of its monitor; `nudge`
-/// (up/down/left/right) shifts it a step. With "all", the panels move together so their
-/// relative layout is preserved (snap aligns their combined bounding box to the anchor).
+/// (up/down/left/right) shifts it a step; `resize` (grow/shrink) scales it by a step (clamped
+/// to a sane minimum). With "all", the panels move together so their relative layout is
+/// preserved (snap aligns their combined bounding box to the anchor) and each one resizes.
 pub fn move_panel(
     app: &AppHandle,
     panel: &str,
     snap: Option<&str>,
     nudge: Option<&str>,
+    resize: Option<&str>,
 ) -> Result<(), String> {
     // Resolve the target panel label(s).
     let labels: Vec<&str> = if panel == "all" {
@@ -319,6 +330,22 @@ pub fn move_panel(
         }
     };
 
+    if let Some(action) = resize {
+        let factor = resize_factor(action).ok_or_else(|| format!("unknown resize: {action}"))?;
+        // Don't let a panel shrink below a usable size (scale-aware physical px).
+        let min_w = (160.0 * scale).round() as u32;
+        let min_h = (90.0 * scale).round() as u32;
+        for (w, _pos, size) in &wins {
+            let nw = ((size.width as f64 * factor).round() as u32).max(min_w);
+            let nh = ((size.height as f64 * factor).round() as u32).max(min_h);
+            let _ = w.set_size(tauri::Size::Physical(tauri::PhysicalSize {
+                width: nw,
+                height: nh,
+            }));
+        }
+        return Ok(());
+    }
+
     if let Some(dir) = nudge {
         let (dx, dy) = nudge_delta(dir, scale).ok_or_else(|| format!("unknown nudge: {dir}"))?;
         apply(dx, dy);
@@ -356,7 +383,16 @@ pub fn move_panel(
 
 #[cfg(test)]
 mod tests {
-    use super::{nudge_delta, snap_offset};
+    use super::{nudge_delta, resize_factor, snap_offset};
+
+    #[test]
+    fn resize_grows_and_shrinks_by_inverse_steps() {
+        assert_eq!(resize_factor("grow"), Some(1.15));
+        let shrink = resize_factor("shrink").unwrap();
+        // grow then shrink returns (about) to the original size.
+        assert!((1.15 * shrink - 1.0).abs() < 1e-9);
+        assert_eq!(resize_factor("zoom"), None);
+    }
 
     #[test]
     fn nudge_scales_with_dpi_and_covers_every_direction() {

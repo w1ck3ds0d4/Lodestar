@@ -2321,16 +2321,23 @@ pub fn toggle_capture_panels(app: AppHandle) -> bool {
     crate::capture::toggle_visibility(&app)
 }
 
-/// Move a capture panel (or "all") from the phone remote: snap it to a corner/center
-/// (tl/tr/bl/br/center) or nudge it a step (up/down/left/right).
+/// Move or resize a capture panel (or "all") from the phone remote: snap it to a corner/center
+/// (tl/tr/bl/br/center), nudge it a step (up/down/left/right), or resize it (grow/shrink).
 #[tauri::command]
 pub fn move_capture_panel(
     app: AppHandle,
     panel: String,
     snap: Option<String>,
     nudge: Option<String>,
+    resize: Option<String>,
 ) -> Result<(), String> {
-    crate::capture::move_panel(&app, &panel, snap.as_deref(), nudge.as_deref())
+    crate::capture::move_panel(
+        &app,
+        &panel,
+        snap.as_deref(),
+        nudge.as_deref(),
+        resize.as_deref(),
+    )
 }
 
 /// Read the full text of the page the user is on (including content scrolled off-screen) and

@@ -321,9 +321,14 @@ export const setCaptureProtection = (protected_: boolean) =>
   invoke<void>("set_capture_protection", { protected: protected_ });
 // Show/hide the panels (control bar stays); resolves to the new visibility.
 export const toggleCapturePanels = () => invoke<boolean>("toggle_capture_panels");
-// Move a panel ("all" or a cap-* label) from the phone: snap to a corner/center or nudge.
-export const moveCapturePanel = (panel: string, snap?: string, nudge?: string) =>
-  invoke<void>("move_capture_panel", { panel, snap: snap ?? null, nudge: nudge ?? null });
+// Move or resize a panel ("all" or a cap-* label) from the phone: snap, nudge, or grow/shrink.
+export const moveCapturePanel = (panel: string, snap?: string, nudge?: string, resize?: string) =>
+  invoke<void>("move_capture_panel", {
+    panel,
+    snap: snap ?? null,
+    nudge: nudge ?? null,
+    resize: resize ?? null,
+  });
 // Read the full text of the page the user is on (incl. scrolled-off content) for context.
 export const readActivePage = () => invoke<string>("read_active_page");
 

@@ -57,6 +57,9 @@
       .pad button.snap { color: var(--accent2); }
       .pad button:active { transform: scale(0.95); }
       .pad-hint { color: var(--muted); font-size: 12px; text-align: center; }
+      .size-row { display: flex; gap: 8px; }
+      .size-row button { flex: 1; border: 1px solid var(--border); background: var(--panel2); color: var(--text); border-radius: 12px; padding: 12px; font-size: 15px; font-weight: 600; cursor: pointer; }
+      .size-row button:active { transform: scale(0.97); }
     </style>
   </head>
   <body>
@@ -115,6 +118,10 @@
           <button class="snap" data-snap="br">◢</button>
         </div>
         <div class="pad-hint">Corners snap · arrows nudge</div>
+        <div class="size-row">
+          <button data-resize="shrink">&minus; Smaller</button>
+          <button data-resize="grow">&plus; Bigger</button>
+        </div>
         <button class="sheet-cancel" id="panelClose">Close</button>
       </div>
     </div>
@@ -179,6 +186,11 @@
         b.onclick = function () {
           var snap = b.getAttribute("data-snap"), nudge = b.getAttribute("data-nudge");
           cmd({ cmd: "move_panel", panel: selPanel, snap: snap || undefined, nudge: nudge || undefined });
+        };
+      });
+      Array.prototype.forEach.call(document.querySelectorAll(".size-row button"), function (b) {
+        b.onclick = function () {
+          cmd({ cmd: "move_panel", panel: selPanel, resize: b.getAttribute("data-resize") });
         };
       });
 
