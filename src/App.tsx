@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   Bell,
   Bot,
@@ -356,7 +357,16 @@ export default function App() {
   return (
     <div className="app">
       {HAS_TAURI && <ResizeHandles />}
-      <header className="topbar" data-tauri-drag-region>
+      <header
+        className="topbar"
+        data-tauri-drag-region
+        onDoubleClick={(e) => {
+          // Double-clicking the title-bar area (the drag regions, not a button) maximizes.
+          if (HAS_TAURI && (e.target as HTMLElement).hasAttribute("data-tauri-drag-region")) {
+            void getCurrentWindow().toggleMaximize();
+          }
+        }}
+      >
         <div className="brand" data-tauri-drag-region>
           <Radar size={22} className="brand-icon" />
           <span>JobRadar</span>
