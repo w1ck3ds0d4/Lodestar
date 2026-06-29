@@ -2294,26 +2294,58 @@ select:focus {
   border-bottom: 1px solid var(--border);
 }
 
+/* In the narrow filters drawer each facet stacks its label above the chips, which wrap to
+   the full drawer width. */
 .filter-section-grid {
-  display: grid;
-  grid-template-columns: max-content 1fr;
-  gap: 6px 16px;
-  align-items: start;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
-/* Narrow window / phone: stack each facet label above its chips so the chips get the full
-   width and are never crushed by the label column. */
+.filter-section-grid .filter-label {
+  padding-top: 7px;
+}
+
+.filter-section-grid > .filter-label:first-child {
+  padding-top: 0;
+}
+
+/* Filters open in a slide-in drawer anchored to the LEFT, so opening them floats over the
+   results instead of pushing the whole list down. Reuses .drawer-overlay / .drawer. */
+.drawer-overlay--left {
+  justify-content: flex-start;
+}
+
+.filter-drawer {
+  width: min(380px, 100%);
+  border-left: none;
+  border-right: 1px solid var(--border);
+  animation: filter-drawer-in 0.18s ease;
+}
+
+@keyframes filter-drawer-in {
+  from {
+    transform: translateX(-14px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.filter-drawer .drawer-body {
+  flex: 1;
+}
+
+.drawer-foot {
+  display: flex;
+  justify-content: flex-end;
+  padding: 12px 18px;
+  border-top: 1px solid var(--border);
+}
+
 @media (max-width: 620px) {
-  .filter-section-grid {
-    grid-template-columns: 1fr;
-    gap: 2px 0;
-  }
-  .filter-label {
-    padding-top: 10px;
-  }
-  .filter-section-grid > .filter-label:first-child {
-    padding-top: 0;
-  }
   .searchbar-meta {
     flex-wrap: wrap;
   }
