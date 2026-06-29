@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isNoneAnswer, looksNone, splitNext, strip } from "./answer";
+import { isBackchannel, isNoneAnswer, looksNone, splitNext, strip } from "./answer";
 
 describe("strip", () => {
   it("keeps only letters and uppercases them", () => {
@@ -52,5 +52,25 @@ describe("isNoneAnswer (filler detection)", () => {
   it("does not flag a real answer as NONE", () => {
     expect(isNoneAnswer("I'd use cache-aside here.")).toBe(false);
     expect(isNoneAnswer("None of the replicas were healthy, so I'd...")).toBe(false);
+  });
+});
+
+describe("isBackchannel (live filler turns)", () => {
+  it("treats pure acknowledgement/filler turns as backchannel", () => {
+    for (const t of ["Okay.", "Yeah.", "Mhmm.", "Right.", "Okay perfect", "yes yes", "No.", "Alright."]) {
+      expect(isBackchannel(t)).toBe(true);
+    }
+  });
+  it("treats empty / punctuation-only turns as backchannel", () => {
+    expect(isBackchannel("")).toBe(true);
+    expect(isBackchannel("...")).toBe(true);
+  });
+  it("does not swallow a real (even short) question", () => {
+    expect(isBackchannel("Why did you leave?")).toBe(false);
+    expect(isBackchannel("What is your notice period?")).toBe(false);
+    expect(isBackchannel("Tell me about a conflict.")).toBe(false);
+  });
+  it("lets a long broken-English turn through for the model to judge", () => {
+    expect(isBackchannel("no my communications because at this moment was not good")).toBe(false);
   });
 });

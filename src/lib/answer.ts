@@ -28,3 +28,73 @@ export function isNoneAnswer(full: string): boolean {
   const core = splitNext(full).body.trim();
   return core.length === 0 || strip(core) === "NONE";
 }
+
+// Acknowledgement / filler words the interviewer drops between real questions. Garbled ASR of
+// a halting, non-native speaker often emits these as standalone "Them:" turns; answering them
+// produces noise and duplicate cards, which is the main way a bad-English interviewer breaks
+// the live assistant. Kept deliberately small (only words that are NEVER a question on their
+// own) so a real short question is never swallowed.
+const BACKCHANNEL = new Set([
+  "ok",
+  "okay",
+  "kay",
+  "k",
+  "yeah",
+  "yes",
+  "yep",
+  "yup",
+  "ya",
+  "no",
+  "nope",
+  "nah",
+  "right",
+  "sure",
+  "cool",
+  "nice",
+  "great",
+  "perfect",
+  "good",
+  "okok",
+  "mhmm",
+  "mhm",
+  "mm",
+  "mmm",
+  "hmm",
+  "uh",
+  "um",
+  "uhuh",
+  "aha",
+  "ah",
+  "oh",
+  "alright",
+  "exactly",
+  "correct",
+  "true",
+  "fine",
+  "gotcha",
+  "thanks",
+  "thank",
+  "you",
+  "welcome",
+  "bye",
+  "hello",
+  "hi",
+  "hey",
+  "so",
+  "and",
+  "well",
+]);
+
+// True if the interviewer text is only acknowledgement/filler words (or too short to carry a
+// question), so it should never trigger a live answer. Bounded at 6 words: anything longer is
+// plausibly a real (if broken) question and is left for the model to judge.
+export function isBackchannel(text: string): boolean {
+  const cleaned = text
+    .toLowerCase()
+    .replace(/[^a-z\s]/g, " ")
+    .trim();
+  if (cleaned.length === 0) return true;
+  const words = cleaned.split(/\s+/);
+  if (words.length > 6) return false;
+  return words.every((w) => BACKCHANNEL.has(w));
+}

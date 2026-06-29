@@ -56,7 +56,7 @@ import {
   type Profile,
   type UsageReport,
 } from "../types";
-import { isNoneAnswer, looksNone } from "../lib/answer";
+import { isBackchannel, isNoneAnswer, looksNone } from "../lib/answer";
 import { extractResumeText } from "../lib/extractText";
 import { ApplicationKit } from "./ApplicationKit";
 import { Answer } from "./MarkdownAnswer";
@@ -1015,6 +1015,14 @@ export function AssistantView() {
         .map((s) => s.text)
         .join(" ")
         .trim();
+      // A pure acknowledgement / filler turn ("ok", "yeah", "mhmm", "right") is not a question.
+      // Consume it (advance the cursor so it still serves as context for later answers) but
+      // never spend a round-trip or post a card - this is the main thing that broke the
+      // assistant when the interviewer's English was halting and the ASR chopped it up.
+      if (isBackchannel(themOnly)) {
+        answeredIdx.current = segments.length;
+        return;
+      }
       const displayQ = themOnly || latest;
       const ctx = transcriptText(segments.slice(0, answeredIdx.current));
       answeredIdx.current = segments.length;
