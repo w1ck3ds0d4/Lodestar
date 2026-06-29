@@ -70,7 +70,11 @@ export default function App() {
   // Minimum resume-match % to keep; null = any.
   const [minMatch, setMinMatch] = useState<number | null>(null);
   // Filters open in a slide-in left drawer; closed on launch so it never covers the results.
+  // `filtersOpen` is the intent; `drawerMounted` keeps the panel in the DOM through its
+  // slide-out; `drawerIn` drives the .open class the CSS transitions animate to/from.
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [drawerMounted, setDrawerMounted] = useState(false);
+  const [drawerIn, setDrawerIn] = useState(false);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [stats, setStats] = useState<Stats>({ totalJobs: 0, companies: 0 });
   const [sources, setSources] = useState<Source[]>([]);
@@ -280,6 +284,19 @@ export default function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
+  }, [filtersOpen]);
+
+  // Drive the drawer's slide in/out: mount, paint closed, then flip to open (slide in); on
+  // close, slide out first and unmount once the transition has finished.
+  useEffect(() => {
+    if (filtersOpen) {
+      setDrawerMounted(true);
+      const r = window.setTimeout(() => setDrawerIn(true), 10);
+      return () => window.clearTimeout(r);
+    }
+    setDrawerIn(false);
+    const t = window.setTimeout(() => setDrawerMounted(false), 260);
+    return () => window.clearTimeout(t);
   }, [filtersOpen]);
 
   const onSync = useCallback(async () => {
@@ -513,8 +530,11 @@ export default function App() {
               </button>
             </div>
 
-            {filtersOpen && (
-              <div className="drawer-overlay drawer-overlay--left" onClick={() => setFiltersOpen(false)}>
+            {drawerMounted && (
+              <div
+                className={"drawer-overlay drawer-overlay--left" + (drawerIn ? " open" : "")}
+                onClick={() => setFiltersOpen(false)}
+              >
                 <div
                   className="drawer filter-drawer"
                   role="dialog"

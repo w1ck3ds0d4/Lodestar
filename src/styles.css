@@ -2310,41 +2310,6 @@ select:focus {
   padding-top: 0;
 }
 
-/* Filters open in a slide-in drawer anchored to the LEFT, so opening them floats over the
-   results instead of pushing the whole list down. Reuses .drawer-overlay / .drawer. */
-.drawer-overlay--left {
-  justify-content: flex-start;
-}
-
-.filter-drawer {
-  width: min(380px, 100%);
-  border-left: none;
-  border-right: 1px solid var(--border);
-  animation: filter-drawer-in 0.18s ease;
-}
-
-@keyframes filter-drawer-in {
-  from {
-    transform: translateX(-14px);
-    opacity: 0;
-  }
-  to {
-    transform: translateX(0);
-    opacity: 1;
-  }
-}
-
-.filter-drawer .drawer-body {
-  flex: 1;
-}
-
-.drawer-foot {
-  display: flex;
-  justify-content: flex-end;
-  padding: 12px 18px;
-  border-top: 1px solid var(--border);
-}
-
 @media (max-width: 620px) {
   .searchbar-meta {
     flex-wrap: wrap;
@@ -2712,6 +2677,42 @@ select:focus {
 .drawer-body {
   padding: 16px 18px;
   overflow-y: auto;
+}
+
+/* Filters drawer: anchored to the LEFT, narrower, and animated in/out. The two-class
+   selectors override the base .drawer-overlay / .drawer above regardless of source order. */
+.drawer-overlay.drawer-overlay--left {
+  justify-content: flex-start;
+  background: rgba(2, 6, 16, 0);
+  transition: background 0.24s ease;
+}
+
+.drawer-overlay.drawer-overlay--left.open {
+  background: rgba(2, 6, 16, 0.55);
+}
+
+.drawer.filter-drawer {
+  width: min(380px, 100%);
+  border-left: none;
+  border-right: 1px solid var(--border);
+  transform: translateX(-100%);
+  transition: transform 0.24s cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: transform;
+}
+
+.drawer-overlay--left.open .drawer.filter-drawer {
+  transform: translateX(0);
+}
+
+.filter-drawer .drawer-body {
+  flex: 1;
+}
+
+.drawer-foot {
+  display: flex;
+  justify-content: flex-end;
+  padding: 12px 18px;
+  border-top: 1px solid var(--border);
 }
 
 .add-source {
