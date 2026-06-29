@@ -1247,6 +1247,15 @@ export function AssistantView() {
     stickToBottom.current = true; // a fresh dialog should follow the newest line again
   };
 
+  // Start fresh between interviews/questions: drop the answers, the read-in page/notes context,
+  // and the transcript so nothing from a previous session leaks into the next answer.
+  const newSession = () => {
+    setQa([]);
+    setContext("");
+    contextRef.current = "";
+    clearTranscript();
+  };
+
   // Build the saved-session text (transcript + answered Q&A, oldest first).
   const buildSession = (segs: DialogSegment[], qaList: QA[]) => {
     const transcript = transcriptText(segs);
@@ -2690,21 +2699,32 @@ export function AssistantView() {
               <section className="col-section live-answers">
                 <div className="pane-title">
                   <span>Live answers</span>
-                  {qa.length > 0 && (
+                  {(qa.length > 0 || context.length > 0 || segments.length > 0) && (
                     <span className="pane-actions">
+                      {qa.length > 0 && (
+                        <button
+                          className="link-btn"
+                          onClick={() => void saveSession()}
+                          title="Save the transcript + these answers as a reviewable session (also auto-saves when you stop listening)"
+                        >
+                          {sessionSaved ? "Saved ✓" : "Save"}
+                        </button>
+                      )}
+                      {qa.length > 0 && (
+                        <button
+                          className="link-btn"
+                          onClick={() => setQa([])}
+                          title="Clear just these answers (keeps the read-in context and the transcript)"
+                        >
+                          Clear
+                        </button>
+                      )}
                       <button
                         className="link-btn"
-                        onClick={() => void saveSession()}
-                        title="Save the transcript + these answers as a reviewable session (also auto-saves when you stop listening)"
+                        onClick={newSession}
+                        title="Start fresh: clears the answers, the read-in page/notes context, and the transcript so nothing from a previous interview or question carries into the next answer"
                       >
-                        {sessionSaved ? "Saved ✓" : "Save"}
-                      </button>
-                      <button
-                        className="link-btn"
-                        onClick={() => setQa([])}
-                        title="Clear the answers and the code/math derived from them"
-                      >
-                        Clear
+                        New session
                       </button>
                     </span>
                   )}

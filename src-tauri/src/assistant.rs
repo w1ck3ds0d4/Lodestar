@@ -55,6 +55,19 @@ each builds on the last - signature/scaffold first, then the core logic, then ed
 chunks small enough to type along. After the final step, output a line '### Full solution' followed by \
 the COMPLETE program in one language-tagged fenced block, then a one-line time and space complexity. For \
 a non-coding question, ignore this and just answer it directly.",
+        "narrate" => "\n\nANSWER FORMAT (live coding walkthrough): the user is coding live and must be \
+ready to EXPLAIN ALOUD what they are doing when the interviewer asks. Start with a line 'Plan:' followed \
+by 2-4 short first-person sentences naming the steps they will take and WHY, phrased so they can say them \
+verbatim (e.g. 'Plan: I'll parse the input into a list, then use a hash map for O(1) lookups, then handle \
+the empty case.'). Then output NUMBERED steps in the order they should write the code; each step begins \
+with ONE spoken first-person 'what I'm doing now' sentence they can say aloud (e.g. 'Right now I'm \
+building the frequency map so I can count everything in a single pass.'), immediately followed by ONLY \
+that step's small code chunk in a language-tagged fenced block. Order steps so each builds on the last - \
+signature/scaffold first, then the core logic, then edge cases. After the final step, output a line \
+'### Full solution' followed by the COMPLETE program in one language-tagged fenced block, then state the \
+time and space complexity in one spoken first-person sentence. All code in plain ASCII the user can type \
+(no Unicode arrows, smart quotes, em dashes, or math symbols; use ->, ', \", <=, >=, !=), never \
+pseudocode. For a non-coding question, ignore this and just answer it directly.",
         _ => "",
     }
 }
@@ -1063,6 +1076,20 @@ mod tests {
         assert!(
             d.contains("one"),
             "should ask for a single focused solution"
+        );
+    }
+
+    #[test]
+    fn narrate_style_gives_a_spoken_plan_and_full_solution() {
+        let d = style_directive("narrate");
+        assert!(d.contains("Plan:"), "should lead with a spoken plan");
+        assert!(
+            d.contains("aloud"),
+            "narration is meant to be said out loud"
+        );
+        assert!(
+            d.contains("### Full solution"),
+            "should still end with the complete code"
         );
     }
 
