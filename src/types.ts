@@ -564,11 +564,14 @@ export interface Profile {
 export interface JobPrefs {
   workplaces: string[];
   levels: string[];
+  selectedKinds: string[];
   remoteEligible: boolean;
   relocationOnly: boolean;
   postedWithin: number | null;
   minSalary: number | null;
   langs: string[];
+  hideScams: boolean;
+  sortMode: "default" | "match";
   minMatch: number | null;
 }
 

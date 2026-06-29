@@ -2269,11 +2269,54 @@ select:focus {
   font-weight: 700;
 }
 
-.filter-grid {
+/* Filters are grouped into labelled sections (Job / Fit to you / Freshness & pay / Sources). */
+.filter-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.filter-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.filter-section-head {
+  margin: 0;
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.9px;
+  color: var(--text);
+  opacity: 0.72;
+  padding-bottom: 5px;
+  border-bottom: 1px solid var(--border);
+}
+
+.filter-section-grid {
   display: grid;
   grid-template-columns: max-content 1fr;
   gap: 6px 16px;
   align-items: start;
+}
+
+/* Narrow window / phone: stack each facet label above its chips so the chips get the full
+   width and are never crushed by the label column. */
+@media (max-width: 620px) {
+  .filter-section-grid {
+    grid-template-columns: 1fr;
+    gap: 2px 0;
+  }
+  .filter-label {
+    padding-top: 10px;
+  }
+  .filter-section-grid > .filter-label:first-child {
+    padding-top: 0;
+  }
+  .searchbar-meta {
+    flex-wrap: wrap;
+  }
 }
 
 .filter-label {
