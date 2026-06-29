@@ -69,8 +69,12 @@ export default function App() {
   const [sortMode, setSortMode] = useState<"default" | "match">("default");
   // Minimum resume-match % to keep; null = any.
   const [minMatch, setMinMatch] = useState<number | null>(null);
-  // The filter facets collapse to a single "Filters" pill by default; remembered.
-  const [filtersOpen, setFiltersOpen] = useState(() => localStorage.getItem("jr.filtersOpen") === "1");
+  // Filters open in a slide-in left drawer; closed on launch so it never covers the results.
+  // `filtersOpen` is the intent; `drawerMounted` keeps the panel in the DOM through its
+  // slide-out; `drawerIn` drives the .open class the CSS transitions animate to/from.
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [drawerMounted, setDrawerMounted] = useState(false);
+  const [drawerIn, setDrawerIn] = useState(false);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [stats, setStats] = useState<Stats>({ totalJobs: 0, companies: 0 });
   const [sources, setSources] = useState<Source[]>([]);
@@ -160,11 +164,14 @@ export default function App() {
     skipNextSave.current = true;
     setWorkplaces(p.workplaces ?? []);
     setLevels(p.levels ?? []);
+    setSelectedKinds(p.selectedKinds ?? []);
     setRemoteEligible(p.remoteEligible ?? false);
     setRelocationOnly(p.relocationOnly ?? false);
     setPostedWithin(p.postedWithin ?? null);
     setMinSalary(p.minSalary ?? null);
     setLangs(p.langs ?? []);
+    setHideScams(p.hideScams ?? false);
+    setSortMode(p.sortMode ?? "default");
     setMinMatch(p.minMatch ?? null);
   }, []);
 
@@ -192,17 +199,32 @@ export default function App() {
       const prefs: JobPrefs = {
         workplaces,
         levels,
+        selectedKinds,
         remoteEligible,
         relocationOnly,
         postedWithin,
         minSalary,
         langs,
+        hideScams,
+        sortMode,
         minMatch,
       };
       void api.setJobPrefs(JSON.stringify(prefs)).catch(() => {});
     }, 400);
     return () => clearTimeout(t);
-  }, [workplaces, levels, remoteEligible, relocationOnly, postedWithin, minSalary, langs, minMatch]);
+  }, [
+    workplaces,
+    levels,
+    selectedKinds,
+    remoteEligible,
+    relocationOnly,
+    postedWithin,
+    minSalary,
+    langs,
+    hideScams,
+    sortMode,
+    minMatch,
+  ]);
 
   // When the active profile changes (from the Profile hub), load its filters and re-search:
   // the resume changed too, so match scores differ even if the filters happen to be the same.
@@ -254,8 +276,27 @@ export default function App() {
     return () => clearInterval(t);
   }, [refreshStats]);
 
+  // Close the filters drawer on Escape.
   useEffect(() => {
-    localStorage.setItem("jr.filtersOpen", filtersOpen ? "1" : "0");
+    if (!filtersOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setFiltersOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [filtersOpen]);
+
+  // Drive the drawer's slide in/out: mount, paint closed, then flip to open (slide in); on
+  // close, slide out first and unmount once the transition has finished.
+  useEffect(() => {
+    if (filtersOpen) {
+      setDrawerMounted(true);
+      const r = window.setTimeout(() => setDrawerIn(true), 10);
+      return () => window.clearTimeout(r);
+    }
+    setDrawerIn(false);
+    const t = window.setTimeout(() => setDrawerMounted(false), 260);
+    return () => window.clearTimeout(t);
   }, [filtersOpen]);
 
   const onSync = useCallback(async () => {
@@ -353,6 +394,20 @@ export default function App() {
 
   const toggle = (setter: Dispatch<SetStateAction<string[]>>, k: string) =>
     setter((prev) => (prev.includes(k) ? prev.filter((x) => x !== k) : [...prev, k]));
+
+  const clearAllFilters = () => {
+    setSelectedKinds([]);
+    setWorkplaces([]);
+    setLevels([]);
+    setRemoteEligible(false);
+    setRelocationOnly(false);
+    setPostedWithin(null);
+    setMinSalary(null);
+    setLangs([]);
+    setHideScams(false);
+    setSortMode("default");
+    setMinMatch(null);
+  };
 
   return (
     <div className="app">
@@ -475,180 +530,231 @@ export default function App() {
               </button>
             </div>
 
-            {filtersOpen && (
-              <div className="filter-grid" id="filter-grid">
-                <span className="filter-label">Workplace</span>
-                <div className="chip-row">
-                  {WORKPLACES.map((w) => (
-                    <button
-                      key={w.key}
-                      className={"chip" + (workplaces.includes(w.key) ? " active" : "")}
-                      onClick={() => toggle(setWorkplaces, w.key)}
-                    >
-                      {w.label}
+            {drawerMounted && (
+              <div
+                className={"drawer-overlay drawer-overlay--left" + (drawerIn ? " open" : "")}
+                onClick={() => setFiltersOpen(false)}
+              >
+                <div
+                  className="drawer filter-drawer"
+                  role="dialog"
+                  aria-label="Filters"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="drawer-head">
+                    <h2>Filters{activeFilterCount > 0 ? ` · ${activeFilterCount}` : ""}</h2>
+                    <button className="icon-btn" onClick={() => setFiltersOpen(false)} title="Close filters">
+                      <X size={18} />
                     </button>
-                  ))}
-                </div>
+                  </div>
+                  <div className="drawer-body">
+                    <div className="filter-sections" id="filter-grid">
+                      <section className="filter-section">
+                        <h4 className="filter-section-head">Job</h4>
+                        <div className="filter-section-grid">
+                          <span className="filter-label">Workplace</span>
+                          <div className="chip-row">
+                            {WORKPLACES.map((w) => (
+                              <button
+                                key={w.key}
+                                className={"chip" + (workplaces.includes(w.key) ? " active" : "")}
+                                onClick={() => toggle(setWorkplaces, w.key)}
+                              >
+                                {w.label}
+                              </button>
+                            ))}
+                          </div>
 
-                <span className="filter-label">Level</span>
-                <div className="chip-row">
-                  {LEVELS.map((l) => (
-                    <button
-                      key={l.key}
-                      className={"chip" + (levels.includes(l.key) ? " active" : "")}
-                      onClick={() => toggle(setLevels, l.key)}
-                    >
-                      {l.label}
-                    </button>
-                  ))}
-                </div>
+                          <span className="filter-label">Level</span>
+                          <div className="chip-row">
+                            {LEVELS.map((l) => (
+                              <button
+                                key={l.key}
+                                className={"chip" + (levels.includes(l.key) ? " active" : "")}
+                                onClick={() => toggle(setLevels, l.key)}
+                              >
+                                {l.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </section>
 
-                <span className="filter-label">Remote fit</span>
-                <div className="chip-row">
-                  <button
-                    className={"chip" + (remoteEligible ? " active" : "")}
-                    title={`Remote roles workable from ${locationName}: hides ones restricted to another region`}
-                    onClick={() => setRemoteEligible((v) => !v)}
-                  >
-                    Workable from <span className="chip-country">{locationName}</span>
-                  </button>
-                  {editingCountry ? (
-                    <input
-                      className="country-input"
-                      autoFocus
-                      maxLength={2}
-                      placeholder="MT"
-                      defaultValue={workCountry}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") (e.target as HTMLInputElement).blur();
-                        if (e.key === "Escape") setEditingCountry(false);
-                      }}
-                      onBlur={async (e) => {
-                        const code = e.currentTarget.value.trim();
-                        await api.setWorkCountry(code);
-                        setWorkCountry(code ? code.toUpperCase() : await api.workCountry());
-                        setEditingCountry(false);
-                      }}
-                    />
-                  ) : (
-                    <button
-                      className="chip-edit"
-                      title="Change the country you can work from (2-letter code, blank to auto-detect)"
-                      onClick={() => setEditingCountry(true)}
-                    >
-                      change
-                    </button>
-                  )}
-                  <button
-                    className={"chip" + (relocationOnly ? " active" : "")}
-                    title="Only jobs whose description mentions relocation help"
-                    onClick={() => setRelocationOnly((v) => !v)}
-                  >
-                    Pays relocation
-                  </button>
-                  <button
-                    className={"chip" + (hideScams ? " active" : "")}
-                    title="Hide postings flagged as likely scams (the warning badge still shows on others)"
-                    onClick={() => setHideScams((v) => !v)}
-                  >
-                    Hide likely scams
-                  </button>
-                </div>
+                      <section className="filter-section">
+                        <h4 className="filter-section-head">Fit to you</h4>
+                        <div className="filter-section-grid">
+                          <span className="filter-label">Location</span>
+                          <div className="chip-row">
+                            <button
+                              className={"chip" + (remoteEligible ? " active" : "")}
+                              title={`Remote roles workable from ${locationName}: hides ones restricted to another region`}
+                              onClick={() => setRemoteEligible((v) => !v)}
+                            >
+                              Workable from <span className="chip-country">{locationName}</span>
+                            </button>
+                            {editingCountry ? (
+                              <input
+                                className="country-input"
+                                autoFocus
+                                maxLength={2}
+                                placeholder="MT"
+                                defaultValue={workCountry}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                                  if (e.key === "Escape") setEditingCountry(false);
+                                }}
+                                onBlur={async (e) => {
+                                  const code = e.currentTarget.value.trim();
+                                  await api.setWorkCountry(code);
+                                  setWorkCountry(code ? code.toUpperCase() : await api.workCountry());
+                                  setEditingCountry(false);
+                                }}
+                              />
+                            ) : (
+                              <button
+                                className="chip-edit"
+                                title="Change the country you can work from (2-letter code, blank to auto-detect)"
+                                onClick={() => setEditingCountry(true)}
+                              >
+                                change
+                              </button>
+                            )}
+                            <button
+                              className={"chip" + (relocationOnly ? " active" : "")}
+                              title="Only jobs whose description mentions relocation help"
+                              onClick={() => setRelocationOnly((v) => !v)}
+                            >
+                              Pays relocation
+                            </button>
+                          </div>
 
-                <span className="filter-label">Posted</span>
-                <div className="chip-row">
-                  {[
-                    { label: "Any time", days: null },
-                    { label: "24h", days: 1 },
-                    { label: "7 days", days: 7 },
-                    { label: "30 days", days: 30 },
-                  ].map((o) => (
-                    <button
-                      key={o.label}
-                      className={"chip" + (postedWithin === o.days ? " active" : "")}
-                      onClick={() => setPostedWithin(o.days)}
-                    >
-                      {o.label}
-                    </button>
-                  ))}
-                </div>
+                          <span className="filter-label">Resume</span>
+                          <div className="chip-row">
+                            <button
+                              className={"chip" + (sortMode === "match" ? " active" : "")}
+                              title="Sort by fit to your saved resume (set one in the Assistant first)"
+                              onClick={() => setSortMode((m) => (m === "match" ? "default" : "match"))}
+                            >
+                              Best match
+                            </button>
+                            {[
+                              { label: "Any", v: null },
+                              { label: "25%+", v: 25 },
+                              { label: "50%+", v: 50 },
+                              { label: "75%+", v: 75 },
+                            ].map((o) => (
+                              <button
+                                key={o.label}
+                                className={"chip" + (minMatch === o.v ? " active" : "")}
+                                title="Keep only jobs that cover at least this share of your resume keywords"
+                                onClick={() => setMinMatch(o.v)}
+                              >
+                                {o.label}
+                              </button>
+                            ))}
+                          </div>
 
-                <span className="filter-label">Min salary</span>
-                <div className="chip-row">
-                  {[
-                    { label: "Any", v: null },
-                    { label: "50k+", v: 50000 },
-                    { label: "80k+", v: 80000 },
-                    { label: "100k+", v: 100000 },
-                    { label: "150k+", v: 150000 },
-                  ].map((o) => (
-                    <button
-                      key={o.label}
-                      className={"chip" + (minSalary === o.v ? " active" : "")}
-                      title="Nominal, in the posting's own currency; postings with no listed salary are kept"
-                      onClick={() => setMinSalary(o.v)}
-                    >
-                      {o.label}
-                    </button>
-                  ))}
-                </div>
+                          <span className="filter-label">Language</span>
+                          <div className="chip-row">
+                            {Object.entries(LANG_LABELS).map(([code, label]) => (
+                              <button
+                                key={code}
+                                className={"chip" + (langs.includes(code) ? " active" : "")}
+                                title="Show only these languages; postings whose language can't be detected are kept"
+                                onClick={() => toggle(setLangs, code)}
+                              >
+                                {label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </section>
 
-                <span className="filter-label">Resume match</span>
-                <div className="chip-row">
-                  <button
-                    className={"chip" + (sortMode === "match" ? " active" : "")}
-                    title="Sort by fit to your saved resume (set one in the Assistant first)"
-                    onClick={() => setSortMode((m) => (m === "match" ? "default" : "match"))}
-                  >
-                    Best match
-                  </button>
-                  {[
-                    { label: "Any", v: null },
-                    { label: "25%+", v: 25 },
-                    { label: "50%+", v: 50 },
-                    { label: "75%+", v: 75 },
-                  ].map((o) => (
-                    <button
-                      key={o.label}
-                      className={"chip" + (minMatch === o.v ? " active" : "")}
-                      title="Keep only jobs that cover at least this share of your resume keywords"
-                      onClick={() => setMinMatch(o.v)}
-                    >
-                      {o.label}
-                    </button>
-                  ))}
-                </div>
+                      <section className="filter-section">
+                        <h4 className="filter-section-head">Freshness &amp; pay</h4>
+                        <div className="filter-section-grid">
+                          <span className="filter-label">Posted</span>
+                          <div className="chip-row">
+                            {[
+                              { label: "Any time", days: null },
+                              { label: "24h", days: 1 },
+                              { label: "7 days", days: 7 },
+                              { label: "30 days", days: 30 },
+                            ].map((o) => (
+                              <button
+                                key={o.label}
+                                className={"chip" + (postedWithin === o.days ? " active" : "")}
+                                onClick={() => setPostedWithin(o.days)}
+                              >
+                                {o.label}
+                              </button>
+                            ))}
+                          </div>
 
-                <span className="filter-label">Language</span>
-                <div className="chip-row">
-                  {Object.entries(LANG_LABELS).map(([code, label]) => (
-                    <button
-                      key={code}
-                      className={"chip" + (langs.includes(code) ? " active" : "")}
-                      title="Show only these languages; postings whose language can't be detected are kept"
-                      onClick={() => toggle(setLangs, code)}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
+                          <span className="filter-label">Min salary</span>
+                          <div className="chip-row">
+                            {[
+                              { label: "Any", v: null },
+                              { label: "50k+", v: 50000 },
+                              { label: "80k+", v: 80000 },
+                              { label: "100k+", v: 100000 },
+                              { label: "150k+", v: 150000 },
+                            ].map((o) => (
+                              <button
+                                key={o.label}
+                                className={"chip" + (minSalary === o.v ? " active" : "")}
+                                title="Nominal, in the posting's own currency; postings with no listed salary are kept"
+                                onClick={() => setMinSalary(o.v)}
+                              >
+                                {o.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </section>
 
-                {availableKinds.length > 0 && (
-                  <>
-                    <span className="filter-label">Source</span>
-                    <div className="chip-row">
-                      {availableKinds.map((k) => (
-                        <button
-                          key={k}
-                          className={"chip" + (selectedKinds.includes(k) ? " active" : "")}
-                          onClick={() => toggle(setSelectedKinds, k)}
-                        >
-                          {KIND_LABELS[k] ?? k}
-                        </button>
-                      ))}
+                      <section className="filter-section">
+                        <h4 className="filter-section-head">Sources</h4>
+                        <div className="filter-section-grid">
+                          {availableKinds.length > 0 && (
+                            <>
+                              <span className="filter-label">Source</span>
+                              <div className="chip-row">
+                                {availableKinds.map((k) => (
+                                  <button
+                                    key={k}
+                                    className={"chip" + (selectedKinds.includes(k) ? " active" : "")}
+                                    onClick={() => toggle(setSelectedKinds, k)}
+                                  >
+                                    {KIND_LABELS[k] ?? k}
+                                  </button>
+                                ))}
+                              </div>
+                            </>
+                          )}
+
+                          <span className="filter-label">Quality</span>
+                          <div className="chip-row">
+                            <button
+                              className={"chip" + (hideScams ? " active" : "")}
+                              title="Hide postings flagged as likely scams (the warning badge still shows on others)"
+                              onClick={() => setHideScams((v) => !v)}
+                            >
+                              Hide likely scams
+                            </button>
+                          </div>
+                        </div>
+                      </section>
                     </div>
-                  </>
-                )}
+                  </div>
+                  {hasActiveFilters && (
+                    <div className="drawer-foot">
+                      <button className="chip clear" onClick={clearAllFilters}>
+                        <X size={13} /> Clear all
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 
@@ -659,22 +765,7 @@ export default function App() {
                   : `${jobs.length} result${jobs.length === 1 ? "" : "s"}`}
               </span>
               {hasActiveFilters && (
-                <button
-                  className="chip clear"
-                  onClick={() => {
-                    setSelectedKinds([]);
-                    setWorkplaces([]);
-                    setLevels([]);
-                    setRemoteEligible(false);
-                    setRelocationOnly(false);
-                    setPostedWithin(null);
-                    setMinSalary(null);
-                    setLangs([]);
-                    setHideScams(false);
-                    setSortMode("default");
-                    setMinMatch(null);
-                  }}
-                >
+                <button className="chip clear" onClick={clearAllFilters}>
                   <X size={13} /> Clear all
                 </button>
               )}

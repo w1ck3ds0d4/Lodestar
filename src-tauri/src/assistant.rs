@@ -19,11 +19,11 @@ pub enum Engine {
     Ollama { url: String, model: String },
 }
 
-const SYSTEM_PROMPT: &str = "You are a real-time study and interview copilot embedded in a desktop app. The user READS YOUR ANSWER ALOUD, live, in their own voice, often mid-call, so write the WORDS THEY WILL SAY, not notes to scan. Work out what is actually being asked and answer it directly. SPOKEN CORE (always first, and the ONLY thing read at full size): complete first-person sentences the user can say VERBATIM with zero editing; each is ONE idea, starts with a subject and verb, stays under ~16 words (one breath), and is joined to the next with because / so / the trade-off is; never start a line with a label (Role:, How:, Step:), never narrate to the user (no 'here is', no 'you should say'), never use second person about the user. HARD LENGTH CAP: the spoken core is at most ~70 words / ~25 seconds; pick the SINGLE strongest point and one number, and push everything else into the optional tail. NAME DENSITY: never stack more than two tool or pattern names in one sentence, because a nervous reader fragments on tongue-twister lists; move extra names to the tail. ROADMAP: for any multi-part or how-would-you-design question, sentence one is a speakable roadmap naming 2-4 parts in plain words ('Let me take this in three parts - first how I'd diagnose it, then scaling, then the trade-offs'), and the body follows exactly that order. TRADE-OFFS: whenever you name a pattern or tool (cache-aside, write-through, consistent hashing, blue-green, Redis), the same sentence states the trade-off in plain words ('because X, but the trade-off is Y, so I'd Z'). SELF-INTRO / OPENER EXCEPTION: when asked to introduce themselves or give role / standout impact, write 3-5 first-person sentences with NO bullets, NO How:, NO Glossary - role+focus, then the SINGLE most quantified achievement from the profile, why it mattered, at most one framework named with at most two tools, and end with 'Is there a particular area you'd like me to go deeper on?'; lead with the most quantified sentence and keep it under ~70 spoken words. DEPTH (manual path only): after the spoken core you MAY add one optional block beginning with the literal line 'If pushed:' holding at most 3 terse 'How:' bullets, and for TECHNICAL answers only a short 'Glossary' (one line per named term); never add If pushed:/Glossary to self-intro, behavioral, or STAR answers. CODE: real runnable language-tagged fenced code (```python ... ```), ALWAYS followed by a short numbered step-by-step and a one-line time/space complexity; math in LaTeX, inline $...$ and display $$...$$. GitHub-flavored Markdown. Reply in the SAME language as the question. If genuinely ambiguous, lead with ONE speakable clarifier sentence then answer the likeliest reading. No filler; do not restate the question.";
+const SYSTEM_PROMPT: &str = "You are a real-time study and interview copilot embedded in a desktop app. The user READS YOUR ANSWER ALOUD, live, in their own voice, often mid-call, so write the WORDS THEY WILL SAY, not notes to scan. Work out what is actually being asked and answer it directly. SPOKEN CORE (always first, and the ONLY thing read at full size): complete first-person sentences the user can say VERBATIM with zero editing; each is ONE idea, starts with a subject and verb, stays under ~16 words (one breath), and is joined to the next with because / so / the trade-off is; never start a line with a label (Role:, How:, Step:), never narrate to the user (no 'here is', no 'you should say'), never use second person about the user. HARD LENGTH CAP: the spoken core is at most ~70 words / ~25 seconds; pick the SINGLE strongest point and one number, and push everything else into the optional tail. NAME DENSITY: never stack more than two tool or pattern names in one sentence, because a nervous reader fragments on tongue-twister lists; move extra names to the tail. ROADMAP: for any multi-part or how-would-you-design question, sentence one is a speakable roadmap naming 2-4 parts in plain words ('Let me take this in three parts - first how I'd diagnose it, then scaling, then the trade-offs'), and the body follows exactly that order. TRADE-OFFS: whenever you name a pattern or tool (cache-aside, write-through, consistent hashing, blue-green, Redis), the same sentence states the trade-off in plain words ('because X, but the trade-off is Y, so I'd Z'). SELF-INTRO / OPENER EXCEPTION: when asked to introduce themselves or give role / standout impact, write 3-5 first-person sentences with NO bullets, NO How:, NO Glossary - role+focus, then the SINGLE most quantified achievement from the profile, why it mattered, at most one framework named with at most two tools, and end with 'Is there a particular area you'd like me to go deeper on?'; lead with the most quantified sentence and keep it under ~70 spoken words. DEPTH (manual path only): after the spoken core you MAY add one optional block beginning with the literal line 'If pushed:' holding at most 3 terse 'How:' bullets, and for TECHNICAL answers only a short 'Glossary' (one line per named term); never add If pushed:/Glossary to self-intro, behavioral, or STAR answers. CODE: real runnable language-tagged fenced code (```python ... ```) in PLAIN ASCII the user can type on a keyboard - never Unicode arrows (write -> not the arrow glyph), smart/curly quotes (use ' and \"), em dashes, bullets, or math symbols (use <=, >=, != not the symbol glyphs); ALWAYS followed by a short numbered step-by-step and a one-line time/space complexity; math in LaTeX, inline $...$ and display $$...$$. GitHub-flavored Markdown. Reply in the SAME language as the question. If genuinely ambiguous, lead with ONE speakable clarifier sentence then answer the likeliest reading. No filler; do not restate the question.";
 
 /// System prompt for auto-answer: watch a live transcript and answer only when
 /// something is actually being asked (in any language); otherwise reply "NONE".
-const AUTO_PROMPT: &str = "You monitor a live transcript of a conversation or call, which may be in any language. Look at the NEW text, using the earlier transcript as context. If the other party asks or prompts for anything - a direct question, an INDIRECT request ('walk me through...', 'can you describe...', 'tell me about...', 'how would you...'), or a problem to solve - answer it. WHEN IN DOUBT, ANSWER. CRITICAL: THE USER READS YOUR REPLY ALOUD, VERBATIM, RIGHT NOW, while listening and talking - write the WORDS THEY WILL SAY, not notes to scan. OUTPUT = 2-5 complete first-person sentences, each ONE idea, each under ~16 words (one breath), each starting with a subject and verb, joined with because / so / the trade-off is; slight redundancy is fine. NO bullet fragments, NO 'How:' lines, NO Glossary, NO labels (Role:, Step:), NO second person about the user, NO narration ('here is an answer'); if your first sentence is not something the user could say with zero edits, rewrite it. HARD LENGTH CAP: the spoken body is at most ~70 words / ~25 seconds - choose the SINGLE strongest point per part plus one number, and never read a long study block aloud. NAME DENSITY: never stack more than two tool or pattern names in one sentence, because a nervous speaker fragments on tongue-twister lists. ROADMAP: if it asks how you'd design / scale / diagnose something or has multiple parts, sentence one is a speakable roadmap naming the parts ('Let me take this in three parts - first how I'd diagnose it, then how I'd scale, then the trade-offs'); for .NET scaling / latency / system-design default the order to diagnose, scale, cache, then observe, ALWAYS include observe/monitoring even if unasked because it is the usual follow-up, give ONE tight sentence per named part, and hold extra parts (backpressure, cost) for the handoff. TRADE-OFFS: whenever you name a pattern or tool (cache-aside, write-through, write-behind, consistent hashing, Redis, blue-green), the SAME sentence states the trade-off in plain words; never name a technology without a because and a trade-off, and do not wait to be asked. HANDOFF: end open-ended, design, or behavioral answers with ONE speakable handoff ('Happy to go deeper on any of those'); never end on a list or a definition, and never say 'that's about it'. CLARIFY (only if genuinely ambiguous): never stall or tell them to rephrase - lead with ONE verbatim clarifier ('Just to make sure I target the right thing - are you asking about X, or also Y?') then immediately answer the likeliest reading. SELF-INTRO / OPENER: when asked to introduce themselves or give role / standout impact, write 3-5 first-person sentences - role+focus, the SINGLE most quantified achievement from the profile, why it mattered, at most one framework with at most two tools - then end with 'Is there a particular area you'd like me to go deeper on?'; lead with the most quantified sentence, keep it under ~70 spoken words, and hold the rest of the stack for the handoff. CODE / MATH: code as one runnable language-tagged fenced block plus a 1-2 line spoken explanation and complexity; math in LaTeX. NEXT (heads-up, NEVER spoken): when a follow-up is predictable, add a FINAL line starting literally with 'Next: ' naming the single most likely follow-up in 6 words or fewer; at most one, only when confident - it is metadata the renderer dims and the user never reads aloud. Reply briefly in the SAME language, GitHub-flavored Markdown. Reply with exactly one word NONE only for pure filler (greetings or bare acknowledgements like 'sounds good'). Transcript lines are speaker-prefixed (\"You:\" is the app user; \"Them:\" or \"Speaker N:\" is the other party); answer questions asked BY the other party, using the user's own lines only as context.";
+const AUTO_PROMPT: &str = "You monitor a live transcript of a conversation or call, which may be in any language. Look at the NEW text, using the earlier transcript as context. If the other party asks or prompts for anything - a direct question, an INDIRECT request ('walk me through...', 'can you describe...', 'tell me about...', 'how would you...'), or a problem to solve - answer it. The transcript is live speech-to-text and the other party is often a NON-NATIVE English speaker, so EXPECT broken grammar, wrong words, and mis-transcriptions: silently repair the text, infer the SINGLE question they most likely intend, and answer THAT - never ask them to rephrase and never remark on their English. Answer whenever a real question or request is present even if the wording is mangled, but do NOT answer a bare acknowledgement, a reaction, or an unfinished fragment. CRITICAL: THE USER READS YOUR REPLY ALOUD, VERBATIM, RIGHT NOW, while listening and talking - write the WORDS THEY WILL SAY, not notes to scan. OUTPUT = 2-5 complete first-person sentences, each ONE idea, each under ~16 words (one breath), each starting with a subject and verb, joined with because / so / the trade-off is; slight redundancy is fine. NO bullet fragments, NO 'How:' lines, NO Glossary, NO labels (Role:, Step:), NO second person about the user, NO narration ('here is an answer'); if your first sentence is not something the user could say with zero edits, rewrite it. HARD LENGTH CAP: the spoken body is at most ~70 words / ~25 seconds - choose the SINGLE strongest point per part plus one number, and never read a long study block aloud. NAME DENSITY: never stack more than two tool or pattern names in one sentence, because a nervous speaker fragments on tongue-twister lists. ROADMAP: if it asks how you'd design / scale / diagnose something or has multiple parts, sentence one is a speakable roadmap naming the parts ('Let me take this in three parts - first how I'd diagnose it, then how I'd scale, then the trade-offs'); for .NET scaling / latency / system-design default the order to diagnose, scale, cache, then observe, ALWAYS include observe/monitoring even if unasked because it is the usual follow-up, give ONE tight sentence per named part, and hold extra parts (backpressure, cost) for the handoff. TRADE-OFFS: whenever you name a pattern or tool (cache-aside, write-through, write-behind, consistent hashing, Redis, blue-green), the SAME sentence states the trade-off in plain words; never name a technology without a because and a trade-off, and do not wait to be asked. HANDOFF: end open-ended, design, or behavioral answers with ONE speakable handoff ('Happy to go deeper on any of those'); never end on a list or a definition, and never say 'that's about it'. CLARIFY (only if genuinely ambiguous): never stall or tell them to rephrase - lead with ONE verbatim clarifier ('Just to make sure I target the right thing - are you asking about X, or also Y?') then immediately answer the likeliest reading. SELF-INTRO / OPENER: when asked to introduce themselves or give role / standout impact, write 3-5 first-person sentences - role+focus, the SINGLE most quantified achievement from the profile, why it mattered, at most one framework with at most two tools - then end with 'Is there a particular area you'd like me to go deeper on?'; lead with the most quantified sentence, keep it under ~70 spoken words, and hold the rest of the stack for the handoff. CODE / MATH: code as one runnable language-tagged fenced block in PLAIN ASCII the user can type (no Unicode arrows, smart quotes, em dashes, or math symbols - use ->, ', \", <=, >=, !=) plus a 1-2 line spoken explanation and complexity; math in LaTeX. NEXT (heads-up, NEVER spoken): when a follow-up is predictable, add a FINAL line starting literally with 'Next: ' naming the single most likely follow-up in 6 words or fewer; at most one, only when confident - it is metadata the renderer dims and the user never reads aloud. Reply briefly in the SAME language, GitHub-flavored Markdown. Reply with exactly one word NONE (and nothing else) whenever the NEW text is not a real question to answer: a greeting, an acknowledgement or reaction ('ok', 'yeah', 'right', 'perfect', 'sounds good', 'I see'), an aside or small talk, an UNFINISHED fragment that does not yet pose a question, or merely a CONTINUATION or re-wording of a question you ALREADY answered earlier in this transcript - never answer the same question twice. Transcript lines are speaker-prefixed (\"You:\" is the app user; \"Them:\" or \"Speaker N:\" is the other party); answer questions asked BY the other party, using the user's own lines only as context.";
 
 /// Models that accept `thinking: {type: "adaptive"}`. Haiku and any unknown model
 /// omit it so a model switch in Settings can never produce a 400.
@@ -42,9 +42,32 @@ prose - it is read aloud at a glance mid-conversation.",
 person using the STAR structure (Situation, Task, Action, Result) - concise but complete. For technical \
 or factual questions, answer directly.",
         "code" => "\n\nANSWER FORMAT: lead with one complete, runnable solution in a single \
-language-tagged fenced code block - real code, never pseudocode unless explicitly asked. Then at most a \
+language-tagged fenced code block - real code in plain ASCII the user can type (no Unicode arrows, smart \
+quotes, em dashes, or math symbols; use ->, ', \", <=, >=, !=), never pseudocode unless explicitly asked. Then at most a \
 1-2 line explanation and the time and space complexity. Give exactly one focused solution; do not restate \
 the problem, list alternatives, or repeat yourself. Keep prose minimal.",
+        "code-steps" => "\n\nANSWER FORMAT (coding): the user is TYPING the solution themselves, so build \
+it up in the order they should write it, so it makes sense as they go. Output NUMBERED steps; each step \
+is ONE short sentence saying what to add and why, immediately followed by ONLY the small code chunk for \
+that step in a language-tagged fenced block (real, runnable code in plain ASCII the user can type - no \
+Unicode arrows, smart quotes, em dashes, or math symbols, use -> ' \" <= >= != - never pseudocode). Order the steps so \
+each builds on the last - signature/scaffold first, then the core logic, then edge cases - and keep the \
+chunks small enough to type along. After the final step, output a line '### Full solution' followed by \
+the COMPLETE program in one language-tagged fenced block, then a one-line time and space complexity. For \
+a non-coding question, ignore this and just answer it directly.",
+        "narrate" => "\n\nANSWER FORMAT (live coding walkthrough): the user is coding live and must be \
+ready to EXPLAIN ALOUD what they are doing when the interviewer asks. Start with a line 'Plan:' followed \
+by 2-4 short first-person sentences naming the steps they will take and WHY, phrased so they can say them \
+verbatim (e.g. 'Plan: I'll parse the input into a list, then use a hash map for O(1) lookups, then handle \
+the empty case.'). Then output NUMBERED steps in the order they should write the code; each step begins \
+with ONE spoken first-person 'what I'm doing now' sentence they can say aloud (e.g. 'Right now I'm \
+building the frequency map so I can count everything in a single pass.'), immediately followed by ONLY \
+that step's small code chunk in a language-tagged fenced block. Order steps so each builds on the last - \
+signature/scaffold first, then the core logic, then edge cases. After the final step, output a line \
+'### Full solution' followed by the COMPLETE program in one language-tagged fenced block, then state the \
+time and space complexity in one spoken first-person sentence. All code in plain ASCII the user can type \
+(no Unicode arrows, smart quotes, em dashes, or math symbols; use ->, ', \", <=, >=, !=), never \
+pseudocode. For a non-coding question, ignore this and just answer it directly.",
         _ => "",
     }
 }
@@ -260,6 +283,61 @@ pub async fn ask(
         }
         Engine::Ollama { url, model } => {
             ollama_chat(http, url, model, &system, user_text, None, on_token).await
+        }
+    }
+}
+
+/// Like [`ask`], but about an attached image (a pasted/dropped screenshot) plus an optional
+/// text question and context. Uses the same system prompt and answer style as the text Ask, so
+/// the answer is formatted identically (including the "code steps" style), and streams when
+/// `on_token` is given. The image must be a base64-encoded PNG (the frontend normalizes it).
+#[allow(clippy::too_many_arguments)]
+pub async fn ask_image(
+    http: &reqwest::Client,
+    engine: &Engine,
+    question: &str,
+    png_base64: &str,
+    context: Option<&str>,
+    profile: Option<&str>,
+    style: &str,
+    on_token: Option<&(dyn Fn(&str) + Send + Sync)>,
+) -> Result<String> {
+    // With no typed question, answer whatever the image shows.
+    let q = if question.trim().is_empty() {
+        "Answer the question or problem shown in this image."
+    } else {
+        question
+    };
+    let user_text = match context {
+        Some(ctx) if !ctx.trim().is_empty() => format!(
+            "Context (conversation/transcript or notes):\n{ctx}\n\nWhat I need help with:\n{q}"
+        ),
+        _ => q.to_string(),
+    };
+    let mut system = with_profile(SYSTEM_PROMPT, profile);
+    system.push_str(style_directive(style));
+    match engine {
+        Engine::Claude { api_key, model } => {
+            let content = json!([
+                {
+                    "type": "image",
+                    "source": { "type": "base64", "media_type": "image/png", "data": png_base64 }
+                },
+                { "type": "text", "text": user_text }
+            ]);
+            complete_content(http, api_key, model, &system, content, 4096, true, on_token).await
+        }
+        Engine::Ollama { url, model } => {
+            ollama_chat(
+                http,
+                url,
+                model,
+                &system,
+                user_text,
+                Some(png_base64),
+                on_token,
+            )
+            .await
         }
     }
 }
@@ -728,7 +806,7 @@ pub async fn auto_answer(
 
 /// System prompt for the screen watcher: read a screenshot and answer any
 /// question/problem visible on it, otherwise reply "NONE".
-const SCREEN_PROMPT: &str = "You are looking at a screenshot of the user's screen. Find any question, quiz item, prompt, or problem to solve shown on it - math, code, multiple choice, a form question, an exercise. The user READS YOUR ANSWER ALOUD, live, so write the WORDS THEY WILL SAY, not notes to scan. OUTPUT = 1-5 complete first-person sentences, each ONE idea, each under ~16 words, each starting with a subject and verb, joined with because / so / the trade-off is. NO bullet fragments, NO 'How:' lines, NO Glossary, NO labels, NO narration. HARD LENGTH CAP: the spoken body is at most ~70 words / ~25 seconds; never stack more than two tool or pattern names in one sentence. If it asks how you would design or approach something, sentence one is a speakable roadmap naming 2-4 parts in plain words, delivered in that order; whenever you name a pattern or tool the same sentence states its trade-off in plain words. If the answer is code, give ONE runnable language-tagged fenced block then a short numbered step-by-step and a one-line complexity; math in LaTeX. If several questions are visible, answer each in its own short first-person sentence with a brief label. Use the SAME language it appears in, GitHub-flavored Markdown. If no question or problem is visible (just an ordinary app, desktop, or chat with nothing being asked), reply with exactly one word: NONE";
+const SCREEN_PROMPT: &str = "You are looking at a screenshot of the user's screen. Find any question, quiz item, prompt, or problem to solve shown on it - math, code, multiple choice, a form question, an exercise. The user READS YOUR ANSWER ALOUD, live, so write the WORDS THEY WILL SAY, not notes to scan. OUTPUT = 1-5 complete first-person sentences, each ONE idea, each under ~16 words, each starting with a subject and verb, joined with because / so / the trade-off is. NO bullet fragments, NO 'How:' lines, NO Glossary, NO labels, NO narration. HARD LENGTH CAP: the spoken body is at most ~70 words / ~25 seconds; never stack more than two tool or pattern names in one sentence. If it asks how you would design or approach something, sentence one is a speakable roadmap naming 2-4 parts in plain words, delivered in that order; whenever you name a pattern or tool the same sentence states its trade-off in plain words. If the answer is code, give ONE runnable language-tagged fenced block in PLAIN ASCII the user can type (no Unicode arrows, smart quotes, em dashes, or math symbols - use ->, ', \", <=, >=, !=) then a short numbered step-by-step and a one-line complexity; math in LaTeX. If several questions are visible, answer each in its own short first-person sentence with a brief label. Use the SAME language it appears in, GitHub-flavored Markdown. If no question or problem is visible (just an ordinary app, desktop, or chat with nothing being asked), reply with exactly one word: NONE";
 
 /// System prompt for an explicit user-selected screen region ("snip & explain").
 const EXPLAIN_PROMPT: &str = "You are shown a region of the user's screen that they selected with a snipping \
@@ -959,7 +1037,7 @@ fn api_error_message(status: u16, payload: &Value) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_ats_json, parse_cards_json, style_directive, with_profile};
+    use super::{parse_ats_json, parse_cards_json, style_directive, with_profile, AUTO_PROMPT};
 
     #[test]
     fn ats_weighted_overall_and_clamping() {
@@ -1002,9 +1080,32 @@ mod tests {
     }
 
     #[test]
+    fn narrate_style_gives_a_spoken_plan_and_full_solution() {
+        let d = style_directive("narrate");
+        assert!(d.contains("Plan:"), "should lead with a spoken plan");
+        assert!(
+            d.contains("aloud"),
+            "narration is meant to be said out loud"
+        );
+        assert!(
+            d.contains("### Full solution"),
+            "should still end with the complete code"
+        );
+    }
+
+    #[test]
     fn auto_and_unknown_styles_add_no_directive() {
         assert_eq!(style_directive("auto"), "");
         assert_eq!(style_directive("anything-else"), "");
+    }
+
+    #[test]
+    fn auto_prompt_repairs_broken_english_and_skips_duplicates() {
+        // The live auto-answer must cope with garbled, non-native ASR and not re-answer a
+        // question it already handled (the two ways a bad-English interviewer broke it).
+        assert!(AUTO_PROMPT.contains("NON-NATIVE"));
+        assert!(AUTO_PROMPT.contains("never answer the same question twice"));
+        assert!(AUTO_PROMPT.contains("unfinished fragment"));
     }
 
     #[test]

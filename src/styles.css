@@ -1558,6 +1558,60 @@ select:focus {
   align-self: flex-end;
   white-space: nowrap;
 }
+.assistant-ask .ask-attach {
+  align-self: flex-end;
+}
+/* Attached-image preview above the Ask box: a thumbnail with a corner X and a labelled Remove. */
+.ask-image {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.ask-image-thumb {
+  position: relative;
+  display: inline-block;
+}
+.ask-image-thumb img {
+  display: block;
+  max-height: 120px;
+  max-width: 240px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.ask-image-x {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.6);
+  border: 1px solid var(--border);
+  color: #fff;
+}
+.ask-image-x:hover {
+  background: var(--danger);
+  border-color: var(--danger);
+}
+.ask-image-remove {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--muted);
+  border-radius: 8px;
+  padding: 7px 11px;
+  font-size: 13px;
+}
+.ask-image-remove:hover {
+  border-color: var(--danger);
+  color: var(--danger);
+}
 .assistant-hint {
   margin-top: -4px;
 }
@@ -1698,13 +1752,28 @@ select:focus {
 .qa-q {
   font-weight: 600;
   margin-bottom: 6px;
-  font-size: 12px;
-  color: var(--muted);
-  /* The interviewer's question can be long; keep it a short header (hover shows the full text). */
+  font-size: 13px;
+  color: var(--text);
+  /* The question can be long; keep it a readable header clamped to a few lines (hover, via the
+     title attribute, shows the full text). */
   display: -webkit-box;
-  -webkit-line-clamp: 3;
+  -webkit-line-clamp: 4;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+/* The screen/image a screen- or image-answer is about, shown as the question. */
+.qa-image {
+  display: block;
+  max-width: 100%;
+  max-height: 180px;
+  margin-bottom: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+/* Groups the Save/Clear buttons on the right of a pane title. */
+.pane-actions {
+  display: inline-flex;
+  gap: 10px;
 }
 .assistant-panes {
   display: flex;
@@ -2200,11 +2269,51 @@ select:focus {
   font-weight: 700;
 }
 
-.filter-grid {
-  display: grid;
-  grid-template-columns: max-content 1fr;
-  gap: 6px 16px;
-  align-items: start;
+/* Filters are grouped into labelled sections (Job / Fit to you / Freshness & pay / Sources). */
+.filter-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.filter-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.filter-section-head {
+  margin: 0;
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.9px;
+  color: var(--text);
+  opacity: 0.72;
+  padding-bottom: 5px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* In the narrow filters drawer each facet stacks its label above the chips, which wrap to
+   the full drawer width. */
+.filter-section-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.filter-section-grid .filter-label {
+  padding-top: 7px;
+}
+
+.filter-section-grid > .filter-label:first-child {
+  padding-top: 0;
+}
+
+@media (max-width: 620px) {
+  .searchbar-meta {
+    flex-wrap: wrap;
+  }
 }
 
 .filter-label {
@@ -2568,6 +2677,42 @@ select:focus {
 .drawer-body {
   padding: 16px 18px;
   overflow-y: auto;
+}
+
+/* Filters drawer: anchored to the LEFT, narrower, and animated in/out. The two-class
+   selectors override the base .drawer-overlay / .drawer above regardless of source order. */
+.drawer-overlay.drawer-overlay--left {
+  justify-content: flex-start;
+  background: rgba(2, 6, 16, 0);
+  transition: background 0.24s ease;
+}
+
+.drawer-overlay.drawer-overlay--left.open {
+  background: rgba(2, 6, 16, 0.55);
+}
+
+.drawer.filter-drawer {
+  width: min(380px, 100%);
+  border-left: none;
+  border-right: 1px solid var(--border);
+  transform: translateX(-100%);
+  transition: transform 0.24s cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: transform;
+}
+
+.drawer-overlay--left.open .drawer.filter-drawer {
+  transform: translateX(0);
+}
+
+.filter-drawer .drawer-body {
+  flex: 1;
+}
+
+.drawer-foot {
+  display: flex;
+  justify-content: flex-end;
+  padding: 12px 18px;
+  border-top: 1px solid var(--border);
 }
 
 .add-source {

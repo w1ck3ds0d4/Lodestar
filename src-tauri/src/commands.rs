@@ -1520,6 +1520,67 @@ pub async fn ask_assistant(
     Ok(())
 }
 
+/// Ask about an attached image (a pasted/dropped screenshot) with an optional text question.
+/// `image` is base64 PNG (no data: prefix). Streams the answer like `ask_assistant`.
+#[tauri::command]
+pub async fn ask_image(
+    state: State<'_, AppState>,
+    question: String,
+    image: String,
+    context: Option<String>,
+    on_event: tauri::ipc::Channel<AnswerChunk>,
+) -> Result<(), String> {
+    if image.trim().is_empty() {
+        let _ = on_event.send(AnswerChunk::Error {
+            message: "No image attached.".into(),
+        });
+        return Ok(());
+    }
+    let (engine, profile, style) = {
+        let conn = state.db.lock().map_err(|_| "db poisoned")?;
+        (
+            build_engine(&conn),
+            interview_profile(&conn),
+            answer_style(&conn),
+        )
+    };
+    let engine = match engine {
+        Ok(e) => e,
+        Err(message) => {
+            let _ = on_event.send(AnswerChunk::Error { message });
+            return Ok(());
+        }
+    };
+    let http = state.http.clone();
+    let emit = |t: &str| {
+        let _ = on_event.send(AnswerChunk::Delta {
+            text: t.to_string(),
+        });
+    };
+    match crate::assistant::ask_image(
+        &http,
+        &engine,
+        &question,
+        &image,
+        context.as_deref(),
+        profile.as_deref(),
+        &style,
+        Some(&emit),
+    )
+    .await
+    {
+        Ok(full) => {
+            let _ = on_event.send(AnswerChunk::Done { text: full });
+        }
+        Err(e) => {
+            let _ = on_event.send(AnswerChunk::Error {
+                message: e.to_string(),
+            });
+        }
+    }
+    Ok(())
+}
+
 /// Auto-answer the newest transcript segment if it is a question/problem (any
 /// language). Streams the answer over `on_event` (delta/done/error); the answer is the
 /// literal "NONE" when nothing is being asked, which the UI suppresses.

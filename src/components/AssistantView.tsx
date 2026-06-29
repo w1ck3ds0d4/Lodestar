@@ -21,6 +21,7 @@ import {
   FileText,
   Gauge,
   History,
+  ImagePlus,
   KeyRound,
   LayoutDashboard,
   MessageSquare,
@@ -55,7 +56,7 @@ import {
   type Profile,
   type UsageReport,
 } from "../types";
-import { isNoneAnswer, looksNone } from "../lib/answer";
+import { isBackchannel, isNoneAnswer, looksNone } from "../lib/answer";
 import { extractResumeText } from "../lib/extractText";
 import { ApplicationKit } from "./ApplicationKit";
 import { Answer } from "./MarkdownAnswer";
@@ -68,6 +69,9 @@ interface QA {
   a: string;
   pending: boolean;
   error?: string;
+  // A thumbnail (base64 PNG) of the screen/image the answer is about, shown as the question
+  // for screen and image asks (where `q` is only a generic label like "From your screen").
+  image?: string;
 }
 
 // One captured audio source reported by the backend for the diagnostics panel.
@@ -100,6 +104,45 @@ function fmtLogClock(ts: number): string {
   const d = new Date(ts);
   const p = (n: number) => String(n).padStart(2, "0");
   return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+
+// Downscale an image (given an <img> src) to a base64 PNG whose longest side is <= maxSide,
+// resolving to base64 with no "data:" prefix. `onSettled` runs once the source has loaded/failed
+// (used to revoke object URLs).
+function srcToPngBase64(src: string, maxSide: number, onSettled?: () => void): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      onSettled?.();
+      const scale = Math.min(1, maxSide / Math.max(img.naturalWidth, img.naturalHeight));
+      const w = Math.max(1, Math.round(img.naturalWidth * scale));
+      const h = Math.max(1, Math.round(img.naturalHeight * scale));
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return reject(new Error("canvas unavailable"));
+      ctx.drawImage(img, 0, 0, w, h);
+      resolve(canvas.toDataURL("image/png").split(",")[1] || "");
+    };
+    img.onerror = () => {
+      onSettled?.();
+      reject(new Error("could not read the image"));
+    };
+    img.src = src;
+  });
+}
+
+// A pasted/dropped image file -> base64 PNG (longest side <= maxSide, Claude's efficient max).
+// Normalizing to PNG means the backend's media_type is always correct.
+function imageToPngBase64(file: Blob, maxSide = 1568): Promise<string> {
+  const url = URL.createObjectURL(file);
+  return srcToPngBase64(url, maxSide, () => URL.revokeObjectURL(url));
+}
+
+// A base64 PNG -> a small base64 PNG thumbnail, shown as the "question" for screen/image asks.
+function pngThumb(base64: string, maxSide = 400): Promise<string> {
+  return srcToPngBase64("data:image/png;base64," + base64, maxSide);
 }
 
 // Stable colour bucket for a speaker name (so each speaker keeps one chip hue).
@@ -230,6 +273,13 @@ function SnipOverlay({
 const QaCard = memo(function QaCard({ e }: { e: QA }) {
   return (
     <div className="qa">
+      {e.image && (
+        <img
+          className="qa-image"
+          src={"data:image/png;base64," + e.image}
+          alt="the screen or image this answers"
+        />
+      )}
       <div className="qa-q" title={e.q}>
         {e.q}
       </div>
@@ -351,6 +401,9 @@ export function AssistantView() {
   const [dgLoading, setDgLoading] = useState(false);
 
   const [question, setQuestion] = useState("");
+  // An image attached to the Ask box (base64 PNG) - pasted, dropped, or picked.
+  const [askImage, setAskImage] = useState<string | null>(null);
+  const imgInputRef = useRef<HTMLInputElement>(null);
   const [context, setContext] = useState("");
   const [qa, setQa] = useState<QA[]>([]);
 
@@ -402,6 +455,16 @@ export function AssistantView() {
   useEffect(() => {
     qaRef.current = qa;
   }, [qa]);
+  // When ON, reading a page (Read full page / Alt+Shift+R / clipboard) also answers it - works
+  // whether or not you're in a live call (e.g. a live coding round). Turn OFF to only stack the
+  // page as context (e.g. read several parts, then Ask once). Persisted; a ref so the
+  // once-registered read handlers see the latest value.
+  const [solveOnRead, setSolveOnRead] = useState(() => localStorage.getItem("jr.solveOnRead") !== "0");
+  const solveOnReadRef = useRef(solveOnRead);
+  useEffect(() => {
+    solveOnReadRef.current = solveOnRead;
+    localStorage.setItem("jr.solveOnRead", solveOnRead ? "1" : "0");
+  }, [solveOnRead]);
 
   // Follow the conversation: scroll the dialog to the newest line whenever a segment
   // commits or the live tail grows - unless the user has scrolled up to read back.
@@ -444,6 +507,43 @@ export function AssistantView() {
       window.setTimeout(() => setPageMsg(""), 3500);
     },
     [pushLog],
+  );
+
+  // Answer a read-in page directly: the page text becomes the question, streamed into a card
+  // labelled "From the page" (so the whole page isn't shown as the header). Capped so a huge
+  // page can't blow the request up.
+  const answerPage = useCallback((pageText: string) => {
+    const text = pageText.trim().slice(0, 40000);
+    if (text.length < 2) return;
+    const id = ++idRef.current;
+    setQa((prev) => [{ id, q: "From the page", a: "", pending: true }, ...prev]);
+    const channel = new Channel<api.AnswerChunk>();
+    channel.onmessage = (msg) => {
+      setQa((prev) =>
+        prev.map((e) => {
+          if (e.id !== id) return e;
+          if (msg.kind === "delta") return { ...e, a: e.a + msg.text, pending: true };
+          if (msg.kind === "done") return { ...e, a: msg.text || e.a, pending: false };
+          return { ...e, error: msg.message, pending: false };
+        }),
+      );
+    };
+    void api
+      .askAssistant(text, null, channel)
+      .catch((err) =>
+        setQa((prev) => prev.map((x) => (x.id === id ? { ...x, error: String(err), pending: false } : x))),
+      );
+  }, []);
+
+  // Attach a read-in page as context AND, when "Solve on read" is on, answer it - so an explicit
+  // page read (Read full page / Alt+Shift+R / clipboard) also solves the exercise, in a call or
+  // not. With the toggle off it stays context-only (stack several parts, then Ask once).
+  const readPageAndAnswer = useCallback(
+    (text: string, label: string) => {
+      addToContext(text, label);
+      if (solveOnReadRef.current) answerPage(text);
+    },
+    [addToContext, answerPage],
   );
 
   // Overlay window controls. Applied after mount (hwnd() errors before the window
@@ -605,6 +705,12 @@ export function AssistantView() {
         // Feed the recent conversation so the screen answer is context-aware.
         const convo = transcriptText(segmentsRef.current).trim();
         const ctx = convo ? convo.slice(-1500) : null;
+        // Grab a thumbnail of the screen we're answering (in parallel), to show as the card's
+        // "question" - otherwise a screen answer's only header is the generic "From your screen".
+        const thumbP = api
+          .captureScreenPng(mon)
+          .then((b) => pngThumb(b))
+          .catch(() => undefined);
         // Hybrid (phone Read & Answer) also reads the full page text via accessibility, so a
         // coding exercise scrolled off-screen is still captured; desktop stays screenshot-only.
         const res = hybrid
@@ -616,9 +722,13 @@ export function AssistantView() {
         // terse answer ("True", "O(n)"), and that would wrongly swallow the second.
         const tag = hybrid ? "Read & answer" : force ? "Answer screen" : "Watch tick";
         if (res.changed && a && a.toUpperCase() !== "NONE") {
-          setQa((prev) => [{ id: ++idRef.current, q: "From your screen", a, pending: false }, ...prev]);
+          const id = ++idRef.current;
+          setQa((prev) => [{ id, q: "From your screen", a, pending: false }, ...prev]);
           setScreenNote("");
           pushLog("screen", `${tag}: answered (Display ${mon + 1})`);
+          void thumbP.then((t) => {
+            if (t) setQa((prev) => prev.map((e) => (e.id === id ? { ...e, image: t } : e)));
+          });
         } else if (!res.changed) {
           // Skipped because the screen looks the same as the last one answered.
           pushLog("screen", `${tag}: screen unchanged, skipped (Display ${mon + 1})`);
@@ -653,27 +763,27 @@ export function AssistantView() {
         window.setTimeout(() => setPageMsg(""), 3500);
         return;
       }
-      addToContext(text, "Read page");
+      readPageAndAnswer(text, "Read page");
     } catch (e) {
       setPageMsg("Couldn't read the clipboard: " + String(e));
     }
-  }, [addToContext]);
+  }, [readPageAndAnswer]);
 
   // Read full page: pull the WHOLE focused page via accessibility (including content scrolled
-  // off-screen) and attach it as context (dedupe + accumulate via addToContext - no answer, so
-  // it can't duplicate responses). Reads the last external window, so it works from an in-app
-  // button or the phone even though those focus JobRadar itself.
+  // off-screen), attach it as context (dedupe + accumulate) AND answer it when not in a live
+  // call. Reads the last external window, so it works from an in-app button or the phone even
+  // though those focus JobRadar itself.
   const readFullPage = useCallback(async () => {
     setPageMsg("Reading the full page...");
     try {
       const text = await api.readActivePage();
-      addToContext(text, "Read page");
+      readPageAndAnswer(text, "Read page");
     } catch (e) {
       setPageMsg("Read full page: " + String(e));
       pushLog("read", "Read full page failed: " + String(e));
       window.setTimeout(() => setPageMsg(""), 4000);
     }
-  }, [addToContext, pushLog]);
+  }, [readPageAndAnswer, pushLog]);
 
   // Snip & explain: capture the chosen monitor, then crop a region to explain.
   const startSnip = useCallback(async () => {
@@ -734,6 +844,32 @@ export function AssistantView() {
     };
     try {
       await api.askAssistant(question, ctx && ctx.trim() ? ctx.trim() : null, channel);
+    } catch (e) {
+      setQa((prev) => prev.map((x) => (x.id === id ? { ...x, error: String(e), pending: false } : x)));
+    }
+  }, []);
+
+  // Ask about an attached image (a pasted/dropped screenshot) + optional text; streams like ask.
+  const askImageQ = useCallback(async (q: string, image: string, ctx: string | null) => {
+    const id = ++idRef.current;
+    setQa((prev) => [{ id, q: q.trim() || "Image", a: "", pending: true }, ...prev]);
+    // Show a thumbnail of the asked image as the card's question.
+    void pngThumb(image)
+      .then((t) => setQa((prev) => prev.map((e) => (e.id === id ? { ...e, image: t } : e))))
+      .catch(() => {});
+    const channel = new Channel<api.AnswerChunk>();
+    channel.onmessage = (msg) => {
+      setQa((prev) =>
+        prev.map((e) => {
+          if (e.id !== id) return e;
+          if (msg.kind === "delta") return { ...e, a: e.a + msg.text, pending: true };
+          if (msg.kind === "done") return { ...e, a: msg.text || e.a, pending: false };
+          return { ...e, error: msg.message, pending: false };
+        }),
+      );
+    };
+    try {
+      await api.askImage(q.trim(), image, ctx && ctx.trim() ? ctx.trim() : null, channel);
     } catch (e) {
       setQa((prev) => prev.map((x) => (x.id === id ? { ...x, error: String(e), pending: false } : x)));
     }
@@ -838,7 +974,7 @@ export function AssistantView() {
     let cancelled = false;
     const unlisteners: UnlistenFn[] = [];
     const add = (p: Promise<UnlistenFn>) => void p.then((u) => (cancelled ? u() : unlisteners.push(u)));
-    add(listen<string>("window-text", (e) => addToContext(String(e.payload), "Read window")));
+    add(listen<string>("window-text", (e) => readPageAndAnswer(String(e.payload), "Read window")));
     add(
       listen<string>("window-text-error", (e) => {
         setPageMsg("Read window: " + String(e.payload));
@@ -850,7 +986,7 @@ export function AssistantView() {
       cancelled = true;
       unlisteners.forEach((u) => u());
     };
-  }, [addToContext, pushLog]);
+  }, [readPageAndAnswer, pushLog]);
 
   // Auto-answer: send each batch of new dialog segments to the model, which answers
   // it if it is a question or problem (in any language) and replies "NONE" otherwise.
@@ -879,6 +1015,14 @@ export function AssistantView() {
         .map((s) => s.text)
         .join(" ")
         .trim();
+      // A pure acknowledgement / filler turn ("ok", "yeah", "mhmm", "right") is not a question.
+      // Consume it (advance the cursor so it still serves as context for later answers) but
+      // never spend a round-trip or post a card - this is the main thing that broke the
+      // assistant when the interviewer's English was halting and the ASR chopped it up.
+      if (isBackchannel(themOnly)) {
+        answeredIdx.current = segments.length;
+        return;
+      }
       const displayQ = themOnly || latest;
       const ctx = transcriptText(segments.slice(0, answeredIdx.current));
       answeredIdx.current = segments.length;
@@ -1111,6 +1255,15 @@ export function AssistantView() {
     stickToBottom.current = true; // a fresh dialog should follow the newest line again
   };
 
+  // Start fresh between interviews/questions: drop the answers, the read-in page/notes context,
+  // and the transcript so nothing from a previous session leaks into the next answer.
+  const newSession = () => {
+    setQa([]);
+    setContext("");
+    contextRef.current = "";
+    clearTranscript();
+  };
+
   // Build the saved-session text (transcript + answered Q&A, oldest first).
   const buildSession = (segs: DialogSegment[], qaList: QA[]) => {
     const transcript = transcriptText(segs);
@@ -1171,8 +1324,15 @@ export function AssistantView() {
   }, [listening]);
 
   const askManual = () => {
+    const ctx = context.trim() || transcriptText(segments);
+    if (askImage) {
+      void askImageQ(question, askImage, ctx);
+      setQuestion("");
+      setAskImage(null);
+      return;
+    }
     if (!question.trim()) return;
-    void ask(question, context.trim() || transcriptText(segments));
+    void ask(question, ctx);
     setQuestion("");
   };
 
@@ -1732,6 +1892,17 @@ export function AssistantView() {
                   <ClipboardPaste size={14} /> Read page (clipboard)
                 </button>
               </div>
+              <label
+                className="auto-toggle muted sm"
+                title="When on, reading a page also answers it (works in a live call too). Turn off to only stack the page as context, e.g. read several parts then Ask once."
+              >
+                <input
+                  type="checkbox"
+                  checked={solveOnRead}
+                  onChange={(e) => setSolveOnRead(e.target.checked)}
+                />
+                Solve on read (answer the page, even during a call)
+              </label>
               {pageMsg && <div className="muted sm">{pageMsg}</div>}
               <div className="muted sm">
                 <b>Read full page</b> reads the whole page (incl. off-screen) automatically - good for
@@ -2445,17 +2616,80 @@ export function AssistantView() {
                 </div>
               )}
 
-              <div className="assistant-ask">
+              {askImage && (
+                <div className="ask-image">
+                  <div className="ask-image-thumb">
+                    <img src={"data:image/png;base64," + askImage} alt="attached" />
+                    <button
+                      className="ask-image-x"
+                      title="Remove image"
+                      aria-label="Remove image"
+                      onClick={() => setAskImage(null)}
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                  <button className="ask-image-remove" onClick={() => setAskImage(null)}>
+                    <X size={13} /> Remove image
+                  </button>
+                </div>
+              )}
+              <div
+                className="assistant-ask"
+                onDragOver={(e) => {
+                  if (Array.from(e.dataTransfer.types).includes("Files")) e.preventDefault();
+                }}
+                onDrop={(e) => {
+                  const f = Array.from(e.dataTransfer.files).find((x) => x.type.startsWith("image/"));
+                  if (f) {
+                    e.preventDefault();
+                    void imageToPngBase64(f)
+                      .then(setAskImage)
+                      .catch(() => {});
+                  }
+                }}
+              >
                 <textarea
-                  placeholder="Ask directly, e.g. 'Solve 3x + 7 = 22' - or just hit Listen and let it auto-answer"
+                  placeholder="Ask directly, or paste / drop a screenshot - e.g. 'Solve 3x + 7 = 22'"
                   value={question}
                   onChange={(e) => setQuestion(e.target.value)}
+                  onPaste={(e) => {
+                    const item = Array.from(e.clipboardData.items).find((i) => i.type.startsWith("image/"));
+                    const blob = item?.getAsFile();
+                    if (blob) {
+                      e.preventDefault();
+                      void imageToPngBase64(blob)
+                        .then(setAskImage)
+                        .catch(() => {});
+                    }
+                  }}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) askManual();
                   }}
                   rows={2}
                 />
-                <button className="btn-sync" onClick={askManual} disabled={!question.trim()}>
+                <input
+                  ref={imgInputRef}
+                  type="file"
+                  accept="image/*"
+                  hidden
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f)
+                      void imageToPngBase64(f)
+                        .then(setAskImage)
+                        .catch(() => {});
+                    e.target.value = "";
+                  }}
+                />
+                <button
+                  className="icon-btn ask-attach"
+                  title="Attach an image (or paste / drop one)"
+                  onClick={() => imgInputRef.current?.click()}
+                >
+                  <ImagePlus size={16} />
+                </button>
+                <button className="btn-sync" onClick={askManual} disabled={!question.trim() && !askImage}>
                   <Send size={16} /> Ask
                 </button>
               </div>
@@ -2473,14 +2707,34 @@ export function AssistantView() {
               <section className="col-section live-answers">
                 <div className="pane-title">
                   <span>Live answers</span>
-                  {qa.length > 0 && (
-                    <button
-                      className="link-btn"
-                      onClick={() => setQa([])}
-                      title="Clear the answers and the code/math derived from them"
-                    >
-                      Clear
-                    </button>
+                  {(qa.length > 0 || context.length > 0 || segments.length > 0) && (
+                    <span className="pane-actions">
+                      {qa.length > 0 && (
+                        <button
+                          className="link-btn"
+                          onClick={() => void saveSession()}
+                          title="Save the transcript + these answers as a reviewable session (also auto-saves when you stop listening)"
+                        >
+                          {sessionSaved ? "Saved ✓" : "Save"}
+                        </button>
+                      )}
+                      {qa.length > 0 && (
+                        <button
+                          className="link-btn"
+                          onClick={() => setQa([])}
+                          title="Clear just these answers (keeps the read-in context and the transcript)"
+                        >
+                          Clear
+                        </button>
+                      )}
+                      <button
+                        className="link-btn"
+                        onClick={newSession}
+                        title="Start fresh: clears the answers, the read-in page/notes context, and the transcript so nothing from a previous interview or question carries into the next answer"
+                      >
+                        New session
+                      </button>
+                    </span>
                   )}
                 </div>
                 <div className="col-scroll">

@@ -332,6 +332,7 @@ pub fn run() {
             commands::set_ollama_url,
             commands::list_ollama_models,
             commands::ask_assistant,
+            commands::ask_image,
             commands::auto_answer,
             commands::read_clipboard,
             commands::set_deepgram_key,

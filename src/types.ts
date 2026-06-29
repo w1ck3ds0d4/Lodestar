@@ -495,6 +495,8 @@ export const ANSWER_STYLES: { id: string; label: string; note: string }[] = [
   { id: "concise", label: "Concise", note: "glanceable bullets" },
   { id: "star", label: "STAR", note: "behavioral structure" },
   { id: "code", label: "Code", note: "solution + complexity" },
+  { id: "code-steps", label: "Code steps", note: "build it as you type, full code at the end" },
+  { id: "narrate", label: "Narrate", note: "plan + spoken 'what I'm doing' for live coding" },
 ];
 
 export const ASSISTANT_MODELS: {
@@ -562,11 +564,14 @@ export interface Profile {
 export interface JobPrefs {
   workplaces: string[];
   levels: string[];
+  selectedKinds: string[];
   remoteEligible: boolean;
   relocationOnly: boolean;
   postedWithin: number | null;
   minSalary: number | null;
   langs: string[];
+  hideScams: boolean;
+  sortMode: "default" | "match";
   minMatch: number | null;
 }
 
