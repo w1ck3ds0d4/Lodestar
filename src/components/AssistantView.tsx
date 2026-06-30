@@ -1458,8 +1458,9 @@ export function AssistantView() {
       answers: qa.map((e) => ({ q: e.q, a: e.a, pending: e.pending })),
       opacity,
       log: logEntries.slice(0, 40),
+      answerStyle,
     };
-  }, [listening, watchingScreen, captureProtect, segments, live, qa, opacity, logEntries]);
+  }, [listening, watchingScreen, captureProtect, segments, live, qa, opacity, logEntries, answerStyle]);
   const pushCaptureState = useCallback(() => void emit("capture-state", captureState()), [captureState]);
 
   const startCapture = async () => {
@@ -1521,6 +1522,10 @@ export function AssistantView() {
         break;
       case "ask":
         if (c.text) void ask(c.text, transcriptText(segments));
+        break;
+      case "style":
+        // Switch the answer style from the overlay (e.g. flip to Deep dive for a technical panel).
+        if (c.style) void changeStyle(c.style);
         break;
       case "protect":
         void changeCaptureProtect(!captureProtect);

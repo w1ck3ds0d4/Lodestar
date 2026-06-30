@@ -3593,6 +3593,26 @@ textarea:focus {
   min-width: 36px;
   text-align: right;
 }
+.cap-style {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.cap-style select {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-2);
+  color: var(--text);
+  border-radius: 8px;
+  font-size: 12.5px;
+}
+.cap-style select:hover {
+  border-color: var(--accent);
+}
 .cap-btns {
   display: flex;
   gap: 8px;

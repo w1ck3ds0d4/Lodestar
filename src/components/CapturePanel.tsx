@@ -18,7 +18,7 @@ import {
   Square,
   X,
 } from "lucide-react";
-import type { CaptureState } from "../types";
+import { ANSWER_STYLES, type CaptureState } from "../types";
 import { Answer } from "./MarkdownAnswer";
 import { sendCaptureCommand as send, usePersistedBounds } from "../lib/captureWindow";
 
@@ -241,6 +241,20 @@ export function CapturePanel({ kind }: { kind: PanelKind }) {
                     <ClipboardPaste size={14} /> Read page (clipboard)
                   </button>
                 </div>
+                <label className="cap-style">
+                  <span>Style</span>
+                  <select
+                    value={st.answerStyle ?? "auto"}
+                    title="Answer style the assistant uses - e.g. switch to Deep dive for a deep technical panel"
+                    onChange={(e) => send({ cmd: "style", style: e.target.value })}
+                  >
+                    {ANSWER_STYLES.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
                 <label className="cap-opacity">
                   <span>Opacity</span>
                   <input

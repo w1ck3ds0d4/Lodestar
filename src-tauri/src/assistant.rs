@@ -68,6 +68,19 @@ signature/scaffold first, then the core logic, then edge cases. After the final 
 time and space complexity in one spoken first-person sentence. All code in plain ASCII the user can type \
 (no Unicode arrows, smart quotes, em dashes, or math symbols; use ->, ', \", <=, >=, !=), never \
 pseudocode. For a non-coding question, ignore this and just answer it directly.",
+        "deep" => "\n\nANSWER FORMAT (deep dive - technical panel): the interviewer wants DEPTH and to \
+hear you REASON OUT LOUD, so for THIS answer override the short-answer length cap and go long. \
+Open with ONE speakable roadmap sentence naming the parts you will cover. Then WALK THE REASONING \
+in first-person sentences the user can say verbatim, grouped under that roadmap: state your \
+assumptions and what you would clarify, the approach and WHY you would take it, the main \
+alternative you considered and why you rejected it, the key trade-offs, and the failure modes or \
+what you would monitor. When you name a concrete technology (Redis, Kafka, Postgres, Kubernetes), \
+pair it in the same sentence with its trade-off, and never stack more than two names in one \
+sentence. Keep each sentence to ONE idea so it stays sayable, but give SEVERAL sentences per part, \
+not one - the point is to show genuine depth, not a soundbite. End with a short spoken handoff \
+('I can go deeper on any of those parts.'). Reply in the SAME language. For a coding question, give \
+the runnable solution in plain ASCII (no Unicode arrows, smart quotes, em dashes, or math symbols; \
+use ->, ', \", <=, >=, !=) plus the reasoning behind the design and the time and space complexity.",
         _ => "",
     }
 }
@@ -1090,6 +1103,23 @@ mod tests {
         assert!(
             d.contains("### Full solution"),
             "should still end with the complete code"
+        );
+    }
+
+    #[test]
+    fn deep_style_overrides_the_cap_and_asks_for_reasoning() {
+        let d = style_directive("deep");
+        assert!(
+            d.contains("roadmap"),
+            "deep should still open with a roadmap"
+        );
+        assert!(
+            d.contains("trade-off"),
+            "deep should pair technologies with trade-offs"
+        );
+        assert!(
+            d.contains("override") && d.contains("length cap"),
+            "deep must lift the short-answer cap so it can go long"
         );
     }
 
