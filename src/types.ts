@@ -187,6 +187,8 @@ export interface CaptureState {
   opacity?: number;
   // Recent activity log, mirrored to the floating Log panel.
   log?: LogEntry[];
+  // Active answer-style id (e.g. "auto", "deep"), so the Controls panel can show/change it.
+  answerStyle?: string;
 }
 // A command sent from an overlay window (panel or control bar) to the main window.
 export interface CaptureCommand {
@@ -201,9 +203,11 @@ export interface CaptureCommand {
     | "protect"
     | "read_page"
     | "read_full_page"
-    | "opacity";
+    | "opacity"
+    | "style";
   text?: string;
   value?: number; // for "opacity" (0..1)
+  style?: string; // for "style" (an ANSWER_STYLES id)
 }
 
 export const APP_STATUSES = [
@@ -493,6 +497,7 @@ export const STT_LANGUAGES: { code: string; label: string }[] = [
 export const ANSWER_STYLES: { id: string; label: string; note: string }[] = [
   { id: "auto", label: "Auto", note: "best format per question" },
   { id: "concise", label: "Concise", note: "glanceable bullets" },
+  { id: "deep", label: "Deep dive", note: "walk through the reasoning, for technical panels" },
   { id: "star", label: "STAR", note: "behavioral structure" },
   { id: "code", label: "Code", note: "solution + complexity" },
   { id: "code-steps", label: "Code steps", note: "build it as you type, full code at the end" },
