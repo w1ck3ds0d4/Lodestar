@@ -1,6 +1,6 @@
 [package]
 name = "jobradar"
-version = "0.1.0"
+version = "0.1.1"
 description = "JobRadar - a local-first desktop app that searches the job market"
 authors = ["w1ck3ds0d4 <support@wickitlab.com>"]
 edition = "2021"
