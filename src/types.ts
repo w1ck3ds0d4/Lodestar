@@ -518,7 +518,8 @@ export const ASSISTANT_MODELS: {
     inPrice: 15,
     outPrice: 75,
   },
-  { id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6", note: "balanced", inPrice: 3, outPrice: 15 },
+  { id: "claude-sonnet-5", label: "Claude Sonnet 5", note: "balanced, near-Opus", inPrice: 3, outPrice: 15 },
+  { id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6", note: "balanced (older)", inPrice: 3, outPrice: 15 },
   { id: "claude-haiku-4-5", label: "Claude Haiku 4.5", note: "fastest", inPrice: 1, outPrice: 5 },
 ];
 
