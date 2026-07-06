@@ -4,7 +4,13 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import App from "./App";
 import { CaptureBar } from "./components/CaptureBar";
 import { CapturePanel, type PanelKind } from "./components/CapturePanel";
+import { stripNativeTooltips } from "./lib/stripNativeTooltips";
 import "./styles.css";
+
+// Kill native `title` tooltips app-wide before anything renders: Chromium draws them in a separate
+// window that is NOT covered by the window's screen-capture exclusion, so they could leak into a
+// screen share. Runs for every window (main + capture overlays) since they share this entry.
+stripNativeTooltips();
 
 // Capture overlay windows reuse this same bundle; the window label selects the view:
 // `cap-bar` -> the control bar, `cap-<kind>` -> a panel, anything else -> the full app.
