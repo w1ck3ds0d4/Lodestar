@@ -375,10 +375,12 @@ export function AssistantView() {
 
   const [opacity, setOpacity] = useState(1);
   const [onTop, setOnTop] = useState(false);
-  // Hide the app's taskbar button (discreet mode). Persisted so it survives a restart;
-  // Alt+Shift+H still shows/hides the window, so it can always be brought back.
+  // Hide the app's taskbar button (discreet mode). Now default-ON: the app launches as a
+  // background process (no taskbar button, no Alt+Tab entry) unless the user explicitly
+  // turned it off (stored "0"). Persisted so it survives a restart; the tray icon and
+  // Alt+Shift+H still show/hide the window, so it can always be brought back.
   const [skipTaskbar, setSkipTaskbar] = useState(
-    () => typeof localStorage !== "undefined" && localStorage.getItem("jr.skipTaskbar") === "1",
+    () => typeof localStorage === "undefined" || localStorage.getItem("jr.skipTaskbar") !== "0",
   );
 
   const [contextRole, setContextRole] = useState("");
