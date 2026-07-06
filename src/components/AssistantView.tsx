@@ -15,6 +15,9 @@ import {
   Bot,
   Briefcase,
   Building2,
+  Camera,
+  ChevronDown,
+  ChevronRight,
   ClipboardPaste,
   Crop,
   Ear,
@@ -26,6 +29,7 @@ import {
   LayoutDashboard,
   MessageSquare,
   Monitor,
+  Pin,
   ScanSearch,
   ScrollText,
   Send,
@@ -68,6 +72,8 @@ interface QA {
   q: string;
   a: string;
   pending: boolean;
+  // When the answer started generating (ms epoch); drives the live "thinking" timer.
+  startedAt?: number;
   error?: string;
   // A thumbnail (base64 PNG) of the screen/image the answer is about, shown as the question
   // for screen and image asks (where `q` is only a generic label like "From your screen").
@@ -270,6 +276,17 @@ function SnipOverlay({
   );
 }
 
+// A live elapsed-time counter shown while an answer is generating, so it is obvious
+// the model is still working and has not silently crashed.
+function ThinkingTimer({ startedAt }: { startedAt: number }) {
+  const [ms, setMs] = useState(() => Date.now() - startedAt);
+  useEffect(() => {
+    const t = setInterval(() => setMs(Date.now() - startedAt), 100);
+    return () => clearInterval(t);
+  }, [startedAt]);
+  return <span className="qa-timer">{(ms / 1000).toFixed(1)}s</span>;
+}
+
 const QaCard = memo(function QaCard({ e }: { e: QA }) {
   return (
     <div className="qa">
@@ -283,6 +300,13 @@ const QaCard = memo(function QaCard({ e }: { e: QA }) {
       <div className="qa-q" title={e.q}>
         {e.q}
       </div>
+      {e.pending && e.startedAt != null && (
+        <div className="qa-thinking">
+          <span className="qa-thinking-dot" />
+          {e.a ? "Answering" : "Thinking"}
+          <ThinkingTimer startedAt={e.startedAt} />
+        </div>
+      )}
       {e.error ? (
         <div className="assistant-error">{e.error}</div>
       ) : e.pending && !e.a ? (
@@ -368,6 +392,11 @@ export function AssistantView() {
     setLogEntries((prev) => [{ id: ++logIdRef.current, ts: Date.now(), kind, msg }, ...prev].slice(0, 60));
   }, []);
   const [watchingScreen, setWatchingScreen] = useState(false);
+  // Whether the Code & Math panel is expanded. Collapsed by default so the Answers
+  // view shows only live answers; persisted so the choice survives a restart.
+  const [codeMathOpen, setCodeMathOpen] = useState(
+    () => typeof localStorage !== "undefined" && localStorage.getItem("jr.codeMathOpen") === "1",
+  );
   const [screenError, setScreenError] = useState("");
   const [screenNote, setScreenNote] = useState("");
   const [snipSrc, setSnipSrc] = useState<string | null>(null);
@@ -521,7 +550,7 @@ export function AssistantView() {
     const text = pageText.trim().slice(0, 40000);
     if (text.length < 2) return;
     const id = ++idRef.current;
-    setQa((prev) => [{ id, q: "From the page", a: "", pending: true }, ...prev]);
+    setQa((prev) => [{ id, q: "From the page", a: "", pending: true, startedAt: Date.now() }, ...prev]);
     const channel = new Channel<api.AnswerChunk>();
     channel.onmessage = (msg) => {
       setQa((prev) =>
@@ -804,7 +833,7 @@ export function AssistantView() {
   const onSnipSelect = useCallback((base64: string) => {
     setSnipSrc(null);
     const id = ++idRef.current;
-    setQa((prev) => [{ id, q: "Screen snip", a: "", pending: true }, ...prev]);
+    setQa((prev) => [{ id, q: "Screen snip", a: "", pending: true, startedAt: Date.now() }, ...prev]);
     void (async () => {
       try {
         const a = await api.explainRegion(base64);
@@ -835,7 +864,7 @@ export function AssistantView() {
     const question = q.trim();
     if (!question) return;
     const id = ++idRef.current;
-    setQa((prev) => [{ id, q: question, a: "", pending: true }, ...prev]);
+    setQa((prev) => [{ id, q: question, a: "", pending: true, startedAt: Date.now() }, ...prev]);
     const channel = new Channel<api.AnswerChunk>();
     channel.onmessage = (msg) => {
       setQa((prev) =>
@@ -857,7 +886,7 @@ export function AssistantView() {
   // Ask about an attached image (a pasted/dropped screenshot) + optional text; streams like ask.
   const askImageQ = useCallback(async (q: string, image: string, ctx: string | null) => {
     const id = ++idRef.current;
-    setQa((prev) => [{ id, q: q.trim() || "Image", a: "", pending: true }, ...prev]);
+    setQa((prev) => [{ id, q: q.trim() || "Image", a: "", pending: true, startedAt: Date.now() }, ...prev]);
     // Show a thumbnail of the asked image as the card's question.
     void pngThumb(image)
       .then((t) => setQa((prev) => prev.map((e) => (e.id === id ? { ...e, image: t } : e))))
@@ -1054,7 +1083,7 @@ export function AssistantView() {
             if (!created) {
               if (looksNone(acc)) return; // still ambiguous (N / NO / NON / NONE)
               created = true;
-              setQa((prev) => [{ id, q: displayQ, a: acc, pending: true }, ...prev]);
+              setQa((prev) => [{ id, q: displayQ, a: acc, pending: true, startedAt: Date.now() }, ...prev]);
             } else {
               setQa((prev) => prev.map((e) => (e.id === id ? { ...e, a: acc, pending: true } : e)));
             }
@@ -2733,8 +2762,48 @@ export function AssistantView() {
 
             <aside className="assistant-col col-code">
               <section className="col-section live-answers">
-                <div className="pane-title">
+                <div className="pane-title live-answers-head">
                   <span>Live answers</span>
+                  <div className="live-actions">
+                    <button
+                      className={"la-btn" + (listening ? " on" : "")}
+                      onClick={() => void toggleListen()}
+                      title="Listen to the call and transcribe both sides (Alt+Shift+L)"
+                    >
+                      {listening ? <Square size={14} /> : <Ear size={14} />}
+                      {listening ? "Stop" : "Listen"}
+                    </button>
+                    <button
+                      className={"la-btn" + (watchingScreen ? " on" : "")}
+                      onClick={() => setWatchingScreen((v) => !v)}
+                      title="Watch the screen and re-answer it every few seconds (Alt+Shift+W)"
+                    >
+                      {watchingScreen ? <Square size={14} /> : <ScanSearch size={14} />}
+                      {watchingScreen ? "Stop" : "Watch"}
+                    </button>
+                    <button
+                      className="la-btn"
+                      onClick={() => void runScreen(true)}
+                      disabled={watchingScreen}
+                      title="Screenshot the screen and answer what's visible now (Alt+Shift+A)"
+                    >
+                      <Camera size={14} /> Answer screen
+                    </button>
+                    <button
+                      className="la-btn"
+                      onClick={() => void readFullPage()}
+                      title="Read the whole focused page into context (Alt+Shift+R)"
+                    >
+                      <ScrollText size={14} /> Read page
+                    </button>
+                    <button
+                      className={"la-btn" + (onTop ? " active" : "")}
+                      onClick={() => setOnTop((v) => !v)}
+                      title="Keep the Lodestar window above all other windows"
+                    >
+                      <Pin size={14} /> On top
+                    </button>
+                  </div>
                   {(qa.length > 0 || context.length > 0 || segments.length > 0) && (
                     <span className="pane-actions">
                       {qa.length > 0 && (
@@ -2776,28 +2845,49 @@ export function AssistantView() {
                   )}
                 </div>
               </section>
-              <section className="col-section code-math">
-                <div className="pane-title">Code &amp; Math</div>
-                <div className="col-scroll">
-                  {cmGroups.length === 0 ? (
-                    <div className="pane-empty">
-                      <span className="muted sm">
-                        Code blocks &amp; equations pulled from answers collect here.
-                      </span>
-                    </div>
-                  ) : (
-                    cmGroups.map((g, gi) => (
-                      <div className={"cm-group" + (gi === 0 ? " latest" : "")} key={g.id}>
-                        <div className="cm-group-q">{g.q}</div>
-                        {g.items.map((s) => (
-                          <div className="cm-card" key={s.key}>
-                            <Answer text={s.md} />
-                          </div>
-                        ))}
+              <section className={"col-section code-math" + (codeMathOpen ? "" : " collapsed")}>
+                <button
+                  className="pane-title as-toggle"
+                  onClick={() =>
+                    setCodeMathOpen((v) => {
+                      const nv = !v;
+                      try {
+                        localStorage.setItem("jr.codeMathOpen", nv ? "1" : "0");
+                      } catch {}
+                      return nv;
+                    })
+                  }
+                  aria-expanded={codeMathOpen}
+                  title={codeMathOpen ? "Collapse Code & Math" : "Expand Code & Math"}
+                >
+                  <span className="pt-label">
+                    {codeMathOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                    Code &amp; Math
+                  </span>
+                  {cmGroups.length > 0 && <span className="pt-count">{cmGroups.length}</span>}
+                </button>
+                {codeMathOpen && (
+                  <div className="col-scroll">
+                    {cmGroups.length === 0 ? (
+                      <div className="pane-empty">
+                        <span className="muted sm">
+                          Code blocks &amp; equations pulled from answers collect here.
+                        </span>
                       </div>
-                    ))
-                  )}
-                </div>
+                    ) : (
+                      cmGroups.map((g, gi) => (
+                        <div className={"cm-group" + (gi === 0 ? " latest" : "")} key={g.id}>
+                          <div className="cm-group-q">{g.q}</div>
+                          {g.items.map((s) => (
+                            <div className="cm-card" key={s.key}>
+                              <Answer text={s.md} />
+                            </div>
+                          ))}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
               </section>
             </aside>
             {narrow && settingsOpen && (

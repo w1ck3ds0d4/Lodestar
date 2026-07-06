@@ -22,6 +22,17 @@ export function splitNext(text: string): { body: string; next: string | null } {
   return { body: text.slice(0, m.index).trimEnd(), next: m[1] };
 }
 
+// A "Steps:" section the prompt appends: a numbered, NON-spoken step-by-step of how the answer
+// was reached. Peeled off (call after splitNext) so it renders as a footer, not part of the
+// spoken body. Anchored to a "Steps:" line so a half-streamed marker is not mistaken for it.
+const STEPS_RE = /(?:^|\n)[ \t]*Steps:[ \t]*\n/i;
+export function splitSteps(text: string): { body: string; steps: string | null } {
+  const m = text.match(STEPS_RE);
+  if (!m || m.index === undefined) return { body: text, steps: null };
+  const steps = text.slice(m.index + m[0].length).trim();
+  return { body: text.slice(0, m.index).trimEnd(), steps: steps || null };
+}
+
 // True if a finished answer is really the NONE filler sentinel, ignoring any trailing "Next:"
 // line - so a stray hint can never make a filler reply look like a real answer.
 export function isNoneAnswer(full: string): boolean {

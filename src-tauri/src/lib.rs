@@ -8,6 +8,7 @@ mod ingest;
 mod listen;
 mod local_stt;
 mod model;
+mod mouse_hook;
 mod netcheck;
 mod phone;
 mod scam;
@@ -36,6 +37,29 @@ pub struct AppState {
     pub screen_hash: Arc<Mutex<Option<u64>>>,
     /// The running phone-companion server, if started.
     pub phone: Arc<Mutex<Option<phone::PhoneServer>>>,
+}
+
+/// Throttle for geometry saves (resize/move fire continuously during a drag).
+static LAST_GEO_SAVE: Mutex<Option<std::time::Instant>> = Mutex::new(None);
+
+/// Write the current window size + position to the `window_state` setting, so the window
+/// reopens where the user left it. Skips minimized / bogus geometry.
+fn persist_window_state(win: &tauri::WebviewWindow, db: &Arc<Mutex<Connection>>) {
+    if let (Ok(sz), Ok(pos)) = (win.outer_size(), win.outer_position()) {
+        let sf = win.scale_factor().unwrap_or(1.0);
+        let ls = sz.to_logical::<f64>(sf);
+        let lp = pos.to_logical::<f64>(sf);
+        if ls.width < 200.0 || ls.height < 150.0 {
+            return;
+        }
+        let json = format!(
+            "{{\"w\":{},\"h\":{},\"x\":{},\"y\":{}}}",
+            ls.width, ls.height, lp.x, lp.y
+        );
+        if let Ok(conn) = db.lock() {
+            let _ = db::set_setting(&conn, "window_state", &json);
+        }
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -175,11 +199,84 @@ pub fn run() {
             // Closing the main window must not leave the always-on-top capture
             // panels floating; tear them down so the app can exit cleanly.
             if let Some(main) = app.get_webview_window("main") {
+                // Disable Windows Aero Snap so dragging the borderless overlay to a screen
+                // edge/corner no longer auto-tiles it; the user positions it freely.
+                let _ = window_fx::disable_aero_snap(&main);
+
+                // Permanently exclude the main window from BOTH the taskbar and Alt+Tab by making
+                // it an OWNED top-level window (a hidden owner + no WS_EX_APPWINDOW). Done here
+                // while the window is still visible:false, so its very first show is already
+                // owned and no button/entry ever flashes. This is structural (stored in
+                // GWLP_HWNDPARENT, which tao never rewrites), so it survives show/hide,
+                // always-on-top, activation, focus, and elapsed time with no per-event re-commits.
+                #[cfg(windows)]
+                if let Err(e) = window_fx::make_owned_stealth(&main) {
+                    tracing::warn!("could not make main window owned-stealth: {e}");
+                }
+
+                // Install the global side-button (MB4/MB5) mouse hook: MB4 peeks behind,
+                // MB5 drags the overlay, MB5 double-click toggles it. Internal; Windows-only.
+                mouse_hook::start(&main);
+
+                // Restore the saved window size + position (best effort; skip if unset, too
+                // small, or the saved spot is off every current monitor, e.g. a monitor was
+                // unplugged since last run).
+                if let Ok(conn) = db.lock() {
+                    match db::get_setting(&conn, "window_state") {
+                        Ok(Some(raw)) => {
+                            tracing::info!("window_state: restoring {raw}");
+                            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&raw) {
+                                let num = |k: &str| v.get(k).and_then(|x| x.as_f64());
+                                if let (Some(w), Some(hgt)) = (num("w"), num("h")) {
+                                    if w >= 480.0 && hgt >= 360.0 {
+                                        let _ = main.set_size(tauri::LogicalSize::new(w, hgt));
+                                    }
+                                }
+                                if let (Some(x), Some(y)) = (num("x"), num("y")) {
+                                    if window_fx::point_on_any_monitor(&main, x, y) {
+                                        let _ =
+                                            main.set_position(tauri::LogicalPosition::new(x, y));
+                                    }
+                                }
+                            }
+                        }
+                        other => tracing::info!("window_state: nothing to restore ({other:?})"),
+                    }
+                }
+
                 let h = app.handle().clone();
-                main.on_window_event(move |e| {
-                    if matches!(e, tauri::WindowEvent::CloseRequested { .. }) {
+                let save_db = db.clone();
+                let save_win = main.clone();
+                main.on_window_event(move |e| match e {
+                    // Persist geometry on resize/move so the last size/position survives HOWEVER
+                    // the app is later closed (X button, tray Quit, Alt+F4, or a crash). Throttled
+                    // because a resize/drag fires these continuously.
+                    tauri::WindowEvent::Resized(_) | tauri::WindowEvent::Moved(_) => {
+                        // Re-assert the taskbar / Alt+Tab / background-process stealth here too:
+                        // tao drops the stealth ex-style on the window's first show, and Resized
+                        // fires right after that show (size/DPI restore). This is tab-independent,
+                        // so the stealth holds on EVERY view - not only while Assistant is mounted.
+                        // Cheap no-op once the style is already in place.
+                        window_fx::reassert_stealth(&save_win);
+                        if let Ok(mut last) = LAST_GEO_SAVE.lock() {
+                            let now = std::time::Instant::now();
+                            let due = last.is_none_or(|t| now.duration_since(t).as_millis() >= 400);
+                            if due {
+                                *last = Some(now);
+                                persist_window_state(&save_win, &save_db);
+                            }
+                        }
+                    }
+                    // Every time the window takes focus (user reveals/clicks it), re-assert stealth,
+                    // so a reveal that re-shows the window can never leave a stale taskbar button.
+                    tauri::WindowEvent::Focused(true) => {
+                        window_fx::reassert_stealth(&save_win);
+                    }
+                    tauri::WindowEvent::CloseRequested { .. } => {
+                        persist_window_state(&save_win, &save_db);
                         capture::close_panels(&h);
                     }
+                    _ => {}
                 });
             }
 
@@ -374,6 +471,7 @@ pub fn run() {
             window_fx::set_window_opacity,
             window_fx::set_window_always_on_top,
             window_fx::set_window_skip_taskbar,
+            window_fx::apply_window_stealth,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

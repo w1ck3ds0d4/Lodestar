@@ -354,3 +354,6 @@ export const explainRegion = (pngBase64: string) => invoke<string>("explain_regi
 export const setWindowOpacity = (opacity: number) => invoke<void>("set_window_opacity", { opacity });
 export const setWindowAlwaysOnTop = (onTop: boolean) => invoke<void>("set_window_always_on_top", { onTop });
 export const setWindowSkipTaskbar = (skip: boolean) => invoke<void>("set_window_skip_taskbar", { skip });
+// (Re)apply the full taskbar / Alt+Tab / background-process stealth. Called once on app mount so it
+// holds on every view, not just the Assistant tab where the on-top / skip-taskbar toggles live.
+export const applyWindowStealth = () => invoke<void>("apply_window_stealth");
