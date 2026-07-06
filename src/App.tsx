@@ -424,7 +424,7 @@ export default function App() {
       >
         <div className="brand" data-tauri-drag-region>
           <Radar size={22} className="brand-icon" />
-          <span>JobRadar</span>
+          <span>Lodestar</span>
         </div>
         <nav className="nav">
           <button

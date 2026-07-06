@@ -48,7 +48,7 @@ export function SessionsPanel({ reload }: { reload: number }) {
         <button
           className="link-btn"
           onClick={() => void exportAll()}
-          title="Save every session as a Markdown file in Downloads/JobRadar"
+          title="Save every session as a Markdown file in Downloads/Lodestar"
         >
           <Download size={14} /> Export all to files
         </button>

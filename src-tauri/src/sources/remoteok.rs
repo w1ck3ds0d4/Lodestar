@@ -14,7 +14,7 @@ pub async fn fetch(http: &Client, _cfg: &Value) -> Result<Vec<RawJob>> {
         .get("https://remoteok.com/api")
         .header(
             reqwest::header::USER_AGENT,
-            "JobRadar/0.1 (+https://github.com/w1ck3ds0d4/JobRadar)",
+            "Lodestar/0.1 (+https://github.com/w1ck3ds0d4/Lodestar)",
         )
         .send()
         .await?

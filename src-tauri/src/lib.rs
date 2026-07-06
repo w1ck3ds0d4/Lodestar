@@ -42,7 +42,7 @@ pub fn run() {
     let _ = tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("jobradar=info,warn")),
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("lodestar_lib=info,warn")),
         )
         .try_init();
 
@@ -132,7 +132,7 @@ pub fn run() {
             usage::init(db.clone());
 
             let http = reqwest::Client::builder()
-                .user_agent("JobRadar/0.1 (+personal job search)")
+                .user_agent("Lodestar/0.1 (+personal job search)")
                 .gzip(true)
                 .build()?;
 
@@ -183,7 +183,7 @@ pub fn run() {
             }
 
             // Track the last external foreground window so a "Read full page" button/phone tap
-            // can read the page the user was on (clicking a button focuses JobRadar itself).
+            // can read the page the user was on (clicking a button focuses Lodestar itself).
             winauto::start_foreground_tracker();
 
             // System-tray icon: a discreet, always-available access point - especially when
@@ -201,13 +201,13 @@ pub fn run() {
                     }
                 };
                 let show_i =
-                    MenuItem::with_id(app, "tray_show", "Show JobRadar", true, None::<&str>)?;
+                    MenuItem::with_id(app, "tray_show", "Show Lodestar", true, None::<&str>)?;
                 let hide_i = MenuItem::with_id(app, "tray_hide", "Hide", true, None::<&str>)?;
                 let quit_i = MenuItem::with_id(app, "tray_quit", "Quit", true, None::<&str>)?;
                 let menu = Menu::with_items(app, &[&show_i, &hide_i, &quit_i])?;
 
                 let mut builder = TrayIconBuilder::new()
-                    .tooltip("JobRadar")
+                    .tooltip("Lodestar")
                     .menu(&menu)
                     .show_menu_on_left_click(false)
                     .on_menu_event(move |app, event| match event.id.as_ref() {

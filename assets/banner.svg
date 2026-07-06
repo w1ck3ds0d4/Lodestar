@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="300" viewBox="0 0 1200 300" role="img" aria-label="JobRadar">
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="300" viewBox="0 0 1200 300" role="img" aria-label="Lodestar">
   <defs>
     <radialGradient id="bg" cx="18%" cy="50%" r="95%">
       <stop offset="0%" stop-color="#16223b"/>
@@ -18,6 +18,6 @@
     <circle cx="-48" cy="38" r="4" fill="#34d399" stroke="none"/>
     <circle cx="30" cy="70" r="4" fill="#34d399" stroke="none"/>
   </g>
-  <text x="340" y="142" font-family="Segoe UI, system-ui, sans-serif" font-size="66" font-weight="700" fill="#e6edf7">JobRadar</text>
+  <text x="340" y="142" font-family="Segoe UI, system-ui, sans-serif" font-size="66" font-weight="700" fill="#e6edf7">Lodestar</text>
   <text x="343" y="188" font-family="Segoe UI, system-ui, sans-serif" font-size="23" fill="#93a4c0">Local-first job-market search for your desktop</text>
 </svg>

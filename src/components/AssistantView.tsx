@@ -772,7 +772,7 @@ export function AssistantView() {
   // Read full page: pull the WHOLE focused page via accessibility (including content scrolled
   // off-screen), attach it as context (dedupe + accumulate) AND answer it when not in a live
   // call. Reads the last external window, so it works from an in-app button or the phone even
-  // though those focus JobRadar itself.
+  // though those focus Lodestar itself.
   const readFullPage = useCallback(async () => {
     setPageMsg("Reading the full page...");
     try {

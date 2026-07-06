@@ -111,7 +111,7 @@ fn run_alerts(db: &Arc<Mutex<Connection>>, app: &AppHandle) {
         let _ = app
             .notification()
             .builder()
-            .title("JobRadar")
+            .title("Lodestar")
             .body(format!("{count} new job(s) for {label}"))
             .show();
         let _ = db::set_alert_notified(&conn, a.id, now_ms());

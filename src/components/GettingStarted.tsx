@@ -41,7 +41,7 @@ export function GettingStarted({ onClose, onGo }: { onClose: () => void; onGo: (
         <button className="icon-btn intro-close" title="Close" onClick={onClose}>
           <X size={18} />
         </button>
-        <h2>Welcome to JobRadar</h2>
+        <h2>Welcome to Lodestar</h2>
         <p className="muted">
           A local-first copilot for the whole journey - find roles, apply, ace the interview, and study to
           improve. Most of it runs on your machine; cloud is used only when you opt in.

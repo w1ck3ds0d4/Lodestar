@@ -5,7 +5,7 @@
 //! coding sites that disable copy/select, for example. Accessibility can't be turned
 //! off (it would break screen readers), and the document Text pattern returns the
 //! whole document including content scrolled off-screen. It's triggered by a GLOBAL
-//! hotkey so the browser - not JobRadar - is the focused window when it runs.
+//! hotkey so the browser - not Lodestar - is the focused window when it runs.
 //!
 //! Best-effort by nature: canvas/image content exposes no text, and some apps publish
 //! only a partial accessibility tree.
@@ -108,7 +108,7 @@ fn collect_text(
 }
 
 // The last FOREGROUND window that wasn't ours. A "Read full page" button necessarily focuses
-// JobRadar when clicked, so the in-app/phone read targets THIS window (the page the user was
+// Lodestar when clicked, so the in-app/phone read targets THIS window (the page the user was
 // on) instead of the app itself.
 #[cfg(windows)]
 static LAST_EXTERNAL_HWND: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
@@ -135,7 +135,7 @@ unsafe extern "system" fn win_event_proc(
     }
 }
 
-/// Start tracking the last non-JobRadar foreground window. A WinEvent OUT_OF_CONTEXT hook is
+/// Start tracking the last non-Lodestar foreground window. A WinEvent OUT_OF_CONTEXT hook is
 /// delivered to its installing thread's message queue, so this spawns a tiny message-pump
 /// thread for the app's lifetime. No-op off Windows.
 #[cfg(windows)]
@@ -241,7 +241,7 @@ fn read_hwnd_text(hwnd_val: isize) -> anyhow::Result<String> {
     }
 }
 
-/// Read the page the user is on, even when triggered by a button/phone that focuses JobRadar:
+/// Read the page the user is on, even when triggered by a button/phone that focuses Lodestar:
 /// prefer the last external foreground window (tracked), falling back to the focused element.
 #[cfg(windows)]
 pub fn read_active_page() -> anyhow::Result<String> {

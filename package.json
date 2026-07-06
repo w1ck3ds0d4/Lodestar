@@ -1,5 +1,5 @@
 {
-  "name": "jobradar",
+  "name": "lodestar",
   "private": true,
   "version": "0.1.1",
   "type": "module",
@@ -13,10 +13,10 @@
   ],
   "author": "w1ck3ds0d4 <support@wickitlab.com>",
   "license": "AGPL-3.0-or-later",
-  "homepage": "https://github.com/w1ck3ds0d4/JobRadar",
+  "homepage": "https://github.com/w1ck3ds0d4/Lodestar",
   "repository": {
     "type": "git",
-    "url": "https://github.com/w1ck3ds0d4/JobRadar"
+    "url": "https://github.com/w1ck3ds0d4/Lodestar"
   },
   "scripts": {
     "dev": "vite",
