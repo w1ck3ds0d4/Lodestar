@@ -1,6 +1,5 @@
-import { useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { Copy, Minus, Square, X } from "lucide-react";
+import { Minus, X } from "lucide-react";
 
 // Custom window chrome for the borderless main window (decorations are off so the stealth
 // "Hide from taskbar & Alt+Tab" can use the reliable tool-window flip without ever showing a
@@ -9,32 +8,12 @@ import { Copy, Minus, Square, X } from "lucide-react";
 
 // Minimize / maximize-restore / close, rendered at the right of the top bar.
 export function WindowControls() {
-  // Track the maximized state so the middle button shows the right icon/label.
-  const [maxed, setMaxed] = useState(false);
-  useEffect(() => {
-    const win = getCurrentWindow();
-    let un: (() => void) | undefined;
-    const sync = () =>
-      void win
-        .isMaximized()
-        .then(setMaxed)
-        .catch(() => {});
-    sync();
-    void win.onResized(sync).then((u) => (un = u));
-    return () => un?.();
-  }, []);
-
+  // Minimize + close only. Maximize is intentionally omitted: this is a free-floating overlay,
+  // so double-click / drag-to-top fullscreening is disabled and there is nothing to maximize to.
   return (
     <div className="win-controls">
       <button className="win-btn" title="Minimize" onClick={() => void getCurrentWindow().minimize()}>
         <Minus size={16} />
-      </button>
-      <button
-        className="win-btn"
-        title={maxed ? "Restore" : "Maximize"}
-        onClick={() => void getCurrentWindow().toggleMaximize()}
-      >
-        {maxed ? <Copy size={13} /> : <Square size={13} />}
       </button>
       <button className="win-btn win-close" title="Close" onClick={() => void getCurrentWindow().close()}>
         <X size={16} />

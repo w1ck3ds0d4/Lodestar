@@ -2642,6 +2642,154 @@ select:focus {
   color: var(--text);
 }
 
+/* Live-answers quick-action toolbar (listen / watch / answer screen / read page) */
+/* Live-answer action buttons sit on the "Live answers" header row, right-aligned after the
+   title (see .live-answers-head). text-transform/letter-spacing are reset because the header
+   (.pane-title) uppercases + spaces its text, which would otherwise leak into the buttons. */
+.live-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-left: auto;
+  justify-content: flex-end;
+  text-transform: none;
+  letter-spacing: normal;
+}
+/* The header row holding the title + the live-action buttons; wraps the buttons to a second
+   line only when the column is genuinely too narrow to keep them beside the title. */
+.live-answers-head {
+  flex-wrap: wrap;
+  row-gap: 8px;
+}
+.la-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 7px 11px;
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.la-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+.la-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.la-btn.on {
+  border-color: var(--danger);
+  color: var(--danger);
+  background: rgba(248, 113, 113, 0.1);
+}
+
+/* Collapsible Code & Math section header */
+.pane-title.as-toggle {
+  width: 100%;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  font-family: inherit;
+  color: var(--muted);
+  text-align: left;
+}
+.pane-title.as-toggle:hover {
+  color: var(--text);
+}
+.pane-title .pt-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.pane-title .pt-count {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+.col-section.code-math.collapsed {
+  flex: none;
+}
+
+/* Live "thinking" timer while an answer generates (so a stuck / crashed answer is obvious) */
+.qa-thinking {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin: 2px 0 9px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.qa-thinking-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: qa-pulse 1s ease-in-out infinite;
+}
+@keyframes qa-pulse {
+  0%,
+  100% {
+    opacity: 0.3;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.1);
+  }
+}
+.qa-timer {
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* Accent (non-danger) active state for a toolbar toggle, e.g. always-on-top. */
+.la-btn.active {
+  border-color: var(--accent);
+  color: var(--accent-2);
+  background: rgba(16, 185, 129, 0.12);
+}
+
+/* Non-spoken "how I got here" reasoning footer under an answer. */
+.answer-steps {
+  margin-top: 12px;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-2);
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.answer-steps-h {
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+.answer-steps ol,
+.answer-steps ul {
+  margin: 0;
+  padding-left: 1.3em;
+}
+.answer-steps p {
+  margin: 0.3em 0;
+}
+.answer-steps :not(pre) > code {
+  background: var(--panel);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
 /* Drawers */
 .drawer-overlay {
   position: fixed;
@@ -2839,11 +2987,12 @@ select:focus {
   margin-left: 6px;
 }
 
-/* Narrow windows: collapse the primary nav to icons so the whole top bar stays
-   on one clean row instead of wrapping. Labels return on wider windows.
-   Scoped to .topbar so it wins over the base .nav-btn padding regardless of
-   source order. */
-@media (max-width: 880px) {
+/* Narrower windows: collapse the primary nav + Sync to icons so the whole top bar stays on one
+   clean row instead of dropping the action cluster onto an ugly second row. The threshold is set
+   above the width at which the labelled bar runs out of room, so it collapses BEFORE it would wrap.
+   Labels return on wide windows. Scoped to .topbar so it wins over the base .nav-btn padding
+   regardless of source order. */
+@media (max-width: 1200px) {
   .topbar .nav-label,
   .topbar .btn-label {
     display: none;
