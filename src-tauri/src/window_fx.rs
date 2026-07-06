@@ -18,59 +18,67 @@ pub(crate) fn apply_window_opacity(
     set_opacity_impl(window, alpha)
 }
 
-/// Keep the window above other windows (overlay mode). Cross-platform via Tauri.
+/// Keep the window above other windows (overlay mode).
+///
+/// On Windows we set the topmost band directly with `SetWindowPos` instead of tao's
+/// `set_always_on_top`, because tao rebuilds the window's ex-style from its own flags on that call -
+/// re-adding `WS_EX_APPWINDOW` and dropping `WS_EX_TOOLWINDOW` - which would pop the taskbar button
+/// / Alt+Tab entry back and bump the process into Task Manager's "Apps". `SetWindowPos` touches only
+/// the z-order band, leaving the stealth ex-style (and the owner link) completely untouched.
 #[tauri::command]
 pub fn set_window_always_on_top(window: tauri::WebviewWindow, on_top: bool) -> Result<(), String> {
-    window
-        .set_always_on_top(on_top)
-        .map_err(|e| format!("set_always_on_top: {e}"))
+    #[cfg(windows)]
+    {
+        use windows::Win32::Foundation::HWND;
+        use windows::Win32::UI::WindowsAndMessaging::{
+            SetWindowPos, HWND_NOTOPMOST, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+        };
+        let hwnd = HWND(window.hwnd().map_err(|e| format!("hwnd: {e}"))?.0);
+        let after = if on_top { HWND_TOPMOST } else { HWND_NOTOPMOST };
+        unsafe {
+            SetWindowPos(hwnd, after, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE)
+                .map_err(|e| format!("SetWindowPos(topmost): {e}"))?;
+        }
+        Ok(())
+    }
+    #[cfg(not(windows))]
+    {
+        window
+            .set_always_on_top(on_top)
+            .map_err(|e| format!("set_always_on_top: {e}"))
+    }
 }
 
-/// Remove (or restore) the window from the taskbar AND the Alt+Tab switcher, so the app can
-/// sit fully discreetly - reachable only via the tray icon or the Alt+Shift+H hotkey. On
-/// Windows this flips the WS_EX_TOOLWINDOW style, the one method Windows honors at runtime (a
-/// tool window shows in neither the taskbar nor Alt+Tab). It would slim a NATIVE title bar, but
-/// the main window is borderless (decorations off) with a custom HTML title bar, so there is no
-/// native frame to slim - the style flip is invisible. Elsewhere it falls back to Tauri's skip.
+/// Show or hide ONLY the taskbar button, via Tauri's native `set_skip_taskbar` (which on Windows
+/// drives `ITaskbarList::DeleteTab` / `AddTab`). This is orthogonal to Alt+Tab: the main window
+/// is permanently kept out of Alt+Tab by ownership (see [`make_owned_stealth`]), so `skip = false`
+/// can bring the taskbar button back WITHOUT ever re-adding an Alt+Tab entry. `skip = true` is the
+/// default discreet state (no taskbar button; reachable via the tray icon / Alt+Shift+H).
+///
+/// Note we deliberately do NOT touch `WS_EX_TOOLWINDOW` / `WS_EX_APPWINDOW` here anymore: setting
+/// `WS_EX_APPWINDOW` would re-add the window to Alt+Tab, defeating the whole point.
 #[tauri::command]
 pub fn set_window_skip_taskbar(window: tauri::WebviewWindow, skip: bool) -> Result<(), String> {
     set_skip_taskbar_impl(&window, skip)
 }
 
-#[cfg(windows)]
-fn set_skip_taskbar_impl(window: &tauri::WebviewWindow, skip: bool) -> Result<(), String> {
-    use windows::Win32::Foundation::HWND;
-    use windows::Win32::UI::WindowsAndMessaging::{
-        GetWindowLongPtrW, SetWindowLongPtrW, ShowWindow, GWL_EXSTYLE, SW_HIDE, SW_SHOW,
-        WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
-    };
-    let hwnd = HWND(window.hwnd().map_err(|e| format!("hwnd: {e}"))?.0);
-    let was_visible = window.is_visible().unwrap_or(true);
-    unsafe {
-        // Alt+Tab/taskbar only re-read WS_EX_TOOLWINDOW after the window is hidden and shown
-        // again, so cycle visibility around the style change (skipped when already hidden).
-        if was_visible {
-            let _ = ShowWindow(hwnd, SW_HIDE);
-        }
-        let mut ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
-        if skip {
-            ex = (ex | WS_EX_TOOLWINDOW.0) & !WS_EX_APPWINDOW.0;
-        } else {
-            ex = (ex & !WS_EX_TOOLWINDOW.0) | WS_EX_APPWINDOW.0;
-        }
-        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex as isize);
-        if was_visible {
-            let _ = ShowWindow(hwnd, SW_SHOW);
-        }
-    }
-    Ok(())
-}
-
-#[cfg(not(windows))]
 fn set_skip_taskbar_impl(window: &tauri::WebviewWindow, skip: bool) -> Result<(), String> {
     window
         .set_skip_taskbar(skip)
         .map_err(|e| format!("set_skip_taskbar: {e}"))
+}
+
+/// Reveal a currently-hidden overlay window without stealing focus (`SW_SHOWNOACTIVATE`, so focus
+/// stays on whatever is behind it). Alt+Tab / taskbar stealth is now structural (ownership, set
+/// once at startup by [`make_owned_stealth`]) rather than something that must be re-committed at
+/// each hide->show transition, so this is just a plain no-activate show. Given the raw `HWND`; the
+/// mouse-hook gestures call it in place of a bare `ShowWindow(.., SW_SHOWNOACTIVATE)`.
+#[cfg(windows)]
+pub(crate) fn show_noactivate_keep_stealth(hwnd: windows::Win32::Foundation::HWND) {
+    use windows::Win32::UI::WindowsAndMessaging::{ShowWindow, SW_SHOWNOACTIVATE};
+    unsafe {
+        let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+    }
 }
 
 #[cfg(windows)]
@@ -85,9 +93,22 @@ fn set_opacity_impl(window: &tauri::WebviewWindow, alpha: u8) -> Result<(), Stri
     let hwnd = HWND(window.hwnd().map_err(|e| format!("hwnd: {e}"))?.0);
     unsafe {
         let ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
-        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex | (WS_EX_LAYERED.0 as isize));
-        SetLayeredWindowAttributes(hwnd, COLORREF(0), alpha, LWA_ALPHA)
-            .map_err(|e| format!("SetLayeredWindowAttributes: {e}"))?;
+        let layered = ex & (WS_EX_LAYERED.0 as isize) != 0;
+        if alpha >= 255 {
+            // Fully opaque: strip WS_EX_LAYERED so the window is a plain, non-layered window.
+            // A layered window is composited on its own surface and repaints noticeably slower
+            // while being dragged - the window visibly lags the cursor - so we only pay that cost
+            // when the overlay is ACTUALLY translucent, not at the default 100% opacity.
+            if layered {
+                SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex & !(WS_EX_LAYERED.0 as isize));
+            }
+        } else {
+            if !layered {
+                SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex | (WS_EX_LAYERED.0 as isize));
+            }
+            SetLayeredWindowAttributes(hwnd, COLORREF(0), alpha, LWA_ALPHA)
+                .map_err(|e| format!("SetLayeredWindowAttributes: {e}"))?;
+        }
     }
     Ok(())
 }
@@ -95,4 +116,229 @@ fn set_opacity_impl(window: &tauri::WebviewWindow, alpha: u8) -> Result<(), Stri
 #[cfg(not(windows))]
 fn set_opacity_impl(_window: &tauri::WebviewWindow, _alpha: u8) -> Result<(), String> {
     Ok(())
+}
+
+/// Owner HWND (as `isize`) of the hidden window that owns the main overlay, stored so we never
+/// re-create it and so nothing destroys it before process exit. Windows-only. `HWND` has no
+/// `Drop`, so keeping this value is not what keeps the window alive - the window lives until
+/// `DestroyWindow` or process teardown - but it documents intent and makes the op idempotent.
+#[cfg(windows)]
+static OWNER_HWND: std::sync::OnceLock<isize> = std::sync::OnceLock::new();
+
+/// Force `hwnd` into the app's "stealth" extended style: clear `WS_EX_APPWINDOW` and set
+/// `WS_EX_TOOLWINDOW`, then commit the frame change. Two problems this solves:
+///  - `WS_EX_APPWINDOW` FORCES a taskbar button (and an Alt+Tab entry) even on an owned window, so
+///    ownership only actually hides the window once it is gone. tao sets it on every parentless
+///    top-level window (its `ON_TASKBAR` flag) and re-adds it on any style re-diff (notably
+///    `set_always_on_top`), so this has to be re-run after those.
+///  - `WS_EX_TOOLWINDOW` marks the window a utility window, which is what makes Task Manager list
+///    the process under "Background processes" rather than "Apps", and gives the shell a second
+///    reason to keep it off the taskbar / Alt+Tab. It is invisible on our borderless window - there
+///    is no native caption to slim.
+///
+/// The `SWP_FRAMECHANGED` commit makes the shell re-read the ex-style so both decisions update even
+/// while the window is already visible (mirroring how tao's own frame change re-adds the button).
+/// Idempotent. Windows-only.
+#[cfg(windows)]
+fn apply_stealth_exstyle(hwnd: windows::Win32::Foundation::HWND) {
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GetWindowLongPtrW, IsWindowVisible, SetWindowLongPtrW, SetWindowPos, ShowWindow,
+        GWL_EXSTYLE, SW_HIDE, SW_SHOWNOACTIVATE, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE,
+        SWP_NOSIZE, SWP_NOZORDER, WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
+    };
+    unsafe {
+        let ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+        let want = (ex & !(WS_EX_APPWINDOW.0 as isize)) | (WS_EX_TOOLWINDOW.0 as isize);
+        // No-op once already applied, so this is safe to re-run on every focus/resize event -
+        // only the ONE transition that actually changes the style pays the cost below.
+        if want == ex {
+            return;
+        }
+        // Commit the new ex-style FIRST, so any window event fired by the hide/show cycle below
+        // re-enters here, sees want == ex, and no-ops (no recursion / no loop).
+        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, want);
+        if IsWindowVisible(hwnd).as_bool() {
+            // The shell only DROPS an existing taskbar button when a visible window's app-
+            // eligibility is re-read at a hide -> show transition; a bare SetWindowPos/FRAMECHANGED
+            // sets the style but leaves a stale button (documented Win32 quirk). Show WITHOUT
+            // activating so we never steal focus. This is the one place a brief flicker can occur,
+            // and only on the first application after tao's on-show restyle re-adds WS_EX_APPWINDOW.
+            let _ = ShowWindow(hwnd, SW_HIDE);
+            let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+        } else {
+            // Hidden (e.g. the startup call before the very first show): just commit the frame; the
+            // first show then reads the already-stealthed style with no button ever created.
+            let _ = SetWindowPos(
+                hwnd,
+                None,
+                0,
+                0,
+                0,
+                0,
+                SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
+            );
+        }
+        tracing::info!(
+            "stealth: applied ex-style (was {:#x}, now {:#x})",
+            ex as usize,
+            want as usize
+        );
+    }
+}
+
+/// Re-assert the taskbar / Alt+Tab / background-process stealth on `window`. The owner link set by
+/// [`make_owned_stealth`] is permanent, but the `WS_EX_APPWINDOW` / `WS_EX_TOOLWINDOW` ex-style is
+/// re-derived by tao on the first show (and on any restyle), which drops it. Call this on a
+/// tab-independent trigger AFTER the window is visible - the window's own focus / resize events -
+/// so the stealth holds no matter which view is mounted. Cheap no-op once the style is in place.
+#[cfg(windows)]
+pub(crate) fn reassert_stealth(window: &tauri::WebviewWindow) {
+    if let Ok(h) = window.hwnd() {
+        apply_stealth_exstyle(windows::Win32::Foundation::HWND(h.0));
+    }
+}
+
+#[cfg(not(windows))]
+pub(crate) fn reassert_stealth(_window: &tauri::WebviewWindow) {}
+
+/// Permanently exclude `window` from BOTH the taskbar and the Alt+Tab switcher by making it an
+/// OWNED top-level window with no `WS_EX_APPWINDOW`. The shell decides taskbar / Alt+Tab membership
+/// from ownership + `WS_EX_APPWINDOW`, not from `WS_EX_TOOLWINDOW`: an owned top-level window that
+/// lacks `WS_EX_APPWINDOW` is structurally kept out of both lists. Ownership is stored in
+/// `GWLP_HWNDPARENT`, which tao/Tauri never read or rewrite, so it survives show/hide, always-on-top
+/// toggles, activation, focus, and elapsed time with no re-commits. The one catch is the companion
+/// `WS_EX_APPWINDOW` bit: tao sets it at creation (its `ON_TASKBAR` flag) and re-adds it whenever it
+/// re-diffs styles, so [`apply_stealth_exstyle`] clears it (and sets `WS_EX_TOOLWINDOW`) here and
+/// again after each `set_always_on_top`. Together these replace the old fragile reassert dance.
+///
+/// Call this at startup while the main window is still `visible: false` (so its first show is
+/// already owned) AND again after the window is visible (focus / resize / frontend mount), because
+/// tao's on-show restyle drops the ex-style. Idempotent: the owner is created once and cached; every
+/// call re-asserts the owner link and re-applies the stealth ex-style.
+///
+/// The owner is an invisible, zero-size, never-shown top-level `Static` window (a built-in class,
+/// so no `RegisterClassW`); `WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE` keep the owner itself out of
+/// everything and unfocusable. IMPORTANT lifecycle: the system destroys an OWNED window when its
+/// OWNER is destroyed, never the reverse - so the owner MUST outlive the main window. We therefore
+/// never `DestroyWindow` it during runtime; process teardown cleans up both. Returns the owner
+/// HWND as `isize`.
+#[cfg(windows)]
+pub(crate) fn make_owned_stealth(window: &tauri::WebviewWindow) -> Result<isize, String> {
+    use windows::core::PCWSTR;
+    use windows::Win32::Foundation::{HINSTANCE, HWND};
+    use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        CreateWindowExW, SetWindowLongPtrW, GWLP_HWNDPARENT, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
+        WS_POPUP,
+    };
+
+    let main = HWND(window.hwnd().map_err(|e| format!("hwnd: {e}"))?.0);
+
+    // Create the owner once and cache it; on later calls just re-assert the (cheap) owner link so
+    // this whole function is safe to call repeatedly (startup, focus/resize events, frontend mount).
+    let owner_val = if let Some(&existing) = OWNER_HWND.get() {
+        unsafe { SetWindowLongPtrW(main, GWLP_HWNDPARENT, existing) };
+        existing
+    } else {
+        let created = unsafe {
+            let hinst: HINSTANCE = GetModuleHandleW(PCWSTR::null())
+                .map_err(|e| format!("module handle: {e}"))?
+                .into();
+            // Built-in "Static" class => no RegisterClassW. Its name goes in as a null-terminated
+            // UTF-16 buffer because the `w!` string-literal macro lives in the windows-strings
+            // crate, which `windows` 0.58 does not re-export; `class` must outlive the
+            // CreateWindowExW call. Invisible, 0-size, top-level (hwndparent = None), never shown;
+            // TOOLWINDOW + NOACTIVATE keep the owner itself out of everything and unfocusable.
+            let class: Vec<u16> = "Static\0".encode_utf16().collect();
+            let owner = CreateWindowExW(
+                WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
+                PCWSTR(class.as_ptr()),
+                PCWSTR::null(),
+                WS_POPUP,
+                0,
+                0,
+                0,
+                0,
+                None,
+                None,
+                Some(&hinst),
+                None,
+            )
+            .map_err(|e| format!("create owner: {e}"))?;
+            // tao never rewrites GWLP_HWNDPARENT, so this owner link survives show/hide, topmost,
+            // activation, focus, and elapsed time with zero re-commits.
+            SetWindowLongPtrW(main, GWLP_HWNDPARENT, owner.0 as isize);
+            owner.0 as isize
+        };
+        let _ = OWNER_HWND.set(created);
+        created
+    };
+
+    // Always (re)apply the stealth ex-style. Ownership alone is not enough - tao created the main
+    // window with its ON_TASKBAR flag set, so it carries WS_EX_APPWINDOW (forces a taskbar button /
+    // Alt+Tab entry even when owned) and no WS_EX_TOOLWINDOW (Task Manager files it under "Apps"),
+    // and tao re-derives that ex-style on the first show and on every restyle. So this must run on
+    // EVERY call, not only the first, which is why the startup call, the focus/resize re-assert, and
+    // the frontend mount all funnel through here.
+    apply_stealth_exstyle(main);
+    Ok(owner_val)
+}
+
+/// Frontend-callable entry point that (re)applies the full window stealth: ensures the hidden owner
+/// exists and re-applies the taskbar / Alt+Tab / background-process ex-style. The webview calls this
+/// once on mount - which happens AFTER the window is first shown and is independent of which view /
+/// tab is active - so the stealth holds everywhere, not only while the Assistant view is mounted.
+#[tauri::command]
+pub fn apply_window_stealth(window: tauri::WebviewWindow) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        make_owned_stealth(&window)?;
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = &window;
+    }
+    Ok(())
+}
+
+/// Disable Windows "Aero Snap" for a window: dragging it to a screen edge or corner no longer
+/// auto-tiles (half / quarter) it, so the borderless overlay can be positioned freely. Windows
+/// only snap-tiles maximizable windows, so this clears WS_MAXIMIZEBOX. The custom title-bar
+/// maximize button still works - it maximizes programmatically, a path that does not consult the
+/// style bit. No-op off Windows.
+#[cfg(windows)]
+pub(crate) fn disable_aero_snap(window: &tauri::WebviewWindow) -> Result<(), String> {
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GetWindowLongPtrW, SetWindowLongPtrW, GWL_STYLE, WS_MAXIMIZEBOX,
+    };
+    let hwnd = HWND(window.hwnd().map_err(|e| format!("hwnd: {e}"))?.0);
+    unsafe {
+        let style = GetWindowLongPtrW(hwnd, GWL_STYLE);
+        SetWindowLongPtrW(hwnd, GWL_STYLE, style & !(WS_MAXIMIZEBOX.0 as isize));
+    }
+    Ok(())
+}
+
+#[cfg(not(windows))]
+pub(crate) fn disable_aero_snap(_window: &tauri::WebviewWindow) -> Result<(), String> {
+    Ok(())
+}
+
+/// True if the logical point (x, y) lands on (near the top-left of) any currently-connected
+/// monitor. Used to avoid restoring a saved window position onto a monitor that is gone, which
+/// would leave the window off-screen and unreachable.
+pub(crate) fn point_on_any_monitor(window: &tauri::WebviewWindow, x: f64, y: f64) -> bool {
+    let Ok(monitors) = window.available_monitors() else {
+        return false;
+    };
+    monitors.iter().any(|m| {
+        let sf = m.scale_factor();
+        let mp = m.position().to_logical::<f64>(sf);
+        let ms = m.size().to_logical::<f64>(sf);
+        x >= mp.x - 40.0
+            && x <= mp.x + ms.width - 120.0
+            && y >= mp.y - 5.0
+            && y <= mp.y + ms.height - 60.0
+    })
 }
