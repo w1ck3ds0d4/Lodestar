@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { ANSWER_STYLES, type CaptureState } from "../types";
 import { Answer } from "./MarkdownAnswer";
+import { Select } from "./Select";
 import { sendCaptureCommand as send, usePersistedBounds } from "../lib/captureWindow";
 
 export type PanelKind = "answers" | "transcript" | "controls" | "shortcuts" | "log";
@@ -243,17 +244,17 @@ export function CapturePanel({ kind }: { kind: PanelKind }) {
                 </div>
                 <label className="cap-style">
                   <span>Style</span>
-                  <select
+                  <Select
                     value={st.answerStyle ?? "auto"}
-                    title="Answer style the assistant uses - e.g. switch to Deep dive for a deep technical panel"
-                    onChange={(e) => send({ cmd: "style", style: e.target.value })}
+                    ariaLabel="Answer style the assistant uses - e.g. switch to Deep dive for a deep technical panel"
+                    onChange={(v) => send({ cmd: "style", style: v })}
                   >
                     {ANSWER_STYLES.map((s) => (
                       <option key={s.id} value={s.id}>
                         {s.label}
                       </option>
                     ))}
-                  </select>
+                  </Select>
                 </label>
                 <label className="cap-opacity">
                   <span>Opacity</span>

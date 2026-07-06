@@ -6,6 +6,7 @@ import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import "katex/dist/katex.min.css";
 import * as api from "../api";
+import { Select } from "./Select";
 import {
   APP_STATUSES,
   APP_STATUS_LABELS,
@@ -232,13 +233,13 @@ function AppCard({
       </div>
       {item.org && <div className="muted sm">{item.org}</div>}
       <div className="track-row">
-        <select value={item.status} onChange={(e) => move(e.target.value)}>
+        <Select value={item.status} onChange={(v) => move(v)} ariaLabel="Application status">
           {APP_STATUSES.map((s) => (
             <option key={s} value={s}>
               {APP_STATUS_LABELS[s]}
             </option>
           ))}
-        </select>
+        </Select>
         <input
           type="date"
           className={"track-deadline" + (dl ? " " + dl : "")}
@@ -314,13 +315,17 @@ function ProgramCard({
       </div>
       {item.org && <div className="muted sm">{item.org}</div>}
       <div className="prog-row">
-        <select value={item.status} onChange={(e) => patch(e.target.value, item.deadline, notes)}>
+        <Select
+          value={item.status}
+          onChange={(v) => patch(v, item.deadline, notes)}
+          ariaLabel="Program status"
+        >
           {PROGRAM_STATUSES.map((s) => (
             <option key={s} value={s}>
               {PROGRAM_STATUS_LABELS[s]}
             </option>
           ))}
-        </select>
+        </Select>
         <input
           type="date"
           value={item.deadline ?? ""}

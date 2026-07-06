@@ -3,6 +3,7 @@ import { Check, Play, Plus, Trash2 } from "lucide-react";
 import type { Source } from "../types";
 import { CONFIG_FIELDS, KIND_LABELS, SOURCE_KINDS } from "../types";
 import * as api from "../api";
+import { Select } from "./Select";
 
 const fieldsFor = (kind: string) => CONFIG_FIELDS[kind] ?? [];
 
@@ -153,19 +154,20 @@ export function SourcesPanel({
           <div className="add-source">
             <h3>Add a source</h3>
             <div className="add-row">
-              <select
+              <Select
                 value={newKind}
-                onChange={(e) => {
-                  setNewKind(e.target.value);
+                onChange={(v) => {
+                  setNewKind(v);
                   setNewConfig({});
                 }}
+                ariaLabel="Source type"
               >
                 {SOURCE_KINDS.map((k) => (
                   <option key={k} value={k}>
                     {KIND_LABELS[k]}
                   </option>
                 ))}
-              </select>
+              </Select>
               <input
                 placeholder="Label (optional)"
                 value={newLabel}
