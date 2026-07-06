@@ -28,7 +28,7 @@ const AUTO_PROMPT: &str = "You monitor a live transcript of a conversation or ca
 /// Models that accept `thinking: {type: "adaptive"}`. Haiku and any unknown model
 /// omit it so a model switch in Settings can never produce a 400.
 fn supports_adaptive_thinking(model: &str) -> bool {
-    model.starts_with("claude-opus-4") || model == "claude-sonnet-4-6"
+    model.starts_with("claude-opus-4") || model == "claude-sonnet-4-6" || model == "claude-sonnet-5"
 }
 
 /// Output-format directive appended to the answer prompts per the user's chosen style.
@@ -1050,7 +1050,10 @@ fn api_error_message(status: u16, payload: &Value) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_ats_json, parse_cards_json, style_directive, with_profile, AUTO_PROMPT};
+    use super::{
+        parse_ats_json, parse_cards_json, style_directive, supports_adaptive_thinking,
+        with_profile, AUTO_PROMPT,
+    };
 
     #[test]
     fn ats_weighted_overall_and_clamping() {
@@ -1121,6 +1124,15 @@ mod tests {
             d.contains("override") && d.contains("length cap"),
             "deep must lift the short-answer cap so it can go long"
         );
+    }
+
+    #[test]
+    fn adaptive_thinking_covers_opus_and_current_sonnets() {
+        assert!(supports_adaptive_thinking("claude-opus-4-8"));
+        assert!(supports_adaptive_thinking("claude-sonnet-5"));
+        assert!(supports_adaptive_thinking("claude-sonnet-4-6"));
+        // Models without adaptive thinking must not have it forced on (would 400 on some).
+        assert!(!supports_adaptive_thinking("claude-haiku-4-5"));
     }
 
     #[test]

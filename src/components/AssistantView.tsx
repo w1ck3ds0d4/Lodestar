@@ -340,9 +340,12 @@ export function AssistantView() {
   // `spk` retains the diarized speaker label ("Speaker N") from the worded spans of the
   // open utterance, so a trailing empty speech-final endpoint (which carries only the
   // generic role label) can't overwrite it when the bubble commits.
+  // `start` is when this utterance began (epoch ms). A long "Them" turn only commits when the
+  // speaker pauses, so it finalizes AFTER short "You: ok" interjections spoken during it; ordering
+  // committed segments by `start` (not finalize time) keeps the dialog in the real spoken order.
   const emptyLive = () => ({
-    you: { fin: "", int: "", spk: "" },
-    them: { fin: "", int: "", spk: "" },
+    you: { fin: "", int: "", spk: "", start: 0 },
+    them: { fin: "", int: "", spk: "", start: 0 },
   });
   const liveRef = useRef(emptyLive());
   const [live, setLive] = useState(emptyLive());
@@ -916,6 +919,7 @@ export function AssistantView() {
           // Final span: append to the finalized text and clear the tail. Only on a
           // speech-final (the speaker paused) do we commit the whole utterance.
           if (text.trim()) {
+            if (!slot.fin) slot.start = Date.now(); // first worded span = this turn's start time
             slot.fin = slot.fin ? slot.fin + " " + text.trim() : text.trim();
             slot.spk = speaker; // remember the diarized label from the span that had words
           }
@@ -924,13 +928,21 @@ export function AssistantView() {
             const acc = slot.fin.trim();
             // Commit under the retained speaker; fall back to the event's label only if
             // no worded span set one (so an empty endpoint never downgrades Speaker N).
+            // `ts` is the turn's START, so a long turn sorts by when it began, not when it ended.
             if (acc)
               setSegments((s) => [
                 ...s,
-                { id: ++segIdRef.current, role, speaker: slot.spk || speaker, text: acc, ts: Date.now() },
+                {
+                  id: ++segIdRef.current,
+                  role,
+                  speaker: slot.spk || speaker,
+                  text: acc,
+                  ts: slot.start || Date.now(),
+                },
               ]);
             slot.fin = "";
             slot.spk = "";
+            slot.start = 0;
           }
           sync();
         },
@@ -953,7 +965,10 @@ export function AssistantView() {
           const acc = (slot.fin + " " + slot.int).trim();
           if (acc) {
             const speaker = slot.spk || (role === "them" ? "Them" : "You");
-            setSegments((s) => [...s, { id: ++segIdRef.current, role, speaker, text: acc, ts: Date.now() }]);
+            setSegments((s) => [
+              ...s,
+              { id: ++segIdRef.current, role, speaker, text: acc, ts: slot.start || Date.now() },
+            ]);
           }
         });
         liveRef.current = emptyLive();
@@ -1266,9 +1281,10 @@ export function AssistantView() {
     clearTranscript();
   };
 
-  // Build the saved-session text (transcript + answered Q&A, oldest first).
+  // Build the saved-session text (transcript + answered Q&A, oldest first). Sort by turn start so
+  // the saved transcript reads in real spoken order, matching the live dialog.
   const buildSession = (segs: DialogSegment[], qaList: QA[]) => {
-    const transcript = transcriptText(segs);
+    const transcript = transcriptText([...segs].sort((a, b) => a.ts - b.ts));
     const answers = qaList
       .filter((e) => e.a && !e.pending)
       .slice()
@@ -1616,6 +1632,11 @@ export function AssistantView() {
 
   // Never leave overlay panels floating when this view unmounts (tab switch / close).
   useEffect(() => () => void api.closeCapturePanels().catch(() => {}), []);
+
+  // Display the dialog in true spoken order: sort committed segments by when each turn STARTED,
+  // so a long interviewer turn that finalizes late still shows above the short interjections
+  // ("ok", "mhmm") spoken during it. Storage stays in finalize order, so answering is unaffected.
+  const orderedSegments = useMemo(() => [...segments].sort((a, b) => a.ts - b.ts), [segments]);
 
   const needsDeepgramKey = sttEngine === "deepgram" && !hasSttKey;
   // snippetGroups skips pending cards, so its output only changes when an answer
@@ -2579,8 +2600,8 @@ export function AssistantView() {
                     if (el) stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
                   }}
                 >
-                  {segments.map((s, i) => {
-                    const prev = segments[i - 1];
+                  {orderedSegments.map((s, i) => {
+                    const prev = orderedSegments[i - 1];
                     // Gap since the other speaker's previous line = how long this turn took to start.
                     const gap = prev && prev.role !== s.role && prev.ts && s.ts ? s.ts - prev.ts : null;
                     return (
