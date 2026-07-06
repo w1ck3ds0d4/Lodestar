@@ -1,19 +1,26 @@
 [package]
-name = "jobradar"
+name = "lodestar"
 version = "0.1.1"
-description = "JobRadar - a local-first desktop app that searches the job market"
+description = "Lodestar - a local-first desktop app that searches the job market"
 authors = ["w1ck3ds0d4 <support@wickitlab.com>"]
 edition = "2021"
 license = "AGPL-3.0-or-later"
-repository = "https://github.com/w1ck3ds0d4/JobRadar"
-homepage = "https://github.com/w1ck3ds0d4/JobRadar"
+repository = "https://github.com/w1ck3ds0d4/Lodestar"
+homepage = "https://github.com/w1ck3ds0d4/Lodestar"
 readme = "../README.md"
 keywords = ["job-search", "jobs", "tauri", "aggregator", "desktop"]
 categories = ["gui"]
 
 [lib]
-name = "jobradar_lib"
+name = "lodestar_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
+
+# The compiled executable is named `mcp_lodestar` (deliberately not the product
+# name "Lodestar") so a companion app can find and attach to the process by a
+# stable, unique image name. `mainBinaryName` in tauri.conf.json must match this.
+[[bin]]
+name = "mcp_lodestar"
+path = "src/main.rs"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -60,6 +67,7 @@ candle-core = "0.10.2"
 candle-nn = "0.10.2"
 candle-transformers = "0.10.2"
 tokenizers = "0.23.1"
+nvml-wrapper = "0.12.1"
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.58", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_UI_Accessibility", "Win32_System_Com", "Win32_System_Threading", "Win32_Security_Cryptography"] }

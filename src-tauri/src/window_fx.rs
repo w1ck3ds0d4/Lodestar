@@ -1,6 +1,6 @@
 //! Translucent-overlay + always-on-top window controls, so the assistant can sit
 //! discreetly over a call. Commands return `Result<(), String>` to match the rest of
-//! JobRadar's Tauri commands. Opacity is Windows-only; a no-op success elsewhere.
+//! Lodestar's Tauri commands. Opacity is Windows-only; a no-op success elsewhere.
 
 /// Make the webview window translucent. `opacity` is 0.0..=1.0 (1.0 = fully opaque).
 #[tauri::command]

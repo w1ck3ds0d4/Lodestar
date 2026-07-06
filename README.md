@@ -1,10 +1,10 @@
 <p align="center">
-  <img src="assets/banner.svg" alt="JobRadar - Local-first job-market search for your desktop" width="100%" />
+  <img src="assets/banner.svg" alt="Lodestar - Local-first job-market search for your desktop" width="100%" />
 </p>
 
 **Local-first job search and a real-time career copilot for your desktop**
 
-JobRadar started as a local-first job-market search tool and has grown into a full job-hunt and interview workstation. It polls a set of job sources on a schedule, normalizes and de-duplicates the postings into a local SQLite database, and lets you full-text search, filter, and get desktop notifications about new matches. On top of that it adds an application/program **Tracker**, a **Study** planner for the skills you are building, and an **Assistant** copilot that listens to a call, transcribes it with speaker attribution, and answers questions on the spot.
+Lodestar started as a local-first job-market search tool and has grown into a full job-hunt and interview workstation. It polls a set of job sources on a schedule, normalizes and de-duplicates the postings into a local SQLite database, and lets you full-text search, filter, and get desktop notifications about new matches. On top of that it adds an application/program **Tracker**, a **Study** planner for the skills you are building, and an **Assistant** copilot that listens to a call, transcribes it with speaker attribution, and answers questions on the spot.
 
 No account and no backend server. Job-search data lives entirely on your machine. The Assistant's cloud features (Claude answers, Deepgram transcription) are opt-in and clearly flagged, and there is a fully-local mode (Ollama + on-device Whisper) that keeps everything on the machine.
 
@@ -72,7 +72,7 @@ Built with Tauri v2 (Rust) + React + Vite. The Rust core owns ingestion, storage
 - **Usage & cost** panel: live Deepgram balance, a local Claude token/cost estimate, and entered top-up credits with remaining
 - **Interview context**: attach your role, resume, notes, and the company, so answers are tailored; generate a company briefing plus questions to ask the interviewer
 - **Spoken, teleprompter-style answers**: live answers are written as a few complete first-person sentences you can read aloud verbatim (a one-line spoken roadmap for multi-part questions, trade-offs stated inline, a closing hand-off), with optional depth and a dim non-spoken "Next:" follow-up hint - not study-note bullets
-- **Read full page**: one click reads the whole focused page (including content scrolled off-screen) via UI Automation and attaches it as de-duplicated, accumulating context; works from an in-app button or the phone because it targets the last window you were on, not JobRadar
+- **Read full page**: one click reads the whole focused page (including content scrolled off-screen) via UI Automation and attaches it as de-duplicated, accumulating context; works from an in-app button or the phone because it targets the last window you were on, not Lodestar
 - **Global shortcuts**: `Alt+Shift+` hotkeys (listen, answer screen, watch, read page, show/hide panels, opacity, panic-hide) that fire even while the call app is focused, with a Shortcuts cheat-sheet overlay
 - **Activity log**: a timestamped record of what each shortcut/action actually did (answered / screen unchanged / page chars attached / ...), as a main-window panel and a floating overlay panel
 - **Switchable profiles**: keep several interview personas (role, resume, notes, per-profile stories and job-search filters) and pick which one drives the answers, the screen reader, the phone, and resume matching
@@ -130,8 +130,8 @@ Optional, for the Assistant:
 
 ```bash
 # 1. Clone and install
-git clone https://github.com/w1ck3ds0d4/JobRadar.git
-cd JobRadar
+git clone https://github.com/w1ck3ds0d4/Lodestar.git
+cd Lodestar
 pnpm install
 
 # 2. Run the app (boots, creates the local DB, syncs enabled sources within a few seconds)
@@ -172,7 +172,7 @@ Credential-gated (add your own free key in the Sources drawer):
 
 ## Using Assistant mode
 
-Assistant mode turns JobRadar into a live interview/study copilot: it listens to a call, transcribes both sides, and answers the other party's questions on the spot. Everything below is optional and lives under the **Assistant** tab.
+Assistant mode turns Lodestar into a live interview/study copilot: it listens to a call, transcribes both sides, and answers the other party's questions on the spot. Everything below is optional and lives under the **Assistant** tab.
 
 ### 1. Set up audio and a model
 

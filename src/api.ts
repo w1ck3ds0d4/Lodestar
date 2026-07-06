@@ -244,7 +244,7 @@ export const saveSession = (title: string, transcript: string, answers: string) 
 export const removeSession = (id: number) => invoke<void>("remove_session", { id });
 export const sessionReview = (transcript: string, answers: string) =>
   invoke<string>("session_review", { transcript, answers });
-// Export a session's transcript + answers to a Markdown file (Downloads/JobRadar);
+// Export a session's transcript + answers to a Markdown file (Downloads/Lodestar);
 // resolves to the file path written.
 export const exportSession = (id: number) => invoke<string>("export_session", { id });
 // Export every saved session; resolves to { dir, count }.

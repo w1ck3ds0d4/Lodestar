@@ -1,4 +1,4 @@
-# JobRadar release smoke test
+# Lodestar release smoke test
 
 A ~5-minute manual pass to run on a **packaged build** (not just `cargo`/`vite`)
 before shipping. CI only compiles and unit-tests; it cannot catch runtime issues
@@ -14,7 +14,7 @@ this on the real app.
 
 ## Launch & startup
 
-- [ ] The JobRadar **splash appears immediately** - no blank or frozen window.
+- [ ] The Lodestar **splash appears immediately** - no blank or frozen window.
 - [ ] The splash fades to the populated job list within a few seconds.
 - [ ] On the **first launch after updating**, the app stays responsive while the
       one-time derived-column backfill runs in the background (it should not hang).

@@ -12,7 +12,7 @@ use base64::Engine;
 use serde::Serialize;
 
 /// Display name of the firewall rule we manage, so detection and creation agree.
-pub const RULE_NAME: &str = "JobRadar phone companion";
+pub const RULE_NAME: &str = "Lodestar phone companion";
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -35,7 +35,7 @@ fn build_status(public_network: bool, rule_missing: bool, can_fix: bool) -> Phon
         "Windows treats this network as Public, which blocks phone connections. Allowing \
          access marks it Private and opens the companion port to your local network only."
     } else if rule_missing {
-        "A firewall rule is needed so your phone can reach JobRadar. It opens the companion \
+        "A firewall rule is needed so your phone can reach Lodestar. It opens the companion \
          port to your local network only."
     } else {
         "Your phone should be able to connect on this network."

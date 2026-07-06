@@ -26,7 +26,7 @@ pub async fn fetch(http: &Client, cfg: &Value) -> Result<Vec<RawJob>> {
     // 30x-redirect into localhost / cloud metadata / an RFC-1918 host).
     validate_public_url(&page).map_err(|e| anyhow!(e))?;
     let client = reqwest::Client::builder()
-        .user_agent("JobRadar/0.1 (+personal job search)")
+        .user_agent("Lodestar/0.1 (+personal job search)")
         .redirect(reqwest::redirect::Policy::custom(|attempt| {
             if attempt.previous().len() >= 3 || host_str_blocked(attempt.url()) {
                 attempt.stop()

@@ -677,7 +677,7 @@ pub struct ExportResult {
 }
 
 /// Export one saved session's transcript + answers as a Markdown file in the user's
-/// Downloads/JobRadar folder. Returns the full path written, so the UI can show it and
+/// Downloads/Lodestar folder. Returns the full path written, so the UI can show it and
 /// offer to reveal it. (Sessions otherwise live only in the local database.)
 #[tauri::command]
 pub fn export_session(
@@ -703,7 +703,7 @@ pub fn export_session(
     write_session_md(&app, id, &title, &transcript, &answers)
 }
 
-/// Export every saved session to its own Markdown file in Downloads/JobRadar. Returns
+/// Export every saved session to its own Markdown file in Downloads/Lodestar. Returns
 /// the folder and how many were written.
 #[tauri::command]
 pub fn export_all_sessions(
@@ -723,7 +723,7 @@ pub fn export_all_sessions(
     })
 }
 
-/// Export destination: <Downloads>/JobRadar (falling back to Documents, then app data),
+/// Export destination: <Downloads>/Lodestar (falling back to Documents, then app data),
 /// created if missing.
 fn export_dir(app: &AppHandle) -> Result<std::path::PathBuf, String> {
     let base = app
@@ -732,7 +732,7 @@ fn export_dir(app: &AppHandle) -> Result<std::path::PathBuf, String> {
         .or_else(|_| app.path().document_dir())
         .or_else(|_| app.path().app_data_dir())
         .map_err(|e| e.to_string())?;
-    let dir = base.join("JobRadar");
+    let dir = base.join("Lodestar");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     Ok(dir)
 }
@@ -1746,7 +1746,7 @@ pub async fn answer_screen(
 /// (including content scrolled off-screen) and sends it alongside the screenshot, so a coding
 /// exercise that spills past the visible viewport can still be solved. Meant for the phone
 /// remote: the PC keeps the browser focused while you tap, so the read targets the page, not
-/// JobRadar. A failed or empty text read just falls back to answering from the image alone.
+/// Lodestar. A failed or empty text read just falls back to answering from the image alone.
 #[tauri::command]
 pub async fn answer_screen_hybrid(
     state: State<'_, AppState>,
@@ -2403,7 +2403,7 @@ pub fn move_capture_panel(
 
 /// Read the full text of the page the user is on (including content scrolled off-screen) and
 /// return it, so the caller can attach it to context. Works from an in-app button or the
-/// phone - which would otherwise focus JobRadar - by targeting the last external window the
+/// phone - which would otherwise focus Lodestar - by targeting the last external window the
 /// user was on. UI Automation can be slow, so it runs on a blocking thread.
 #[tauri::command]
 pub async fn read_active_page() -> Result<String, String> {
