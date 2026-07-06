@@ -1547,6 +1547,44 @@ select:focus,
   font-weight: 600;
   white-space: nowrap;
 }
+
+/* Shortcuts reference modal (components/Shortcuts.tsx) - reuses .intro-overlay / .intro-card. */
+.shortcuts-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.shortcuts-section {
+  margin-top: 16px;
+}
+.shortcuts-section > strong {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--muted);
+}
+.shortcuts-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.shortcuts-list li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.shortcuts-keys {
+  flex: none;
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  width: 150px;
+}
 .setup-field {
   display: flex;
   flex-direction: column;
