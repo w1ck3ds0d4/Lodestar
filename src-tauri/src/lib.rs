@@ -3,6 +3,7 @@ mod capture;
 mod career;
 mod commands;
 mod db;
+mod gpu_tray;
 mod ingest;
 mod listen;
 mod local_stt;
@@ -238,7 +239,10 @@ pub fn run() {
                 if let Some(icon) = app.default_window_icon() {
                     builder = builder.icon(icon.clone());
                 }
-                builder.build(app)?;
+                let tray = builder.build(app)?;
+                // Repaint the tray icon with the live GPU temperature (no-op without
+                // an NVIDIA GPU; the default icon stays put).
+                gpu_tray::spawn_updater(tray);
             }
 
             // Background scheduler: sync due sources, then poll on an interval.
