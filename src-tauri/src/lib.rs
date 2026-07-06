@@ -234,8 +234,8 @@ pub fn run() {
                                 }
                                 if let (Some(x), Some(y)) = (num("x"), num("y")) {
                                     if window_fx::point_on_any_monitor(&main, x, y) {
-                                        let _ = main
-                                            .set_position(tauri::LogicalPosition::new(x, y));
+                                        let _ =
+                                            main.set_position(tauri::LogicalPosition::new(x, y));
                                     }
                                 }
                             }
@@ -260,8 +260,7 @@ pub fn run() {
                         window_fx::reassert_stealth(&save_win);
                         if let Ok(mut last) = LAST_GEO_SAVE.lock() {
                             let now = std::time::Instant::now();
-                            let due =
-                                last.map_or(true, |t| now.duration_since(t).as_millis() >= 400);
+                            let due = last.is_none_or(|t| now.duration_since(t).as_millis() >= 400);
                             if due {
                                 *last = Some(now);
                                 persist_window_state(&save_win, &save_db);

@@ -36,8 +36,16 @@ pub fn set_window_always_on_top(window: tauri::WebviewWindow, on_top: bool) -> R
         let hwnd = HWND(window.hwnd().map_err(|e| format!("hwnd: {e}"))?.0);
         let after = if on_top { HWND_TOPMOST } else { HWND_NOTOPMOST };
         unsafe {
-            SetWindowPos(hwnd, after, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE)
-                .map_err(|e| format!("SetWindowPos(topmost): {e}"))?;
+            SetWindowPos(
+                hwnd,
+                after,
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+            )
+            .map_err(|e| format!("SetWindowPos(topmost): {e}"))?;
         }
         Ok(())
     }
@@ -94,7 +102,7 @@ fn set_opacity_impl(window: &tauri::WebviewWindow, alpha: u8) -> Result<(), Stri
     unsafe {
         let ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
         let layered = ex & (WS_EX_LAYERED.0 as isize) != 0;
-        if alpha >= 255 {
+        if alpha == 255 {
             // Fully opaque: strip WS_EX_LAYERED so the window is a plain, non-layered window.
             // A layered window is composited on its own surface and repaints noticeably slower
             // while being dragged - the window visibly lags the cursor - so we only pay that cost
@@ -143,8 +151,8 @@ static OWNER_HWND: std::sync::OnceLock<isize> = std::sync::OnceLock::new();
 fn apply_stealth_exstyle(hwnd: windows::Win32::Foundation::HWND) {
     use windows::Win32::UI::WindowsAndMessaging::{
         GetWindowLongPtrW, IsWindowVisible, SetWindowLongPtrW, SetWindowPos, ShowWindow,
-        GWL_EXSTYLE, SW_HIDE, SW_SHOWNOACTIVATE, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE,
-        SWP_NOSIZE, SWP_NOZORDER, WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
+        GWL_EXSTYLE, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
+        SW_HIDE, SW_SHOWNOACTIVATE, WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
     };
     unsafe {
         let ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
