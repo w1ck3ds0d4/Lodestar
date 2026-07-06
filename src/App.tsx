@@ -9,6 +9,7 @@ import {
   EyeOff,
   GraduationCap,
   HelpCircle,
+  Keyboard,
   Radar,
   RefreshCw,
   Search,
@@ -39,6 +40,7 @@ import { AssistantView } from "./components/AssistantView";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { GettingStarted } from "./components/GettingStarted";
 import { ProfileHub } from "./components/ProfileHub";
+import { Shortcuts } from "./components/Shortcuts";
 import { ResizeHandles, WindowControls } from "./components/WindowChrome";
 
 // The main window is borderless (decorations off), so it draws its own title bar (the top
@@ -101,6 +103,7 @@ export default function App() {
   // resolves, i.e. the UI is populated and interactive.
   const [booted, setBooted] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [showShortcuts, setShowShortcuts] = useState(false);
   // Per-profile filter sync guards: prefsReady gates saving until the first load completes;
   // skipNextSave swallows the save that a programmatic load (mount or switch) would trigger.
   const prefsReady = useRef(false);
@@ -471,6 +474,13 @@ export default function App() {
           </button>
           <button className="icon-btn" title="Getting started" onClick={() => setShowIntro(true)}>
             <HelpCircle size={18} />
+          </button>
+          <button
+            className="icon-btn"
+            title="Keyboard shortcuts"
+            onClick={() => setShowShortcuts(true)}
+          >
+            <Keyboard size={18} />
           </button>
           <button className="icon-btn" title="Alerts" onClick={() => setPanel("alerts")}>
             <Bell size={18} />
@@ -847,6 +857,8 @@ export default function App() {
           }}
         />
       )}
+
+      {showShortcuts && <Shortcuts onClose={() => setShowShortcuts(false)} />}
 
       {scoring && (
         <div className="intro-overlay" onClick={() => setScoring(null)}>

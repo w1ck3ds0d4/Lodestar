@@ -92,7 +92,8 @@ button {
 }
 
 input,
-select {
+select,
+.jr-select {
   font: inherit;
   color: var(--text);
   background: var(--bg-2);
@@ -106,9 +107,65 @@ select {
 }
 
 input:focus,
-select:focus {
+select:focus,
+.jr-select:focus-visible {
   border-color: var(--accent);
   box-shadow: var(--ring);
+}
+
+/* Capture-safe custom <select> (components/Select.tsx). The trigger reuses the shared input/select
+   box above; these rules add the button layout, the in-DOM popup list, and its options. */
+.jr-select {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  cursor: pointer;
+  text-align: left;
+  min-width: 0;
+}
+.jr-select:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.jr-select__value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.jr-select__chev {
+  flex: none;
+  opacity: 0.7;
+}
+.jr-select__list {
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  max-height: 260px;
+  overflow-y: auto;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow-md);
+  z-index: 1000;
+}
+.jr-select__opt {
+  padding: 7px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.jr-select__opt.is-active {
+  background: var(--panel);
+}
+.jr-select__opt.is-selected {
+  color: var(--accent-2);
+}
+.jr-select__opt.is-disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
 /* --- Modern elevation + interaction polish (applies across all views) --- */
@@ -891,7 +948,8 @@ select:focus {
   opacity: 0.72;
 }
 .acc-body.is-listening .seg-btn,
-.acc-body.is-listening select {
+.acc-body.is-listening select,
+.acc-body.is-listening .jr-select {
   pointer-events: none;
 }
 
@@ -1489,6 +1547,44 @@ select:focus {
   font-weight: 600;
   white-space: nowrap;
 }
+
+/* Shortcuts reference modal (components/Shortcuts.tsx) - reuses .intro-overlay / .intro-card. */
+.shortcuts-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.shortcuts-section {
+  margin-top: 16px;
+}
+.shortcuts-section > strong {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--muted);
+}
+.shortcuts-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.shortcuts-list li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.shortcuts-keys {
+  flex: none;
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  width: 150px;
+}
 .setup-field {
   display: flex;
   flex-direction: column;
@@ -1529,7 +1625,8 @@ select:focus {
   gap: 8px;
   font-weight: 600;
 }
-.assistant-bar select {
+.assistant-bar select,
+.assistant-bar .jr-select {
   background: var(--panel);
   color: var(--text);
   border: 1px solid var(--border);
@@ -1875,7 +1972,8 @@ select:focus {
   border-top: 1px solid var(--border);
   padding-top: 10px;
 }
-.screen-bar select {
+.screen-bar select,
+.screen-bar .jr-select {
   background: var(--panel);
   color: var(--text);
   border: 1px solid var(--border);
@@ -1973,7 +2071,8 @@ select:focus {
   opacity: 0.72;
 }
 .setup-card.is-listening .seg-btn,
-.setup-card.is-listening select {
+.setup-card.is-listening select,
+.setup-card.is-listening .jr-select {
   pointer-events: none;
 }
 .setup-title {
@@ -1999,7 +2098,8 @@ select:focus {
   color: var(--muted);
   font-size: 12px;
 }
-.setup-row select {
+.setup-row select,
+.setup-row .jr-select {
   width: 100%;
   background: var(--panel);
   color: var(--text);
@@ -2007,7 +2107,8 @@ select:focus {
   border-radius: 8px;
   padding: 7px 10px;
 }
-.setup-row select:focus {
+.setup-row select:focus,
+.setup-row .jr-select:focus-visible {
   border-color: var(--accent);
   outline: none;
 }
@@ -2887,7 +2988,8 @@ select:focus {
   gap: 10px;
 }
 
-.add-row select {
+.add-row select,
+.add-row .jr-select {
   flex: 0 0 160px;
 }
 
@@ -3165,7 +3267,8 @@ textarea:focus {
   display: flex;
   gap: 6px;
 }
-.track-row select {
+.track-row select,
+.track-row .jr-select {
   flex: 1;
   min-width: 0;
 }
@@ -3213,7 +3316,8 @@ textarea:focus {
   gap: 8px;
 }
 
-.prog-row select {
+.prog-row select,
+.prog-row .jr-select {
   flex: 1;
 }
 
@@ -3749,7 +3853,8 @@ textarea:focus {
   font-size: 12px;
   color: var(--muted);
 }
-.cap-style select {
+.cap-style select,
+.cap-style .jr-select {
   flex: 1;
   min-width: 0;
   padding: 6px 8px;
@@ -3759,7 +3864,8 @@ textarea:focus {
   border-radius: 8px;
   font-size: 12.5px;
 }
-.cap-style select:hover {
+.cap-style select:hover,
+.cap-style .jr-select:hover {
   border-color: var(--accent);
 }
 .cap-btns {

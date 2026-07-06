@@ -64,6 +64,7 @@ import { isBackchannel, isNoneAnswer, looksNone } from "../lib/answer";
 import { extractResumeText } from "../lib/extractText";
 import { ApplicationKit } from "./ApplicationKit";
 import { Answer } from "./MarkdownAnswer";
+import { Select } from "./Select";
 import { SessionsPanel } from "./SessionsPanel";
 import { StoriesPanel } from "./StoriesPanel";
 
@@ -1686,13 +1687,13 @@ export function AssistantView() {
         <div className="assistant-title">
           <Bot size={18} /> Assistant
         </div>
-        <select value={model} onChange={(e) => void changeModel(e.target.value)} title="Answer model">
+        <Select value={model} onChange={(v) => void changeModel(v)} ariaLabel="Answer model">
           {ASSISTANT_MODELS.map((m) => (
             <option key={m.id} value={m.id}>
               {m.label} - {m.note}
             </option>
           ))}
-        </select>
+        </Select>
       </div>
 
       {!loaded ? (
@@ -1900,11 +1901,11 @@ export function AssistantView() {
                 <span className="muted sm">
                   <Monitor size={14} /> Screen:
                 </span>
-                <select
+                <Select
                   value={screenMonitor}
-                  onChange={(e) => setScreenMonitor(Number(e.target.value))}
+                  onChange={(v) => setScreenMonitor(Number(v))}
                   disabled={watchingScreen}
-                  title="Which monitor to read questions from"
+                  ariaLabel="Which monitor to read questions from"
                 >
                   {monitors.length === 0 ? (
                     <option value={0}>Primary display</option>
@@ -1915,7 +1916,7 @@ export function AssistantView() {
                       </option>
                     ))
                   )}
-                </select>
+                </Select>
                 <button
                   className={"btn-listen" + (watchingScreen ? " on" : "")}
                   onClick={() => setWatchingScreen((v) => !v)}
@@ -1998,27 +1999,27 @@ export function AssistantView() {
 
                   <div className="setup-row">
                     <span className="setup-label">Answer style</span>
-                    <select
+                    <Select
                       value={answerStyle}
-                      title="How answers are formatted. Auto lets the model pick per question."
-                      onChange={(e) => void changeStyle(e.target.value)}
+                      ariaLabel="How answers are formatted. Auto lets the model pick per question."
+                      onChange={(v) => void changeStyle(v)}
                     >
                       {ANSWER_STYLES.map((s) => (
                         <option key={s.id} value={s.id}>
                           {s.label} - {s.note}
                         </option>
                       ))}
-                    </select>
+                    </Select>
                   </div>
 
                   {answerEngine === "ollama" && (
                     <div className="setup-row">
                       <span className="setup-label">Ollama model</span>
                       {ollamaModels.length > 0 ? (
-                        <select
+                        <Select
                           value={ollamaModel}
-                          onChange={(e) => void changeOllamaModel(e.target.value)}
-                          title="Local model used to answer (run `ollama pull <model>` to add more)"
+                          onChange={(v) => void changeOllamaModel(v)}
+                          ariaLabel="Local model used to answer (run `ollama pull <model>` to add more)"
                         >
                           <option value="">Select a model…</option>
                           {ollamaModels.map((m) => (
@@ -2026,7 +2027,7 @@ export function AssistantView() {
                               {m}
                             </option>
                           ))}
-                        </select>
+                        </Select>
                       ) : (
                         <span className="muted sm">
                           No models found - start Ollama, then <code>ollama pull llama3.1</code>.
@@ -2065,18 +2066,18 @@ export function AssistantView() {
                     <>
                       <div className="setup-row">
                         <span className="setup-label">Language</span>
-                        <select
+                        <Select
                           value={sttLanguage}
                           disabled={listening}
-                          title="Spoken language for Deepgram. Streaming can't auto-detect, so pick the language of the call (or Multilingual)."
-                          onChange={(e) => void changeLanguage(e.target.value)}
+                          ariaLabel="Spoken language for Deepgram. Streaming can't auto-detect, so pick the language of the call (or Multilingual)."
+                          onChange={(v) => void changeLanguage(v)}
                         >
                           {STT_LANGUAGES.map((l) => (
                             <option key={l.code} value={l.code}>
                               {l.label}
                             </option>
                           ))}
-                        </select>
+                        </Select>
                       </div>
                       <div className="setup-row">
                         <label
@@ -2141,11 +2142,11 @@ export function AssistantView() {
                   {captureSource !== "mic" && (
                     <div className="setup-row">
                       <span className="setup-label">Output device</span>
-                      <select
+                      <Select
                         value={outputDevice}
-                        onChange={(e) => void changeOutputDevice(e.target.value)}
+                        onChange={(v) => void changeOutputDevice(v)}
                         disabled={listening}
-                        title="Which speaker/output to capture (its sound is recorded via loopback)"
+                        ariaLabel="Which speaker/output to capture (its sound is recorded via loopback)"
                       >
                         <option value="">Default output</option>
                         {devices.outputs.map((d) => (
@@ -2153,18 +2154,18 @@ export function AssistantView() {
                             {d}
                           </option>
                         ))}
-                      </select>
+                      </Select>
                     </div>
                   )}
 
                   {captureSource !== "system" && (
                     <div className="setup-row">
                       <span className="setup-label">Input device</span>
-                      <select
+                      <Select
                         value={inputDevice}
-                        onChange={(e) => void changeInputDevice(e.target.value)}
+                        onChange={(v) => void changeInputDevice(v)}
                         disabled={listening}
-                        title="Which microphone to capture"
+                        ariaLabel="Which microphone to capture"
                       >
                         <option value="">Default microphone</option>
                         {devices.inputs.map((d) => (
@@ -2172,7 +2173,7 @@ export function AssistantView() {
                             {d}
                           </option>
                         ))}
-                      </select>
+                      </Select>
                     </div>
                   )}
                 </div>
@@ -2327,16 +2328,17 @@ export function AssistantView() {
                   {profiles.length > 0 && (
                     <div className="setup-field">
                       <span className="setup-label">Active profile</span>
-                      <select
+                      <Select
                         value={activeProfileId ?? ""}
-                        onChange={(e) => void switchProfile(Number(e.target.value))}
+                        onChange={(v) => void switchProfile(Number(v))}
+                        ariaLabel="Active profile"
                       >
                         {profiles.map((p) => (
                           <option key={p.id} value={p.id}>
                             {p.name || "Untitled"}
                           </option>
                         ))}
-                      </select>
+                      </Select>
                       <div className="muted sm">Manage all profiles from the person icon in the top bar.</div>
                     </div>
                   )}
