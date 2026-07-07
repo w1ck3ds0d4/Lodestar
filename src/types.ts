@@ -491,8 +491,6 @@ export const STT_LANGUAGES: { code: string; label: string }[] = [
   { code: "zh", label: "Chinese" },
 ];
 
-// `inPrice`/`outPrice` are USD per million tokens, for the in-app cost estimate.
-// Approximate published Claude pricing; the real bill lives in the Anthropic console.
 // How answers are formatted. "auto" lets the model choose per question.
 export const ANSWER_STYLES: { id: string; label: string; note: string }[] = [
   { id: "auto", label: "Auto", note: "best format per question" },
@@ -504,6 +502,8 @@ export const ANSWER_STYLES: { id: string; label: string; note: string }[] = [
   { id: "narrate", label: "Narrate", note: "plan + spoken 'what I'm doing' for live coding" },
 ];
 
+// `inPrice`/`outPrice` are USD per million tokens, for the in-app cost estimate.
+// Approximate published Claude pricing; the real bill lives in the Anthropic console.
 export const ASSISTANT_MODELS: {
   id: string;
   label: string;
