@@ -145,6 +145,10 @@ struct Pats {
     ip_host: Regex,
     urgency_strong: Regex,
     urgency_weak: Regex,
+    // A named office finance function legitimately handles client funds (mule guard).
+    finance_role: Regex,
+    // Sub-annual pay-period markers used by the implausible-pay heuristic.
+    period: Regex,
 }
 
 fn pats() -> &'static Pats {
@@ -217,6 +221,11 @@ fn pats() -> &'static Pats {
             r"(?i)(urgent(ly)?|immediate(ly)?)\s+(hiring|hire|needed)|apply now and start today|limited\s+(spots|slots|positions)\s+(left|available)",
         )
         .unwrap(),
+        finance_role: Regex::new(
+            r"(?i)(accountant|bookkeeper|accounts payable|accounts receivable|treasury|payroll|finance)",
+        )
+        .unwrap(),
+        period: Regex::new(r"(?i)\b(hour|hr|day|daily|week|wk|weekly)\b").unwrap(),
     })
 }
 
@@ -427,16 +436,10 @@ fn mule_fires(dt: &str, title_l: &str) -> bool {
         return false;
     }
     // A named office finance function legitimately handles client funds.
-    let finance_role = Regex::new(
-        r"(?i)(accountant|bookkeeper|accounts payable|accounts receivable|treasury|payroll|finance)",
-    )
-    .ok();
-    if dt.contains("on behalf of our clients") || dt.contains("on behalf of clients") {
-        if let Some(re) = &finance_role {
-            if re.is_match(title_l) {
-                return false;
-            }
-        }
+    if (dt.contains("on behalf of our clients") || dt.contains("on behalf of clients"))
+        && p.finance_role.is_match(title_l)
+    {
+        return false;
     }
     // "use the corporate/company account" is not a personal-mule arrangement.
     if (dt.contains("corporate account") || dt.contains("company account"))
@@ -527,10 +530,9 @@ fn unrealistic_pay(d: &str, salary: Option<&str>, p: &Pats) -> bool {
         return false;
     };
     let st = s.to_lowercase();
-    let period = Regex::new(r"(?i)\b(hour|hr|day|daily|week|wk|weekly)\b").unwrap();
-    let token = if period.is_match(&st) {
+    let token = if p.period.is_match(&st) {
         st.clone()
-    } else if period.is_match(d) {
+    } else if p.period.is_match(d) {
         d.to_string()
     } else {
         return false; // no sub-annual period => a large annual number is fine
