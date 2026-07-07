@@ -373,7 +373,17 @@ export default function App() {
       return null;
     }
   }, []);
-  const locationName = (workCountry && regionNames?.of(workCountry)) || workCountry || "my location";
+  // Intl.DisplayNames.of() throws a RangeError on a structurally invalid region code, and the
+  // country field accepts free text (a single letter, a digit), so guard the lookup to keep a
+  // stray entry from unmounting the whole app.
+  const regionLabel = (code: string): string | undefined => {
+    try {
+      return regionNames?.of(code);
+    } catch {
+      return undefined;
+    }
+  };
+  const locationName = (workCountry && regionLabel(workCountry)) || workCountry || "my location";
 
   const hasActiveFilters =
     selectedKinds.length > 0 ||

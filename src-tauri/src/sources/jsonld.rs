@@ -9,7 +9,9 @@ use reqwest::Client;
 use serde_json::Value;
 
 use crate::model::RawJob;
-use crate::util::{cfg_str, clean_html, host_str_blocked, stable_hash, validate_public_url, vstr};
+use crate::util::{
+    cfg_str, clean_html, ssrf_guarded_client, stable_hash, validate_public_url, vstr,
+};
 
 fn script_re() -> &'static Regex {
     static R: OnceLock<Regex> = OnceLock::new();
@@ -25,17 +27,7 @@ pub async fn fetch(http: &Client, cfg: &Value) -> Result<Vec<RawJob>> {
     // bounded redirect policy that re-checks each hop (a public URL must not be able to
     // 30x-redirect into localhost / cloud metadata / an RFC-1918 host).
     validate_public_url(&page).map_err(|e| anyhow!(e))?;
-    let client = reqwest::Client::builder()
-        .user_agent("Lodestar/0.1 (+personal job search)")
-        .redirect(reqwest::redirect::Policy::custom(|attempt| {
-            if attempt.previous().len() >= 3 || host_str_blocked(attempt.url()) {
-                attempt.stop()
-            } else {
-                attempt.follow()
-            }
-        }))
-        .build()
-        .unwrap_or_else(|_| http.clone());
+    let client = ssrf_guarded_client(http);
     let html = client
         .get(&page)
         .header("Accept", "text/html")

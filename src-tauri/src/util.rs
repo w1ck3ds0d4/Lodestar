@@ -103,6 +103,24 @@ pub fn validate_public_url(url: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Build an HTTP client for fetching a user-supplied URL: a bounded redirect policy that
+/// re-checks each hop's host, so a public URL cannot 30x-redirect into localhost, cloud
+/// metadata, or an RFC-1918 address. Falls back to the shared client if the build fails.
+/// Pair with `validate_public_url` on the initial URL.
+pub fn ssrf_guarded_client(fallback: &reqwest::Client) -> reqwest::Client {
+    reqwest::Client::builder()
+        .user_agent("Lodestar/0.1 (+personal job search)")
+        .redirect(reqwest::redirect::Policy::custom(|attempt| {
+            if attempt.previous().len() >= 3 || host_str_blocked(attempt.url()) {
+                attempt.stop()
+            } else {
+                attempt.follow()
+            }
+        }))
+        .build()
+        .unwrap_or_else(|_| fallback.clone())
+}
+
 /// Deterministic short hex hash, stable across runs of the same binary. Used for
 /// content de-duplication and for synthesizing ids when a source provides none.
 pub fn stable_hash(s: &str) -> String {
