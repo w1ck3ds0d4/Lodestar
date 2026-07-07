@@ -9,7 +9,8 @@ use serde_json::Value;
 use crate::model::RawJob;
 use crate::sources::feed;
 use crate::util::{
-    cfg_opt, cfg_str, clean_html, host_str_blocked, looks_remote, stable_hash, validate_public_url,
+    cfg_opt, cfg_str, clean_html, looks_remote, ssrf_guarded_client, stable_hash,
+    validate_public_url,
 };
 
 pub async fn fetch(http: &Client, cfg: &Value) -> Result<Vec<RawJob>> {
@@ -17,17 +18,7 @@ pub async fn fetch(http: &Client, cfg: &Value) -> Result<Vec<RawJob>> {
     validate_public_url(&url).map_err(|e| anyhow!(e))?;
     let company = cfg_opt(cfg, "company");
 
-    let client = reqwest::Client::builder()
-        .user_agent("Lodestar/0.1 (+personal job search)")
-        .redirect(reqwest::redirect::Policy::custom(|attempt| {
-            if attempt.previous().len() >= 3 || host_str_blocked(attempt.url()) {
-                attempt.stop()
-            } else {
-                attempt.follow()
-            }
-        }))
-        .build()
-        .unwrap_or_else(|_| http.clone());
+    let client = ssrf_guarded_client(http);
 
     let xml = client
         .get(&url)
