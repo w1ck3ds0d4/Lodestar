@@ -210,7 +210,10 @@ async fn complete_content(
     // Streaming: parse the SSE event stream, forwarding text deltas to the callback.
     let mut resp = resp;
     let mut full = String::new();
-    let mut buf = String::new();
+    // Buffer raw bytes, not a String: `chunk()` splits at arbitrary boundaries, so a multi-byte
+    // UTF-8 character can straddle two chunks. Decoding per chunk would replace the split
+    // character with U+FFFD; decoding per line is safe because '\n' never appears mid-character.
+    let mut buf: Vec<u8> = Vec::new();
     let mut refusal = false;
     // Token usage arrives split across events: input on `message_start`, the (cumulative)
     // output on each `message_delta`.
@@ -221,9 +224,10 @@ async fn complete_content(
         .await
         .map_err(|e| anyhow!("Lost connection to the Claude API: {e}"))?
     {
-        buf.push_str(&String::from_utf8_lossy(&chunk));
-        while let Some(nl) = buf.find('\n') {
-            let line: String = buf.drain(..=nl).collect();
+        buf.extend_from_slice(&chunk);
+        while let Some(nl) = buf.iter().position(|&b| b == b'\n') {
+            let line_bytes: Vec<u8> = buf.drain(..=nl).collect();
+            let line = String::from_utf8_lossy(&line_bytes);
             let Some(data) = line.trim_end().strip_prefix("data:") else {
                 continue;
             };
@@ -978,15 +982,18 @@ async fn ollama_chat(
     let on_token = on_token.unwrap();
     let mut resp = resp;
     let mut full = String::new();
-    let mut buf = String::new();
+    // Buffer raw bytes so a multi-byte UTF-8 character split across two chunks is not corrupted;
+    // decode per line, since '\n' never falls inside a multi-byte character. See complete_content.
+    let mut buf: Vec<u8> = Vec::new();
     while let Some(chunk) = resp
         .chunk()
         .await
         .map_err(|e| anyhow!("Lost connection to Ollama: {e}"))?
     {
-        buf.push_str(&String::from_utf8_lossy(&chunk));
-        while let Some(nl) = buf.find('\n') {
-            let line: String = buf.drain(..=nl).collect();
+        buf.extend_from_slice(&chunk);
+        while let Some(nl) = buf.iter().position(|&b| b == b'\n') {
+            let line_bytes: Vec<u8> = buf.drain(..=nl).collect();
+            let line = String::from_utf8_lossy(&line_bytes);
             let line = line.trim();
             if line.is_empty() {
                 continue;
