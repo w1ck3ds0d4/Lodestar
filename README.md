@@ -77,7 +77,7 @@ Built with Tauri v2 (Rust) + React + Vite. The Rust core owns ingestion, storage
 - **Activity log**: a timestamped record of what each shortcut/action actually did (answered / screen unchanged / page chars attached / ...), as a main-window panel and a floating overlay panel
 - **Switchable profiles**: keep several interview personas (role, resume, notes, per-profile stories and job-search filters) and pick which one drives the answers, the screen reader, the phone, and resume matching
 - **Phone remote**: a LAN web remote (no install) reached by QR / PIN that mirrors the transcript and answers and drives listening, screen-answering, opacity, and panel placement from your phone as a discreet second screen
-- **Overlay & stealth**: window opacity and always-on-top for a discreet overlay; a hide-from-screen-capture toggle (excluded from Zoom/Meet/Teams shares and recorders on Windows); a custom borderless title bar; an optional "Hide from taskbar & Alt+Tab" mode with a system-tray icon and `Alt+Shift+H` panic-hide to bring the window back
+- **Overlay & stealth**: window opacity and always-on-top for a discreet overlay; a hide-from-screen-capture toggle (excluded from Zoom/Meet/Teams shares and recorders on Windows), with tooltips and dropdowns rendered in-window so they never pop out into a shared frame; the window is kept out of the taskbar, Alt+Tab, and Task Manager's app list (it shows under Background processes) via a hidden owner window; a custom borderless title bar; recall it from the system-tray icon, `Alt+Shift+H`, or an `MB5` double-click
 - **Adaptive layout**: a three-column copilot workspace on wide windows that collapses to a Setup / Dialog / Answers tab switcher when narrow
 
 ### Local-first and privacy
@@ -109,6 +109,17 @@ Built with Tauri v2 (Rust) + React + Vite. The Rust core owns ingestion, storage
 | Notifications   | tauri-plugin-notification                           |
 | Icons           | lucide-react                                        |
 | Package manager | pnpm                                                |
+
+---
+
+## Install
+
+Download the latest Windows installer from the [Releases page](https://github.com/w1ck3ds0d4/Lodestar/releases/latest):
+
+- `Lodestar_<version>_x64-setup.exe` - per-user install, no admin required (recommended)
+- `Lodestar_<version>_x64_en-US.msi` - MSI package
+
+The releases are currently unsigned, so on first launch Windows SmartScreen may warn ("Windows protected your PC"); click **More info**, then **Run anyway**. To build from source instead, follow the steps below.
 
 ---
 
@@ -205,7 +216,17 @@ All global (they fire even while your call app / browser is focused), all `Alt+S
 | `Alt+Shift+↑ / ↓` | Opacity up / down                                                |
 | `Alt+Shift+H`     | Panic-hide: instantly hide / show the window                     |
 
-The same actions are listed in a **Shortcuts** overlay panel during capture mode.
+The same actions are listed in a **Shortcuts** overlay panel during capture mode, opened from the keyboard icon in the top bar.
+
+### Mouse gestures
+
+Global side-button gestures let you move and recall the overlay without touching the title bar:
+
+| Gesture              | Action                                                       |
+| -------------------- | ------------------------------------------------------------ |
+| Hold `MB4`           | Peek behind: hide while held, reveal on release              |
+| Drag with `MB5` held | Move the window                                              |
+| Double-click `MB5`   | Hide / show the window (brings it to the front, keeps focus) |
 
 ### Reading the screen vs. the page
 
@@ -217,7 +238,9 @@ The **Activity log** (a Setup panel and a floating overlay panel) shows what eac
 
 ### Capture overlay & stealth
 
-**Capture mode** opens small always-on-top panels (Answers, Transcript, Controls, Shortcuts, Log) you can drag, resize, and dim anywhere over a call; they are excluded from screen capture/sharing by default. For discretion, **Overlay → Setup** also offers opacity, always-on-top, and an optional **Hide from taskbar & Alt+Tab** mode (the window keeps a normal frame via a custom title bar, and you bring it back from the system-tray icon or `Alt+Shift+H`).
+**Capture mode** opens small always-on-top panels (Answers, Transcript, Controls, Shortcuts, Log) you can drag, resize, and dim anywhere over a call; they are excluded from screen capture/sharing by default. For discretion, **Overlay → Setup** also offers opacity and always-on-top, and the main window stays out of the taskbar, Alt+Tab, and Task Manager's app list (a hidden owner window keeps it under Background processes). Its tooltips and dropdowns render in-window so nothing pops out of a shared frame, and you bring it back from the system-tray icon, `Alt+Shift+H`, or an `MB5` double-click.
+
+Note that content protection hides the _window_ from capture, but your mouse cursor is drawn by Windows outside any window, so it is not hidden and stays visible in a share. The keyboard shortcuts above drive the main actions without moving the cursor onto the overlay.
 
 ### Phone remote (discreet second screen)
 
@@ -239,7 +262,7 @@ If you ever turn this into a public, multi-user website, the redistribution term
 - Live web lookup for the company briefing (currently uses the model's own knowledge plus what you enter)
 - More credential-gated job sources (Reed, The Muse, Jooble, Careerjet)
 - Saved/exported searches and CSV/JSON export of results
-- Auto-updater and signed release artifacts
+- An auto-updater and code-signed releases (the published installers are currently unsigned)
 
 ---
 
