@@ -77,15 +77,39 @@ fn set_skip_taskbar_impl(window: &tauri::WebviewWindow, skip: bool) -> Result<()
 }
 
 /// Reveal a currently-hidden overlay window without stealing focus (`SW_SHOWNOACTIVATE`, so focus
-/// stays on whatever is behind it). Alt+Tab / taskbar stealth is now structural (ownership, set
-/// once at startup by [`make_owned_stealth`]) rather than something that must be re-committed at
-/// each hide->show transition, so this is just a plain no-activate show. Given the raw `HWND`; the
-/// mouse-hook gestures call it in place of a bare `ShowWindow(.., SW_SHOWNOACTIVATE)`.
+/// stays on whatever is behind it) AND raise it to the front of its z-order band, so a recalled
+/// overlay comes back visually ON TOP instead of buried behind the current window. `SW_SHOWNOACTIVATE`
+/// alone shows the window but leaves it at its old stacking position, which is why the MB5
+/// double-click sometimes brought it back underneath everything.
+///
+/// None of this disturbs the hidden features: Alt+Tab / taskbar / background-process stealth is
+/// structural (hidden owner + tool-window style, set at startup by [`make_owned_stealth`]) and
+/// content-protection is a persistent display affinity, so neither the show nor the restack touches
+/// them; and because we never activate, the window behind keeps focus (so it never sees a focus-loss
+/// event). Given the raw `HWND`; the mouse-hook gestures (MB4 peek, MB5 recall) call this.
 #[cfg(windows)]
 pub(crate) fn show_noactivate_keep_stealth(hwnd: windows::Win32::Foundation::HWND) {
-    use windows::Win32::UI::WindowsAndMessaging::{ShowWindow, SW_SHOWNOACTIVATE};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GetWindowLongPtrW, SetWindowPos, ShowWindow, GWL_EXSTYLE, HWND_TOP, HWND_TOPMOST,
+        SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SW_SHOWNOACTIVATE, WS_EX_TOPMOST,
+    };
     unsafe {
         let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+        // Restack to the front WITHOUT activating (SWP_NOACTIVATE keeps focus where it is). Insert
+        // into the correct band: if "on top" is enabled the window is topmost, so re-assert
+        // HWND_TOPMOST to keep it above everything; otherwise HWND_TOP raises it above the other
+        // normal windows.
+        let topmost = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32 & WS_EX_TOPMOST.0 != 0;
+        let after = if topmost { HWND_TOPMOST } else { HWND_TOP };
+        let _ = SetWindowPos(
+            hwnd,
+            after,
+            0,
+            0,
+            0,
+            0,
+            SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE,
+        );
     }
 }
 
