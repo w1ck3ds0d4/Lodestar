@@ -101,7 +101,15 @@ pub(crate) fn show_noactivate_keep_stealth(hwnd: windows::Win32::Foundation::HWN
         // normal windows.
         let topmost = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32 & WS_EX_TOPMOST.0 != 0;
         let after = if topmost { HWND_TOPMOST } else { HWND_TOP };
-        let _ = SetWindowPos(hwnd, after, 0, 0, 0, 0, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE);
+        let _ = SetWindowPos(
+            hwnd,
+            after,
+            0,
+            0,
+            0,
+            0,
+            SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE,
+        );
     }
 }
 
