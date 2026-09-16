@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { listen, type UnlistenFn } from "../lib/tauriEvent";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { LogicalSize, type PhysicalSize } from "@tauri-apps/api/dpi";
 import {

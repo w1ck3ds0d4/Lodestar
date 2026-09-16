@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { listen, type UnlistenFn } from "../lib/tauriEvent";
 import { Camera, Ear, Eye, EyeOff, ScreenShare, ScreenShareOff, Square, X } from "lucide-react";
 import * as api from "../api";
 import type { CaptureState } from "../types";

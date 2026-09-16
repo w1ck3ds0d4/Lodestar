@@ -4013,3 +4013,108 @@ textarea:focus {
     margin-top: 8px;
   }
 }
+
+/* --- Delivery coach (live pace / talk-time / filler feedback) ---------------
+   Sits in the dialog header; .dialog-head is space-between so it lands between
+   the listening status and the transcript actions. */
+.coach {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.coach-stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-variant-numeric: tabular-nums;
+}
+.coach-stat.warn {
+  color: var(--danger);
+  font-weight: 600;
+}
+.coach-nudge {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* A pre-generated answer for a PREDICTED follow-up, shown while the real one streams in
+   underneath. Tinted so it is never mistaken for a verified answer. */
+.qa-thinking.predicted {
+  color: var(--accent);
+}
+
+/* Overclaim guard: self-claims in an answer the saved profile cannot support. Advisory -
+   it sits under the answer and never blocks or edits it. */
+.claim-warn {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 8px;
+  padding: 7px 9px;
+  border: 1px solid var(--danger);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  font-size: 12px;
+}
+.claim-warn-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--danger);
+  font-weight: 700;
+}
+.claim-warn-body {
+  color: var(--text);
+  white-space: pre-wrap;
+}
+
+/* Running debrief: topics ranked worst-first across saved sessions. */
+.debrief-list {
+  list-style: none;
+  margin: 14px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.debrief-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 12px;
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+}
+.debrief-topic {
+  font-weight: 600;
+  text-transform: capitalize;
+}
+.debrief-tally {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.debrief-weak {
+  color: var(--danger);
+  font-weight: 700;
+}
+.debrief-mixed {
+  color: var(--accent);
+}
+.debrief-strong {
+  color: var(--accent-2);
+}
+.debrief-note {
+  grid-column: 1 / -1;
+}

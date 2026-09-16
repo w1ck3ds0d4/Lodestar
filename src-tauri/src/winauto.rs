@@ -173,31 +173,30 @@ pub fn start_foreground_tracker() {}
 // Depth-first search for the page's Document node under `element` (the window root), so the
 // Text pattern reads the whole document; falls back to the root if there isn't one.
 #[cfg(windows)]
-fn find_document(
+fn find_documents(
     walker: &uiautomation::UITreeWalker,
     element: &uiautomation::UIElement,
     depth: usize,
-) -> Option<uiautomation::UIElement> {
+    out: &mut Vec<uiautomation::UIElement>,
+) {
     use uiautomation::controls::ControlType;
-    if depth > 60 {
-        return None;
+    // Bounded so a pathological tree can't hang the read.
+    if depth > 60 || out.len() >= 32 {
+        return;
     }
     if matches!(element.get_control_type(), Ok(ControlType::Document)) {
-        return Some(element.clone());
+        out.push(element.clone());
     }
     if let Ok(child) = walker.get_first_child(element) {
         let mut cur = child;
         loop {
-            if let Some(found) = find_document(walker, &cur, depth + 1) {
-                return Some(found);
-            }
+            find_documents(walker, &cur, depth + 1, out);
             match walker.get_next_sibling(&cur) {
                 Ok(next) => cur = next,
                 Err(_) => break,
             }
         }
     }
-    None
 }
 
 // Read the full text of a specific window (by raw HWND value) via UI Automation.
@@ -219,20 +218,36 @@ fn read_hwnd_text(hwnd_val: isize) -> anyhow::Result<String> {
     let walker = automation
         .create_tree_walker()
         .map_err(|e| anyhow!("UI Automation walker failed: {e}"))?;
-    let target = find_document(&walker, &root, 0).unwrap_or_else(|| root.clone());
-
-    if let Ok(pattern) = target.get_pattern::<UITextPattern>() {
-        if let Ok(range) = pattern.get_document_range() {
-            if let Ok(text) = range.get_text(-1) {
-                let text = text.trim();
-                if !text.is_empty() {
-                    return Ok(text.to_string());
-                }
-            }
+    // A browser window holds SEVERAL Document elements, not one: Edge renders parts of its
+    // own UI as internal web views, and those can come first in tree order and be empty.
+    // Taking the first Document (as this used to) read one of those and returned nothing,
+    // so "Read full page" failed on Edge. Consider every Document and keep the one that
+    // actually carries the most text - the page the user is looking at.
+    let mut documents = Vec::new();
+    find_documents(&walker, &root, 0, &mut documents);
+    let mut best: Option<String> = None;
+    for doc in &documents {
+        let Ok(pattern) = doc.get_pattern::<UITextPattern>() else {
+            continue;
+        };
+        let Ok(range) = pattern.get_document_range() else {
+            continue;
+        };
+        let Ok(text) = range.get_text(-1) else {
+            continue;
+        };
+        let text = text.trim();
+        if !text.is_empty() && best.as_ref().is_none_or(|b| text.len() > b.len()) {
+            best = Some(text.to_string());
         }
     }
+    if let Some(text) = best {
+        return Ok(text);
+    }
+    // No document text anywhere: fall back to element names from the WINDOW root. Walking
+    // an empty internal document here would also come back empty.
     let mut out = String::new();
-    collect_text(&walker, &target, &mut out, 0);
+    collect_text(&walker, &root, &mut out, 0);
     let out = out.trim().to_string();
     if out.is_empty() {
         Err(anyhow!("Couldn't read any text from that window."))
@@ -267,4 +282,171 @@ pub fn read_focused_window_text() -> anyhow::Result<String> {
     Err(anyhow::anyhow!(
         "Reading the focused window is only supported on Windows."
     ))
+}
+
+/// Live end-to-end check of the page reader against a REAL browser page, including content
+/// scrolled far below the fold ("Read full page" promises the whole page, not the viewport).
+///
+/// Ignored by default because it opens a visible Edge window. It uses a throwaway profile
+/// directory, so it runs as a separate Edge instance and never touches the user's own
+/// browser. Run locally with:
+///   cargo test --lib live_reader -- --ignored --nocapture
+#[cfg(all(test, windows))]
+mod live_reader_tests {
+    use super::read_hwnd_text;
+    use std::path::Path;
+    use std::process::Command;
+    use std::time::{Duration, Instant};
+
+    fn powershell(script: &str) -> String {
+        Command::new("powershell")
+            .args(["-NoProfile", "-Command", script])
+            .output()
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+            .unwrap_or_default()
+    }
+
+    /// Kill every process of the throwaway instance, matched on its unique profile path.
+    /// NOT by the spawned PID: Edge relaunches its browser process under a new PID, so
+    /// killing the original PID leaves the real window and its helper processes running.
+    fn kill_probe_instance(profile_marker: &str) {
+        powershell(&format!(
+            "Get-CimInstance Win32_Process -Filter \"Name='msedge.exe'\" | \
+             Where-Object {{ $_.CommandLine -like '*{profile_marker}*' }} | \
+             ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }}"
+        ));
+    }
+
+    /// Poll until the probe window exposes both markers through UI Automation. Found by page
+    /// title rather than PID, for the same relaunch reason as above.
+    fn read_until_both(tag: &str, top: &str, bottom: &str) -> Result<String, String> {
+        let deadline = Instant::now() + Duration::from_secs(40);
+        let mut last = String::from("window never appeared");
+        while Instant::now() < deadline {
+            let hwnd: isize = powershell(&format!(
+                "(Get-Process msedge -ErrorAction SilentlyContinue | \
+                 Where-Object {{ $_.MainWindowTitle -like '*{tag}*' }} | \
+                 Select-Object -First 1).MainWindowHandle"
+            ))
+            .parse()
+            .unwrap_or(0);
+            if hwnd != 0 {
+                match read_hwnd_text(hwnd) {
+                    Ok(text) if text.contains(top) && text.contains(bottom) => return Ok(text),
+                    Ok(text) => {
+                        last = format!("read {} chars, markers not all present yet", text.len())
+                    }
+                    Err(e) => last = e.to_string(),
+                }
+            }
+            std::thread::sleep(Duration::from_millis(500));
+        }
+        Err(last)
+    }
+
+    /// Baseline for the Edge test: a plain Win32 form with a labelled control. If this fails
+    /// too, the top-down reader is broken in general rather than only on Chromium pages.
+    #[test]
+    #[ignore = "opens a small window; run locally with --ignored"]
+    fn live_reader_reads_a_plain_win32_window() {
+        let tag = format!("LODESTARFORM{}", std::process::id());
+        let label = format!("{tag}LABEL");
+        let script = format!(
+            "Add-Type -AssemblyName System.Windows.Forms;              $f = New-Object System.Windows.Forms.Form; $f.Text = '{tag}';              $l = New-Object System.Windows.Forms.Label; $l.Text = '{label}'; $l.AutoSize = $true;              $f.Controls.Add($l); [void]$f.ShowDialog()"
+        );
+        let mut child = Command::new("powershell")
+            .args(["-NoProfile", "-Command", &script])
+            .spawn()
+            .expect("launch form");
+
+        let deadline = Instant::now() + Duration::from_secs(25);
+        let mut result: Result<String, String> = Err("form never appeared".into());
+        while Instant::now() < deadline {
+            let hwnd: isize = powershell(&format!(
+                "(Get-Process powershell -ErrorAction SilentlyContinue |                  Where-Object {{ $_.MainWindowTitle -eq '{tag}' }} |                  Select-Object -First 1).MainWindowHandle"
+            ))
+            .parse()
+            .unwrap_or(0);
+            if hwnd != 0 {
+                result = read_hwnd_text(hwnd).map_err(|e| e.to_string());
+                if matches!(&result, Ok(t) if t.contains(&label)) {
+                    break;
+                }
+            }
+            std::thread::sleep(Duration::from_millis(400));
+        }
+        let _ = child.kill();
+        let _ = child.wait();
+
+        let text = result.unwrap_or_else(|e| panic!("plain window not read: {e}"));
+        println!("plain window read: {text:?}");
+        assert!(
+            text.contains(&label),
+            "label text missing from a plain Win32 window"
+        );
+    }
+
+    #[test]
+    #[ignore = "opens a real Edge window; run locally with --ignored"]
+    fn live_reader_reads_on_screen_and_off_screen_page_text() {
+        let tag = format!("LODESTARPROBE{}", std::process::id());
+        let top = format!("{tag}TOP");
+        let bottom = format!("{tag}BOTTOM");
+        let profile_marker = format!("lodestar-reader-{tag}");
+        let dir = std::env::temp_dir().join(&profile_marker);
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        // ~400 filler paragraphs push the bottom marker well outside the visible viewport.
+        let filler =
+            "<p>filler paragraph that pushes the next marker below the fold</p>\n".repeat(400);
+        let page = dir.join("page.html");
+        std::fs::write(
+            &page,
+            format!("<!doctype html><title>{tag}</title><body><p>{top}</p>{filler}<p>{bottom}</p></body>"),
+        )
+        .expect("write page");
+
+        let edge = [
+            r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+            r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+        ]
+        .into_iter()
+        .find(|p| Path::new(p).exists())
+        .expect("Microsoft Edge is not installed");
+
+        let mut cmd = Command::new(edge);
+        // Diagnostic switch: Chromium only builds its full accessibility tree once it detects
+        // assistive tech. Forcing it isolates "is the reader code correct" from "had Chromium
+        // exposed the page yet". The default run stays honest and does NOT force it.
+        if std::env::var_os("LODESTAR_FORCE_A11Y").is_some() {
+            cmd.arg("--force-renderer-accessibility");
+        }
+        let mut child = cmd
+            .arg(format!("--user-data-dir={}", dir.join("profile").display()))
+            .args([
+                "--no-first-run",
+                "--no-default-browser-check",
+                "--new-window",
+                "--window-size=900,700",
+            ])
+            .arg(&page)
+            .spawn()
+            .expect("launch Edge");
+
+        let result = read_until_both(&tag, &top, &bottom);
+
+        // Always clean up the throwaway instance, even when the read failed.
+        kill_probe_instance(&profile_marker);
+        let _ = child.kill();
+        let _ = child.wait();
+        std::thread::sleep(Duration::from_millis(1000));
+        let _ = std::fs::remove_dir_all(&dir);
+
+        let text = result.unwrap_or_else(|e| panic!("reader did not return the page: {e}"));
+        println!("read {} chars from the live page", text.len());
+        assert!(text.contains(&top), "on-screen text was not read");
+        assert!(
+            text.contains(&bottom),
+            "off-screen text was not read; Read full page must read the whole page"
+        );
+    }
 }

@@ -1,7 +1,7 @@
 {
   "name": "lodestar",
   "private": true,
-  "version": "0.2.1",
+  "version": "0.3.0",
   "type": "module",
   "description": "Local-first desktop app that searches the job market.",
   "keywords": [

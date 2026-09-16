@@ -3,8 +3,8 @@ import type {
   AssistantSettings,
   AtsScore,
   AudioDevices,
+  Debrief,
   DeepgramBalance,
-  UsageReport,
   MonitorInfo,
   PhoneInfo,
   PhoneNetStatus,
@@ -12,6 +12,7 @@ import type {
   ScreenAnswer,
   Session,
   Story,
+  UsageReport,
 } from "./types";
 
 // --- Browser-preview fallback -------------------------------------------------
@@ -23,6 +24,8 @@ import type {
 const HAS_TAURI = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
 const PREVIEW_STUBS: Record<string, unknown> = {
+  check_claims: "NONE",
+  debrief: { topics: [], sessionsTotal: 0, sessionsAnalyzed: 0 },
   list_stories: [],
   list_profiles: [],
   active_profile: 0,
@@ -39,6 +42,9 @@ const PREVIEW_STUBS: Record<string, unknown> = {
     sttEngine: "deepgram",
     sttLanguage: "multi",
     sttDiarize: false,
+    fastMode: false,
+    overclaimGuard: false,
+    predictFollowups: true,
     captureSource: "system",
     model: "claude-opus-5",
     inputDevice: "",
@@ -134,6 +140,7 @@ export const listSessions = () => invoke<Session[]>("list_sessions");
 export const saveSession = (title: string, transcript: string, answers: string) =>
   invoke<number>("save_session", { title, transcript, answers });
 export const removeSession = (id: number) => invoke<void>("remove_session", { id });
+export const debrief = () => invoke<Debrief>("debrief");
 export const sessionReview = (transcript: string, answers: string) =>
   invoke<string>("session_review", { transcript, answers });
 // Export a session's transcript + answers to a Markdown file (Downloads/Lodestar);
@@ -193,6 +200,10 @@ export const deepgramBalance = () => invoke<DeepgramBalance>("deepgram_balance")
 export const setDeepgramKey = (key: string) => invoke<void>("set_deepgram_key", { key });
 export const setSttEngine = (engine: string) => invoke<void>("set_stt_engine", { engine });
 export const setSttLanguage = (language: string) => invoke<void>("set_stt_language", { language });
+export const checkClaims = (answer: string) => invoke<string>("check_claims", { answer });
+export const setPredictFollowups = (on: boolean) => invoke<void>("set_predict_followups", { on });
+export const setOverclaimGuard = (on: boolean) => invoke<void>("set_overclaim_guard", { on });
+export const setFastMode = (fast: boolean) => invoke<void>("set_fast_mode", { fast });
 export const setSttDiarize = (diarize: boolean) => invoke<void>("set_stt_diarize", { diarize });
 export const setCaptureSource = (source: string) => invoke<void>("set_capture_source", { source });
 export const listAudioDevices = () => invoke<AudioDevices>("list_audio_devices");

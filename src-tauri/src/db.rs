@@ -52,6 +52,9 @@ pub fn init(path: &Path) -> Result<Connection> {
     // Multi-profile model: a story belongs to a profile, and the legacy single context
     // (context_* settings + any pre-existing stories) folds into a "Default" profile.
     ensure_column(&conn, "stories", "profile_id", "INTEGER")?;
+    // Cached per-session topic verdicts for the running debrief (JSON). Null = not yet
+    // analysed, so the debrief can fill gaps incrementally instead of re-analysing.
+    ensure_column(&conn, "sessions", "analysis", "TEXT")?;
     migrate_profiles(&conn)?;
     Ok(conn)
 }

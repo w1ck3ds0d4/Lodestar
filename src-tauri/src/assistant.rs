@@ -25,6 +25,26 @@ const SYSTEM_PROMPT: &str = "You are a real-time study and interview copilot emb
 /// something is actually being asked (in any language); otherwise reply "NONE".
 const AUTO_PROMPT: &str = "You monitor a live transcript of a conversation or call, which may be in any language. Look at the NEW text, using the earlier transcript as context. If the other party asks or prompts for anything - a direct question, an INDIRECT request ('walk me through...', 'can you describe...', 'tell me about...', 'how would you...'), or a problem to solve - answer it. The transcript is live speech-to-text and the other party is often a NON-NATIVE English speaker, so EXPECT broken grammar, wrong words, and mis-transcriptions: silently repair the text, infer the SINGLE question they most likely intend, and answer THAT - never ask them to rephrase and never remark on their English. Answer whenever a real question or request is present even if the wording is mangled, but do NOT answer a bare acknowledgement, a reaction, or an unfinished fragment. CRITICAL: THE USER READS YOUR REPLY ALOUD, VERBATIM, RIGHT NOW, while listening and talking - write the WORDS THEY WILL SAY, not notes to scan. OUTPUT = 2-5 complete first-person sentences, each ONE idea, each under ~16 words (one breath), each starting with a subject and verb, joined with because / so / the trade-off is; slight redundancy is fine. NO bullet fragments, NO 'How:' lines, NO Glossary, NO labels (Role:, Step:), NO second person about the user, NO narration ('here is an answer'); if your first sentence is not something the user could say with zero edits, rewrite it. HARD LENGTH CAP: the spoken body is at most ~70 words / ~25 seconds - choose the SINGLE strongest point per part plus one number, and never read a long study block aloud. NAME DENSITY: never stack more than two tool or pattern names in one sentence, because a nervous speaker fragments on tongue-twister lists. ROADMAP: if it asks how you'd design / scale / diagnose something or has multiple parts, sentence one is a speakable roadmap naming the parts ('Let me take this in three parts - first how I'd diagnose it, then how I'd scale, then the trade-offs'); for .NET scaling / latency / system-design default the order to diagnose, scale, cache, then observe, ALWAYS include observe/monitoring even if unasked because it is the usual follow-up, give ONE tight sentence per named part, and hold extra parts (backpressure, cost) for the handoff. TRADE-OFFS: whenever you name a pattern or tool (cache-aside, write-through, write-behind, consistent hashing, Redis, blue-green), the SAME sentence states the trade-off in plain words; never name a technology without a because and a trade-off, and do not wait to be asked. HANDOFF: end open-ended, design, or behavioral answers with ONE speakable handoff ('Happy to go deeper on any of those'); never end on a list or a definition, and never say 'that's about it'. CLARIFY (only if genuinely ambiguous): never stall or tell them to rephrase - lead with ONE verbatim clarifier ('Just to make sure I target the right thing - are you asking about X, or also Y?') then immediately answer the likeliest reading. SELF-INTRO / OPENER: when asked to introduce themselves or give role / standout impact, write 3-5 first-person sentences - role+focus, the SINGLE most quantified achievement from the profile, why it mattered, at most one framework with at most two tools - then end with 'Is there a particular area you'd like me to go deeper on?'; lead with the most quantified sentence, keep it under ~70 spoken words, and hold the rest of the stack for the handoff. CODE / MATH: FIRST a brief spoken 'Approach:' unpacking what is being asked and the plan (1-2 first-person lines), THEN code as one runnable language-tagged fenced block in PLAIN ASCII the user can type (no Unicode arrows, smart quotes, em dashes, or math symbols - use ->, ', \", <=, >=, !=), with a brief inline comment on EVERY line of code (that language's own syntax: # or //, plain ASCII) explaining what that line does, plus a 1-2 line spoken explanation and complexity; math in LaTeX. NEXT (heads-up, NEVER spoken): when a follow-up is predictable, add a FINAL line starting literally with 'Next: ' naming the single most likely follow-up in 6 words or fewer; at most one, only when confident - it is metadata the renderer dims and the user never reads aloud. Reply briefly in the SAME language, GitHub-flavored Markdown. Reply with exactly one word NONE (and nothing else) whenever the NEW text is not a real question to answer: a greeting, an acknowledgement or reaction ('ok', 'yeah', 'right', 'perfect', 'sounds good', 'I see'), an aside or small talk, an UNFINISHED fragment that does not yet pose a question, or merely a CONTINUATION or re-wording of a question you ALREADY answered earlier in this transcript - never answer the same question twice. Transcript lines are speaker-prefixed (\"You:\" is the app user; \"Them:\" or \"Speaker N:\" is the other party); answer questions asked BY the other party, using the user's own lines only as context. STEPS (never spoken): when you DO answer (not NONE), before the optional 'Next:' line, add a line that is exactly 'Steps:' on its own line, then a short numbered list (3 to 5 items) of the key reasoning steps that led to your answer, one short line each - reference only, never read aloud.";
 
+/// Fast mode (`speed: "fast"`) runs the same model at up to 2.5x output tokens/sec for a
+/// premium price. Research preview: Claude API only, and only on these two models. Held in
+/// a global so the answer paths do not each need the DB handle; `commands` keeps it in sync
+/// with the stored setting on load and on every change.
+pub static FAST_MODE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Beta flag required alongside `speed: "fast"`.
+const FAST_MODE_BETA: &str = "fast-mode-2026-02-01";
+
+/// Models that support fast mode. Anything else silently runs at standard speed rather
+/// than erroring, so flipping the toggle can never break answering.
+fn supports_fast_mode(model: &str) -> bool {
+    matches!(model, "claude-opus-5" | "claude-opus-4-8")
+}
+
+/// Whether this request should ask for fast mode.
+fn use_fast_mode(model: &str) -> bool {
+    FAST_MODE.load(std::sync::atomic::Ordering::Relaxed) && supports_fast_mode(model)
+}
+
 /// Models that accept `thinking: {type: "adaptive"}`. Haiku and any unknown model
 /// omit it so a model switch in Settings can never produce a 400.
 fn supports_adaptive_thinking(model: &str) -> bool {
@@ -162,6 +182,10 @@ async fn complete_content(
         }],
         "messages": [{ "role": "user", "content": content }],
     });
+    let fast = use_fast_mode(model);
+    if fast {
+        body["speed"] = json!("fast");
+    }
     // Adaptive thinking improves math/reasoning correctness, but visible text only
     // streams AFTER the reasoning block - so the live path (auto_answer) opts out
     // for a snappier time-to-first-token. Thinking needs output headroom.
@@ -172,10 +196,14 @@ async fn complete_content(
         }
     }
 
-    let resp = http
+    let mut req = http
         .post(API_URL)
         .header("x-api-key", api_key)
-        .header("anthropic-version", ANTHROPIC_VERSION)
+        .header("anthropic-version", ANTHROPIC_VERSION);
+    if fast {
+        req = req.header("anthropic-beta", FAST_MODE_BETA);
+    }
+    let resp = req
         .json(&body)
         .send()
         .await
@@ -493,6 +521,78 @@ pub async fn score_ats(
     parse_ats_json(&raw)
 }
 
+/// Per-session topic extraction for the running debrief. Strict JSON so the aggregate can
+/// be computed in Rust rather than asking a model to do arithmetic across sessions.
+const ANALYZE_PROMPT: &str = "You review ONE interview transcript and the answers the candidate gave. Identify the distinct TOPICS that were actually probed (e.g. Docker, SQL, system design, leadership, testing, the candidate's own background). For each, judge how well the CANDIDATE handled it from what they actually said - not from whether the suggested answer was good. Reply with STRICT JSON and nothing else: {\"topics\":[{\"topic\":\"short noun phrase\",\"verdict\":\"strong|mixed|weak\",\"note\":\"one short clause on what to fix or what worked\"}]}. Use at most 8 topics, lowercase the topic, and use \"weak\" only when the answer was actually thin, wrong, or evasive. If the transcript contains no real interview content, reply {\"topics\":[]}.";
+
+/// One extracted topic verdict from a single session.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct TopicVerdict {
+    pub topic: String,
+    pub verdict: String,
+    #[serde(default)]
+    pub note: String,
+}
+
+/// Extract topic verdicts for one saved session. Tolerates fences/prose like the other
+/// JSON paths; an unparseable reply yields an empty list rather than an error, so one bad
+/// session can never block the whole debrief.
+pub async fn analyze_session(
+    http: &reqwest::Client,
+    engine: &Engine,
+    transcript: &str,
+    answers: &str,
+) -> Result<Vec<TopicVerdict>> {
+    let user_text = format!(
+        "Transcript:
+{transcript}
+
+Answers given:
+{answers}"
+    );
+    let raw = match engine {
+        Engine::Claude { api_key, model } => {
+            complete(http, api_key, model, ANALYZE_PROMPT, user_text, None).await?
+        }
+        Engine::Ollama { url, model } => {
+            ollama_chat(http, url, model, ANALYZE_PROMPT, user_text, None, None).await?
+        }
+    };
+    Ok(parse_topics_json(&raw))
+}
+
+/// Outermost JSON object -> topic list. Never errors: a chatty or malformed reply simply
+/// contributes nothing to the debrief.
+pub fn parse_topics_json(raw: &str) -> Vec<TopicVerdict> {
+    let cleaned = raw.trim();
+    let cleaned = cleaned
+        .strip_prefix("```json")
+        .or_else(|| cleaned.strip_prefix("```"))
+        .unwrap_or(cleaned)
+        .trim_end_matches("```")
+        .trim();
+    let slice = match (cleaned.find('{'), cleaned.rfind('}')) {
+        (Some(s), Some(e)) if e > s => &cleaned[s..=e],
+        _ => return Vec::new(),
+    };
+    let Ok(v) = serde_json::from_str::<Value>(slice) else {
+        return Vec::new();
+    };
+    let Some(arr) = v.get("topics").and_then(|t| t.as_array()) else {
+        return Vec::new();
+    };
+    arr.iter()
+        .filter_map(|t| serde_json::from_value::<TopicVerdict>(t.clone()).ok())
+        .filter(|t| !t.topic.trim().is_empty())
+        .map(|mut t| {
+            t.topic = t.topic.trim().to_lowercase();
+            t.verdict = t.verdict.trim().to_lowercase();
+            t
+        })
+        .filter(|t| matches!(t.verdict.as_str(), "strong" | "mixed" | "weak"))
+        .collect()
+}
+
 /// Parse the ATS score JSON, tolerating code fences/prose (same approach as
 /// parse_cards_json): take the outermost object, clamp each sub-score to 0-100, and
 /// compute the weighted overall in Rust so a chatty model can't skew it.
@@ -560,6 +660,33 @@ Reference what actually happened in the session. If the material is thin, say so
 inventing detail.";
 
 /// Review a saved session: strengths, weak areas, and a prioritized study list.
+/// Checks a drafted answer against the candidate's own profile and flags first-person
+/// claims it cannot support. Deliberately narrow: it judges only what the ANSWER asserts
+/// about the speaker, never whether the technical content is correct.
+const CLAIM_PROMPT: &str = "You audit an interview answer the candidate is about to say ALOUD as their own words. Using ONLY the candidate profile provided, list first-person claims in the answer about THEIR OWN experience that the profile does not support: employers, job titles, seniority, years of experience, team sizes, technologies they claim to have used in production, metrics, and outcomes. Judge ONLY self-claims. General technical statements, definitions, opinions, and hypothetical or conditional phrasing (\"I would\", \"you could\") are NEVER flagged. If the profile is silent on something the answer states as personal fact, that IS unsupported. Output at most 3 items, each ONE short line naming the claim and why it is unsupported, no preamble. If every self-claim is supported, reply with exactly the single word NONE.";
+
+/// Audit `answer` against the profile. Returns "NONE" (all supported) or a short list.
+pub async fn check_claims(
+    http: &reqwest::Client,
+    engine: &Engine,
+    answer: &str,
+    profile: Option<&str>,
+) -> Result<String> {
+    let user_text = format!(
+        "Answer to audit:
+{answer}"
+    );
+    let system = with_profile(CLAIM_PROMPT, profile);
+    match engine {
+        Engine::Claude { api_key, model } => {
+            complete(http, api_key, model, &system, user_text, None).await
+        }
+        Engine::Ollama { url, model } => {
+            ollama_chat(http, url, model, &system, user_text, None, None).await
+        }
+    }
+}
+
 pub async fn session_review(
     http: &reqwest::Client,
     engine: &Engine,
@@ -870,7 +997,8 @@ fn api_error_message(status: u16, payload: &Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        parse_ats_json, style_directive, supports_adaptive_thinking, with_profile, AUTO_PROMPT,
+        parse_ats_json, parse_topics_json, style_directive, supports_adaptive_thinking,
+        supports_fast_mode, with_profile, AUTO_PROMPT,
     };
 
     #[test]
@@ -942,6 +1070,40 @@ mod tests {
             d.contains("override") && d.contains("length cap"),
             "deep must lift the short-answer cap so it can go long"
         );
+    }
+
+    #[test]
+    fn topic_parsing_tolerates_fences_and_junk() {
+        let fenced = "```json
+{\"topics\":[{\"topic\":\" Docker \",\"verdict\":\"WEAK\",\"note\":\"thin\"}]}
+```";
+        let t = parse_topics_json(fenced);
+        assert_eq!(t.len(), 1);
+        // Topic and verdict are normalised so aggregation groups correctly.
+        assert_eq!(t[0].topic, "docker");
+        assert_eq!(t[0].verdict, "weak");
+    }
+
+    #[test]
+    fn topic_parsing_never_errors_on_garbage() {
+        // A chatty or malformed reply contributes nothing rather than failing the debrief.
+        assert!(parse_topics_json("I could not analyse that.").is_empty());
+        assert!(parse_topics_json("{\"topics\": \"not an array\"}").is_empty());
+        assert!(parse_topics_json("").is_empty());
+        // Unknown verdicts are dropped rather than counted as strong.
+        assert!(
+            parse_topics_json("{\"topics\":[{\"topic\":\"x\",\"verdict\":\"great\"}]}").is_empty()
+        );
+    }
+
+    #[test]
+    fn fast_mode_is_limited_to_the_models_that_support_it() {
+        assert!(supports_fast_mode("claude-opus-5"));
+        assert!(supports_fast_mode("claude-opus-4-8"));
+        // Anything else must fall through to standard speed rather than 400.
+        assert!(!supports_fast_mode("claude-sonnet-5"));
+        assert!(!supports_fast_mode("claude-haiku-4-5"));
+        assert!(!supports_fast_mode("claude-fable-5-1"));
     }
 
     #[test]

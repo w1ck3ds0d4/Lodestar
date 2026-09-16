@@ -8,7 +8,7 @@ import {
   type CSSProperties,
 } from "react";
 import { Channel } from "@tauri-apps/api/core";
-import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { emit, listen, type UnlistenFn } from "../lib/tauriEvent";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   Bot,
@@ -33,33 +33,39 @@ import {
   ScanSearch,
   ScrollText,
   Send,
+  ShieldAlert,
   ShieldCheck,
   SlidersHorizontal,
   Smartphone,
   Sparkles,
   Square,
+  TrendingUp,
   X,
+  Zap,
 } from "lucide-react";
 import * as api from "../api";
 import {
   ANSWER_STYLES,
   ASSISTANT_MODELS,
-  DEEPGRAM_PER_MIN,
-  STT_LANGUAGES,
-  estimateCost,
   type AudioDevices,
   type CaptureCommand,
   type CaptureSegment,
   type CaptureState,
+  type Debrief,
+  DEEPGRAM_PER_MIN,
   type DeepgramBalance,
+  estimateCost,
   type LogEntry,
   type MonitorInfo,
   type PhoneInfo,
   type PhoneNetStatus,
+  STT_LANGUAGES,
   type UsageReport,
 } from "../types";
-import { isBackchannel, isNoneAnswer, looksNone } from "../lib/answer";
+import { isBackchannel, isNoneAnswer, looksNone, splitNext } from "../lib/answer";
+import { matchPrebuffer, type Prebuffered } from "../lib/prebuffer";
 import { ApplicationKit } from "./ApplicationKit";
+import { DeliveryCoach } from "./DeliveryCoach";
 import { Answer } from "./MarkdownAnswer";
 import { Select } from "./Select";
 import { SessionsPanel } from "./SessionsPanel";
@@ -75,6 +81,12 @@ interface QA {
   // A thumbnail (base64 PNG) of the screen/image the answer is about, shown as the question
   // for screen and image asks (where `q` is only a generic label like "From your screen").
   image?: string;
+  // Unsupported self-claims the overclaim guard found in this answer (null/undefined = none
+  // or not checked). Advisory only - it never blocks or edits the answer.
+  claims?: string | null;
+  // True while this bubble shows the speculatively pre-generated answer for a PREDICTED
+  // follow-up rather than the real one. Cleared the moment the real answer streams in.
+  predicted?: boolean;
 }
 
 // One captured audio source reported by the backend for the diagnostics panel.
@@ -298,9 +310,10 @@ const QaCard = memo(function QaCard({ e }: { e: QA }) {
         {e.q}
       </div>
       {e.pending && e.startedAt != null && (
-        <div className="qa-thinking">
+        <div className={"qa-thinking" + (e.predicted ? " predicted" : "")}>
           <span className="qa-thinking-dot" />
-          {e.a ? "Answering" : "Thinking"}
+          {/* Never let a prediction masquerade as the real answer: say so until it is replaced. */}
+          {e.predicted ? "Predicted - verifying" : e.a ? "Answering" : "Thinking"}
           <ThinkingTimer startedAt={e.startedAt} />
         </div>
       )}
@@ -312,11 +325,32 @@ const QaCard = memo(function QaCard({ e }: { e: QA }) {
       ) : (
         <Answer text={e.a} live />
       )}
+      {e.claims && (
+        <div className="claim-warn">
+          <span className="claim-warn-head">
+            <ShieldAlert size={13} /> Not backed by your profile
+          </span>
+          <span className="claim-warn-body">{e.claims}</span>
+        </div>
+      )}
     </div>
   );
 });
 
-type SettingsTab = "audio" | "phone" | "local" | "company" | "sessions" | "usage" | "activity";
+type SettingsTab =
+  | "debrief"
+  | "audio"
+  | "phone"
+  | "speed"
+  | "accuracy"
+  | "local"
+  | "company"
+  | "sessions"
+  | "usage"
+  | "activity";
+
+/** Models that support fast mode (mirrors supports_fast_mode in assistant.rs). */
+const FAST_MODE_MODELS = ["claude-opus-5", "claude-opus-4-8"];
 
 export function AssistantView({ view }: { view: "assistant" | "settings" }) {
   const [settingsTab, setSettingsTab] = useState<SettingsTab>("audio");
@@ -339,6 +373,12 @@ export function AssistantView({ view }: { view: "assistant" | "settings" }) {
   const [sttEngine, setSttEngine] = useState("deepgram");
   const [sttLanguage, setSttLanguage] = useState("multi");
   const [sttDiarize, setSttDiarize] = useState(false);
+  const [fastMode, setFastMode] = useState(false);
+  const [overclaimGuard, setOverclaimGuard] = useState(false);
+  const [predictFollowups, setPredictFollowups] = useState(true);
+  const [debriefData, setDebriefData] = useState<Debrief | null>(null);
+  const [debriefBusy, setDebriefBusy] = useState(false);
+  const [debriefErr, setDebriefErr] = useState("");
   const [captureSource, setCaptureSource] = useState("system");
   const [devices, setDevices] = useState<AudioDevices>({ inputs: [], outputs: [] });
   const [inputDevice, setInputDevice] = useState("");
@@ -435,6 +475,14 @@ export function AssistantView({ view }: { view: "assistant" | "settings" }) {
   const imgInputRef = useRef<HTMLInputElement>(null);
   const [context, setContext] = useState("");
   const [qa, setQa] = useState<QA[]>([]);
+  // Speculative answer to the "Next:" follow-up the previous answer predicted. A ref, not
+  // state: it must never cause a render, and the live loop reads it synchronously.
+  const prebufRef = useRef<Prebuffered | null>(null);
+  const prebufInFlight = useRef(false);
+  // Mirror of the toggle for the stable claim-check callback.
+  const overclaimGuardRef = useRef(false);
+  // Mirror of the predicted-follow-ups toggle for the stable pre-buffer callback.
+  const predictFollowupsRef = useRef(true);
 
   // Phone companion: LAN server connection details (null while stopped).
   const [phone, setPhone] = useState<PhoneInfo | null>(null);
@@ -547,7 +595,10 @@ export function AssistantView({ view }: { view: "assistant" | "settings" }) {
     const id = ++idRef.current;
     setQa((prev) => [{ id, q: "From the page", a: "", pending: true, startedAt: Date.now() }, ...prev]);
     const channel = new Channel<api.AnswerChunk>();
+    let acc = "";
     channel.onmessage = (msg) => {
+      if (msg.kind === "delta") acc += msg.text;
+      if (msg.kind === "done") void runClaimCheck(id, (msg.text || acc).trim());
       setQa((prev) =>
         prev.map((e) => {
           if (e.id !== id) return e;
@@ -634,6 +685,11 @@ export function AssistantView({ view }: { view: "assistant" | "settings" }) {
       setSttEngine(s.sttEngine);
       setSttLanguage(s.sttLanguage || "multi");
       setSttDiarize(s.sttDiarize);
+      setFastMode(s.fastMode);
+      setOverclaimGuard(s.overclaimGuard);
+      overclaimGuardRef.current = s.overclaimGuard;
+      setPredictFollowups(s.predictFollowups);
+      predictFollowupsRef.current = s.predictFollowups;
       setCaptureSource(s.captureSource);
       setCaptureProtect(s.captureProtect);
       setInputDevice(s.inputDevice);
@@ -825,6 +881,40 @@ export function AssistantView({ view }: { view: "assistant" | "settings" }) {
       await api.askAssistant(question, ctx && ctx.trim() ? ctx.trim() : null, channel);
     } catch (e) {
       setQa((prev) => prev.map((x) => (x.id === id ? { ...x, error: String(e), pending: false } : x)));
+    }
+  }, []);
+
+  /**
+   * Speculatively answer the "Next:" follow-up the finished answer predicted, so it is
+   * already on screen if the interviewer actually asks it.
+   *
+   * COSTS AN EXTRA CALL that may go unused, so it is deliberately restrained: only fires on
+   * an explicit hint, only one in flight at a time, and the result is discarded the moment
+   * the next real question is answered (matched or not). Failures are swallowed - a missing
+   * prediction is a non-event, never something to surface mid-call.
+   */
+  const prebufferNext = useCallback(async (full: string) => {
+    if (!predictFollowupsRef.current) return;
+    const next = splitNext(full).next?.trim();
+    if (!next || prebufInFlight.current) return;
+    prebufInFlight.current = true;
+    try {
+      let acc = "";
+      const channel = new Channel<api.AnswerChunk>();
+      channel.onmessage = (msg) => {
+        if (msg.kind === "delta") acc += msg.text;
+        else if (msg.kind === "done") acc = msg.text || acc;
+      };
+      await api.askAssistant(next, null, channel);
+      const answer = acc.trim();
+      // A NONE reply means the model had nothing useful; never cache that.
+      if (answer && !isNoneAnswer(answer)) {
+        prebufRef.current = { question: next, answer, ts: Date.now() };
+      }
+    } catch {
+      /* a failed prediction is a non-event */
+    } finally {
+      prebufInFlight.current = false;
     }
   }, []);
 
@@ -1021,6 +1111,20 @@ export function AssistantView({ view }: { view: "assistant" | "settings" }) {
         const id = ++idRef.current;
         let acc = "";
         let created = false;
+        // If the previous answer predicted THIS question, show that answer immediately,
+        // labelled, while the real one generates underneath and replaces it. A prediction is
+        // only ever a head start; it never suppresses or substitutes for the real answer.
+        const hit = predictFollowupsRef.current
+        ? matchPrebuffer(prebufRef.current, displayQ, Date.now())
+        : null;
+        prebufRef.current = null;
+        if (hit) {
+          created = true;
+          setQa((prev) => [
+            { id, q: displayQ, a: hit.answer, pending: true, predicted: true, startedAt: Date.now() },
+            ...prev,
+          ]);
+        }
         const channel = new Channel<api.AnswerChunk>();
         channel.onmessage = (msg) => {
           if (msg.kind === "delta") {
@@ -1030,7 +1134,10 @@ export function AssistantView({ view }: { view: "assistant" | "settings" }) {
               created = true;
               setQa((prev) => [{ id, q: displayQ, a: acc, pending: true, startedAt: Date.now() }, ...prev]);
             } else {
-              setQa((prev) => prev.map((e) => (e.id === id ? { ...e, a: acc, pending: true } : e)));
+              // The first real token replaces any predicted text.
+              setQa((prev) =>
+                prev.map((e) => (e.id === id ? { ...e, a: acc, pending: true, predicted: false } : e)),
+              );
             }
           } else if (msg.kind === "done") {
             const full = (msg.text || acc).trim();
@@ -1044,8 +1151,12 @@ export function AssistantView({ view }: { view: "assistant" | "settings" }) {
               created = true;
               setQa((prev) => [{ id, q: displayQ, a: full, pending: false }, ...prev]);
             } else {
-              setQa((prev) => prev.map((e) => (e.id === id ? { ...e, a: full, pending: false } : e)));
+              setQa((prev) =>
+                prev.map((e) => (e.id === id ? { ...e, a: full, pending: false, predicted: false } : e)),
+              );
             }
+            void prebufferNext(full);
+            void runClaimCheck(id, full);
           } else if (created) {
             setQa((prev) =>
               prev.map((e) => (e.id === id ? { ...e, error: msg.message, pending: false } : e)),
@@ -1141,6 +1252,56 @@ export function AssistantView({ view }: { view: "assistant" | "settings" }) {
     await api.setSttLanguage(lang);
   };
 
+  /**
+   * Refresh the running debrief. Each call analyses up to a handful of not-yet-analysed
+   * sessions (one API call each, cached on the row) and then folds every cached analysis
+   * into a ranked picture. Repeat runs on an unchanged history are effectively free.
+   */
+  const runDebrief = useCallback(async () => {
+    setDebriefBusy(true);
+    setDebriefErr("");
+    try {
+      setDebriefData(await api.debrief());
+    } catch (e) {
+      setDebriefErr(String(e));
+    } finally {
+      setDebriefBusy(false);
+    }
+  }, []);
+  const changePredictFollowups = async (on: boolean) => {
+    setPredictFollowups(on);
+    predictFollowupsRef.current = on;
+    // Turning it off must also drop anything already buffered, or one stale prediction
+    // could still be served after the user opted out.
+    if (!on) prebufRef.current = null;
+    await api.setPredictFollowups(on);
+  };
+  const changeOverclaimGuard = async (on: boolean) => {
+    setOverclaimGuard(on);
+    overclaimGuardRef.current = on;
+    await api.setOverclaimGuard(on);
+  };
+  /**
+   * Audit a finished answer against the saved profile and attach anything it cannot support.
+   * Runs AFTER the answer is on screen, so it never delays what the user is about to read,
+   * and stays silent on failure - a broken audit must never look like a clean bill of health
+   * or interrupt a live call.
+   */
+  const runClaimCheck = useCallback(async (id: number, answer: string) => {
+    if (!overclaimGuardRef.current || !answer.trim()) return;
+    try {
+      const res = (await api.checkClaims(answer)).trim();
+      if (res && res.toUpperCase() !== "NONE") {
+        setQa((prev) => prev.map((e) => (e.id === id ? { ...e, claims: res } : e)));
+      }
+    } catch {
+      /* an audit that fails is simply not shown */
+    }
+  }, []);
+  const changeFastMode = async (on: boolean) => {
+    setFastMode(on);
+    await api.setFastMode(on);
+  };
   const changeDiarize = async (on: boolean) => {
     setSttDiarize(on);
     await api.setSttDiarize(on);
@@ -2027,6 +2188,7 @@ export function AssistantView({ view }: { view: "assistant" | "settings" }) {
             <section className="assistant-col col-dialog">
               <div className="dialog-head">
                 <span className="muted sm">{listening ? listenStatus || "Listening..." : "Live dialog"}</span>
+                <DeliveryCoach segments={segments} active={listening} />
                 <span className="transcript-actions">
                   {(segments.length > 0 || qa.length > 0) && (
                     <button
@@ -2357,6 +2519,20 @@ export function AssistantView({ view }: { view: "assistant" | "settings" }) {
           <div className="settings-nav-group">Answers</div>
           <button
             type="button"
+            className={"settings-nav-btn" + (settingsTab === "speed" ? " active" : "")}
+            onClick={() => { setSettingsTab("speed"); }}
+          >
+            <Zap size={15} /> <span>Answer speed</span>
+          </button>
+          <button
+            type="button"
+            className={"settings-nav-btn" + (settingsTab === "accuracy" ? " active" : "")}
+            onClick={() => { setSettingsTab("accuracy"); }}
+          >
+            <ShieldAlert size={15} /> <span>Accuracy</span>
+          </button>
+          <button
+            type="button"
             className={"settings-nav-btn" + (settingsTab === "local" ? " active" : "")}
             onClick={() => { setSettingsTab("local"); }}
           >
@@ -2370,6 +2546,13 @@ export function AssistantView({ view }: { view: "assistant" | "settings" }) {
             <Building2 size={15} /> <span>Company information</span>
           </button>
           <div className="settings-nav-group">Review</div>
+          <button
+            type="button"
+            className={"settings-nav-btn" + (settingsTab === "debrief" ? " active" : "")}
+            onClick={() => { setSettingsTab("debrief"); if (!debriefData) void runDebrief(); }}
+          >
+            <TrendingUp size={15} /> <span>Debrief</span>
+          </button>
           <button
             type="button"
             className={"settings-nav-btn" + (settingsTab === "sessions" ? " active" : "")}
@@ -2602,6 +2785,83 @@ export function AssistantView({ view }: { view: "assistant" | "settings" }) {
             </div>
             </>
           )}
+          {settingsTab === "speed" && (
+            <>
+              <h2 className="settings-pane-title">
+                <Zap size={16} /> Answer speed
+              </h2>
+              <p className="settings-pane-blurb muted sm">
+                Trade money for latency when an interview matters.
+              </p>
+              <div className="setup-row">
+                <span className="setup-label">Fast mode</span>
+                <label className="switch" title="Same model, more output tokens per second.">
+                  <input
+                    type="checkbox"
+                    checked={fastMode}
+                    onChange={(e) => void changeFastMode(e.target.checked)}
+                  />
+                  Up to 2.5x faster answers
+                </label>
+              </div>
+              <div className="muted sm">
+                Runs the <b>same</b> model at higher output speed for a premium price ($10/$50 per 1M
+                tokens instead of $5/$25). Worth it for a real interview, wasteful for practice.
+              </div>
+              <div className="setup-row">
+                <span className="setup-label">Predicted follow-ups</span>
+                <label className="switch" title="Pre-answer the question the last answer predicts.">
+                  <input
+                    type="checkbox"
+                    checked={predictFollowups}
+                    onChange={(e) => void changePredictFollowups(e.target.checked)}
+                  />
+                  Answer the likely next question early
+                </label>
+              </div>
+              <div className="muted sm">
+                One extra call per answer that predicts a follow-up. Turn off to save spend.
+              </div>
+              <div className="muted sm">
+                {FAST_MODE_MODELS.includes(model)
+                  ? `Active on ${modelLabel(model)}.`
+                  : `${modelLabel(model)} does not support fast mode - answers run at standard speed until you switch to Claude Opus 5 or Opus 4.8.`}
+              </div>
+            </>
+          )}
+
+          {settingsTab === "accuracy" && (
+            <>
+              <h2 className="settings-pane-title">
+                <ShieldAlert size={16} /> Accuracy
+              </h2>
+              <p className="settings-pane-blurb muted sm">
+                Catch answers that claim more than your profile can back up.
+              </p>
+              <div className="setup-row">
+                <span className="setup-label">Overclaim guard</span>
+                <label className="switch" title="Audits each finished answer against your saved profile.">
+                  <input
+                    type="checkbox"
+                    checked={overclaimGuard}
+                    onChange={(e) => void changeOverclaimGuard(e.target.checked)}
+                  />
+                  Flag unsupported self-claims
+                </label>
+              </div>
+              <div className="muted sm">
+                After an answer finishes, it is checked against your resume, stories and interview
+                context. Anything it states about <b>your own</b> experience that the profile cannot
+                support is flagged under the answer. General technical statements and hypotheticals are
+                never flagged.
+              </div>
+              <div className="muted sm">
+                Runs <b>after</b> the answer is on screen, so it never slows you down - but it is one
+                extra call per answer, so it is off by default. Needs a saved profile to check against.
+              </div>
+            </>
+          )}
+
           {settingsTab === "local" && (
             <>
               <h2 className="settings-pane-title">
@@ -2664,6 +2924,56 @@ export function AssistantView({ view }: { view: "assistant" | "settings" }) {
             </div>
             </>
           )}
+          {settingsTab === "debrief" && (
+            <>
+              <h2 className="settings-pane-title">
+                <TrendingUp size={16} /> Debrief
+              </h2>
+              <p className="settings-pane-blurb muted sm">
+                What keeps going badly across your saved interviews, worst first. Built from the
+                sessions themselves, not from one test.
+              </p>
+              <div className="setup-row">
+                <button className="btn-open" onClick={() => void runDebrief()} disabled={debriefBusy}>
+                  {debriefBusy ? "Analysing..." : "Refresh debrief"}
+                </button>
+                {debriefData && (
+                  <span className="muted sm">
+                    {debriefData.sessionsAnalyzed} of {debriefData.sessionsTotal} sessions analysed
+                  </span>
+                )}
+              </div>
+              {debriefErr && <div className="assistant-error">{debriefErr}</div>}
+              {debriefData && debriefData.sessionsTotal === 0 && (
+                <div className="muted sm">
+                  No saved sessions yet. Save a session after a call and it will show up here.
+                </div>
+              )}
+              {debriefData && debriefData.sessionsAnalyzed < debriefData.sessionsTotal && (
+                <div className="muted sm">
+                  Older sessions are analysed a few at a time - hit refresh again to keep filling
+                  the backlog.
+                </div>
+              )}
+              {debriefData && debriefData.topics.length > 0 && (
+                <ul className="debrief-list">
+                  {debriefData.topics.map((t) => (
+                    <li key={t.topic} className="debrief-row">
+                      <span className="debrief-topic">{t.topic}</span>
+                      <span className="debrief-tally">
+                        {t.weak > 0 && <span className="debrief-weak">{t.weak} weak</span>}
+                        {t.mixed > 0 && <span className="debrief-mixed">{t.mixed} mixed</span>}
+                        {t.strong > 0 && <span className="debrief-strong">{t.strong} strong</span>}
+                        <span className="muted">in {t.seen}</span>
+                      </span>
+                      {t.note && <span className="debrief-note muted sm">{t.note}</span>}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </>
+          )}
+
           {settingsTab === "sessions" && (
             <>
               <h2 className="settings-pane-title">

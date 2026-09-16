@@ -76,6 +76,12 @@ export interface AssistantSettings {
   sttEngine: string;
   sttLanguage: string;
   sttDiarize: boolean;
+  /** Fast mode: same model, up to 2.5x output speed, premium price. Opus 5 / 4.8 only. */
+  fastMode: boolean;
+  /** Audit each answer's self-claims against the saved profile. Costs one extra call. */
+  overclaimGuard: boolean;
+  /** Pre-answer the predicted follow-up. One extra call per answer that predicts one. */
+  predictFollowups: boolean;
   captureSource: string;
   model: string;
   inputDevice: string;
@@ -236,4 +242,22 @@ export function estimateCost(item: ClaudeUsageItem): number {
   const inPrice = m?.inPrice ?? 3;
   const outPrice = m?.outPrice ?? 15;
   return (item.input / 1_000_000) * inPrice + (item.output / 1_000_000) * outPrice;
+}
+
+/** One topic across every analysed session, for the running debrief. */
+export interface DebriefTopic {
+  topic: string;
+  weak: number;
+  mixed: number;
+  strong: number;
+  seen: number;
+  /** Most recent note for this topic. */
+  note: string;
+}
+
+export interface Debrief {
+  /** Ranked worst-first: most weak verdicts, then most mixed, then most often probed. */
+  topics: DebriefTopic[];
+  sessionsTotal: number;
+  sessionsAnalyzed: number;
 }

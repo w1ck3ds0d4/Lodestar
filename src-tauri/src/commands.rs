@@ -376,6 +376,158 @@ fn sanitize_filename(title: &str) -> String {
 }
 
 /// Review a saved session: strengths, weak areas, and a prioritized study list.
+/// Audit a drafted answer against the saved profile and return either "NONE" or a short
+/// list of unsupported self-claims. Opt-in (see the `overclaim_guard` setting) because it
+/// costs one extra call per answer.
+#[tauri::command]
+pub async fn check_claims(state: State<'_, AppState>, answer: String) -> Result<String, String> {
+    if answer.trim().is_empty() {
+        return Ok("NONE".into());
+    }
+    let (engine, profile) = {
+        let conn = state.db.lock().map_err(|_| "db poisoned")?;
+        (build_engine(&conn)?, interview_profile(&conn))
+    };
+    // With no profile saved there is nothing to check against; claiming everything is
+    // unsupported would be noise, so stay quiet.
+    if profile.as_deref().map(str::trim).unwrap_or("").is_empty() {
+        return Ok("NONE".into());
+    }
+    let http = state.http.clone();
+    crate::assistant::check_claims(&http, &engine, &answer, profile.as_deref())
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Toggle predicted follow-ups (speculative pre-answering of the "Next:" hint).
+#[tauri::command]
+pub fn set_predict_followups(state: State<'_, AppState>, on: bool) -> Result<(), String> {
+    let conn = state.db.lock().map_err(|_| "db poisoned")?;
+    db::set_setting(
+        &conn,
+        "predict_followups",
+        if on { "true" } else { "false" },
+    )
+    .map_err(|e| e.to_string())
+}
+
+/// Toggle the overclaim guard.
+#[tauri::command]
+pub fn set_overclaim_guard(state: State<'_, AppState>, on: bool) -> Result<(), String> {
+    let conn = state.db.lock().map_err(|_| "db poisoned")?;
+    db::set_setting(&conn, "overclaim_guard", if on { "true" } else { "false" })
+        .map_err(|e| e.to_string())
+}
+
+/// One topic across every analysed session.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DebriefTopic {
+    pub topic: String,
+    pub weak: i64,
+    pub mixed: i64,
+    pub strong: i64,
+    pub seen: i64,
+    /// The most recent note for this topic (analyses are read newest-first).
+    pub note: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Debrief {
+    pub topics: Vec<DebriefTopic>,
+    pub sessions_total: i64,
+    pub sessions_analyzed: i64,
+}
+
+/// How many un-analysed sessions one debrief run will process. Each is an API call, so the
+/// backlog fills in over a few runs rather than billing for everything at once.
+const DEBRIEF_BATCH: i64 = 5;
+
+/// Running debrief across saved sessions: which topics keep going badly, which are solid.
+///
+/// Analyses each session ONCE and caches the result on the row, so repeat runs are nearly
+/// free. The aggregate itself is computed in Rust - counting is not something to pay a model
+/// for, and it keeps the ranking deterministic.
+#[tauri::command]
+pub async fn debrief(state: State<'_, AppState>) -> Result<Debrief, String> {
+    let (engine, pending) = {
+        let conn = state.db.lock().map_err(|_| "db poisoned")?;
+        (
+            build_engine(&conn)?,
+            crate::career::sessions_without_analysis(&conn, DEBRIEF_BATCH)
+                .map_err(|e| e.to_string())?,
+        )
+    };
+
+    let http = state.http.clone();
+    for (id, transcript, answers) in pending {
+        // A session that cannot be analysed is marked with an empty topic list rather than
+        // retried forever, so one unparseable transcript never blocks the backlog.
+        let topics = crate::assistant::analyze_session(&http, &engine, &transcript, &answers)
+            .await
+            .unwrap_or_default();
+        let json = serde_json::json!({
+            "topics": topics.iter().map(|t| serde_json::json!({
+                "topic": t.topic, "verdict": t.verdict, "note": t.note
+            })).collect::<Vec<_>>()
+        })
+        .to_string();
+        let conn = state.db.lock().map_err(|_| "db poisoned")?;
+        crate::career::set_session_analysis(&conn, id, &json).map_err(|e| e.to_string())?;
+    }
+
+    let (analyses, (sessions_total, sessions_analyzed)) = {
+        let conn = state.db.lock().map_err(|_| "db poisoned")?;
+        (
+            crate::career::session_analyses(&conn).map_err(|e| e.to_string())?,
+            crate::career::session_counts(&conn).map_err(|e| e.to_string())?,
+        )
+    };
+
+    // Fold every session's verdicts into one ranked picture.
+    let mut by_topic: std::collections::HashMap<String, DebriefTopic> = Default::default();
+    for blob in &analyses {
+        for t in crate::assistant::parse_topics_json(blob) {
+            let e = by_topic
+                .entry(t.topic.clone())
+                .or_insert_with(|| DebriefTopic {
+                    topic: t.topic.clone(),
+                    weak: 0,
+                    mixed: 0,
+                    strong: 0,
+                    seen: 0,
+                    note: String::new(),
+                });
+            match t.verdict.as_str() {
+                "weak" => e.weak += 1,
+                "mixed" => e.mixed += 1,
+                _ => e.strong += 1,
+            }
+            e.seen += 1;
+            // Analyses arrive newest-first, so the first note seen is the freshest.
+            if e.note.is_empty() && !t.note.trim().is_empty() {
+                e.note = t.note.trim().to_string();
+            }
+        }
+    }
+    let mut topics: Vec<DebriefTopic> = by_topic.into_values().collect();
+    // Worst first: most weak verdicts, then most mixed, then most often probed.
+    topics.sort_by(|a, b| {
+        b.weak
+            .cmp(&a.weak)
+            .then(b.mixed.cmp(&a.mixed))
+            .then(b.seen.cmp(&a.seen))
+            .then(a.topic.cmp(&b.topic))
+    });
+
+    Ok(Debrief {
+        topics,
+        sessions_total,
+        sessions_analyzed,
+    })
+}
+
 #[tauri::command]
 pub async fn session_review(
     state: State<'_, AppState>,
@@ -739,6 +891,9 @@ pub struct AssistantSettings {
     pub stt_engine: String,
     pub stt_language: String,
     pub stt_diarize: bool,
+    pub fast_mode: bool,
+    pub overclaim_guard: bool,
+    pub predict_followups: bool,
     pub capture_source: String,
     pub model: String,
     pub input_device: String,
@@ -782,6 +937,21 @@ pub fn get_assistant_settings(state: State<'_, AppState>) -> Result<AssistantSet
         .map_err(|e| e.to_string())?
         .map(|v| v == "true")
         .unwrap_or(false);
+    let fast_mode = db::get_setting(&conn, "fast_mode")
+        .map_err(|e| e.to_string())?
+        .map(|v| v == "true")
+        .unwrap_or(false);
+    // Keep the global the answer paths read in step with what was just loaded.
+    crate::assistant::FAST_MODE.store(fast_mode, std::sync::atomic::Ordering::Relaxed);
+    let overclaim_guard = db::get_setting(&conn, "overclaim_guard")
+        .map_err(|e| e.to_string())?
+        .map(|v| v == "true")
+        .unwrap_or(false);
+    // Defaults ON: this preserves the shipped behaviour for anyone who never opens the setting.
+    let predict_followups = db::get_setting(&conn, "predict_followups")
+        .map_err(|e| e.to_string())?
+        .map(|v| v == "true")
+        .unwrap_or(true);
     let capture_source = db::get_setting(&conn, "capture_source")
         .map_err(|e| e.to_string())?
         .unwrap_or_else(|| "system".to_string());
@@ -805,6 +975,9 @@ pub fn get_assistant_settings(state: State<'_, AppState>) -> Result<AssistantSet
         stt_engine,
         stt_language,
         stt_diarize,
+        fast_mode,
+        overclaim_guard,
+        predict_followups,
         capture_source,
         model,
         input_device: get("input_device")?,
@@ -1706,6 +1879,17 @@ pub fn set_stt_language(state: State<'_, AppState>, language: String) -> Result<
 /// Whether to separate the system side into "Speaker 1/2/..." (Deepgram diarization).
 /// Off by default - streaming diarization is unstable and mislabels one person on a
 /// 1-on-1 call; only worth turning on for genuine multi-person audio.
+/// Toggle fast mode. Persisted, and mirrored into the global the answer paths read so it
+/// takes effect on the very next answer without a reload.
+#[tauri::command]
+pub fn set_fast_mode(state: State<'_, AppState>, fast: bool) -> Result<(), String> {
+    let conn = state.db.lock().map_err(|_| "db poisoned")?;
+    db::set_setting(&conn, "fast_mode", if fast { "true" } else { "false" })
+        .map_err(|e| e.to_string())?;
+    crate::assistant::FAST_MODE.store(fast, std::sync::atomic::Ordering::Relaxed);
+    Ok(())
+}
+
 #[tauri::command]
 pub fn set_stt_diarize(state: State<'_, AppState>, diarize: bool) -> Result<(), String> {
     let conn = state.db.lock().map_err(|_| "db poisoned")?;

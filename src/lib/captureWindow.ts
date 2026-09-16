@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { emit, type UnlistenFn } from "@tauri-apps/api/event";
+import { emit, type UnlistenFn } from "./tauriEvent";
 import { availableMonitors, currentMonitor, getCurrentWindow } from "@tauri-apps/api/window";
 import { PhysicalPosition, PhysicalSize } from "@tauri-apps/api/dpi";
 import type { CaptureCommand } from "../types";

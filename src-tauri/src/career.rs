@@ -164,6 +164,47 @@ pub fn list_sessions(conn: &Connection) -> Result<Vec<Session>> {
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
 }
 
+/// Sessions not yet analysed for the debrief, oldest first so the picture fills in order.
+pub fn sessions_without_analysis(
+    conn: &Connection,
+    limit: i64,
+) -> Result<Vec<(i64, String, String)>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, transcript, answers FROM sessions          WHERE analysis IS NULL OR analysis = '' ORDER BY created_at ASC LIMIT ?1",
+    )?;
+    let rows = stmt.query_map(params![limit], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
+    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
+/// Cache a session's topic verdicts so it is never analysed twice.
+pub fn set_session_analysis(conn: &Connection, id: i64, analysis: &str) -> Result<()> {
+    conn.execute(
+        "UPDATE sessions SET analysis=?2 WHERE id=?1",
+        params![id, analysis],
+    )?;
+    Ok(())
+}
+
+/// Every cached analysis, newest session first (so the freshest note wins on aggregation).
+pub fn session_analyses(conn: &Connection) -> Result<Vec<String>> {
+    let mut stmt = conn.prepare(
+        "SELECT analysis FROM sessions WHERE analysis IS NOT NULL AND analysis <> ''          ORDER BY created_at DESC",
+    )?;
+    let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
+    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
+/// (total sessions, sessions already analysed).
+pub fn session_counts(conn: &Connection) -> Result<(i64, i64)> {
+    let total = conn.query_row("SELECT COUNT(*) FROM sessions", [], |r| r.get(0))?;
+    let done = conn.query_row(
+        "SELECT COUNT(*) FROM sessions WHERE analysis IS NOT NULL AND analysis <> ''",
+        [],
+        |r| r.get(0),
+    )?;
+    Ok((total, done))
+}
+
 pub fn add_session(
     conn: &Connection,
     now: i64,
