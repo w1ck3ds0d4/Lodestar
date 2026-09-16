@@ -3901,3 +3901,115 @@ textarea:focus {
   color: var(--accent-2);
   background: rgba(16, 185, 129, 0.14);
 }
+
+/* An explicit `display` on a component (e.g. .assistant.three-col) beats the UA
+   stylesheet's [hidden] rule, so the inactive tab would still paint. Force it. */
+[hidden] {
+  display: none !important;
+}
+
+/* --- Settings page (second nav tab) -----------------------------------------
+   AssistantView renders this from its own state, so the live session keeps
+   running while you are in here. */
+.settings-page {
+  width: 100%;
+  max-width: 1040px;
+  margin: 0 auto;
+  padding: 18px 20px 48px;
+  overflow-y: auto;
+}
+.settings-head {
+  margin-bottom: 18px;
+}
+.settings-head h1 {
+  margin: 0 0 4px;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+/* Sidebar of sections + one pane at a time, instead of a stack of accordions. */
+.settings-layout {
+  display: grid;
+  grid-template-columns: 208px minmax(0, 1fr);
+  gap: 22px;
+  align-items: start;
+}
+.settings-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  position: sticky;
+  top: 8px;
+}
+.settings-nav-group {
+  margin: 14px 0 4px;
+  padding: 0 10px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.settings-nav-group:first-child {
+  margin-top: 0;
+}
+.settings-nav-btn {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.settings-nav-btn:hover {
+  background: var(--panel);
+}
+.settings-nav-btn.active {
+  background: var(--panel);
+  color: var(--accent-2);
+  font-weight: 600;
+}
+.settings-pane {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-2);
+  padding: 18px 20px 22px;
+}
+.settings-pane-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 2px;
+  font-size: 15px;
+  font-weight: 700;
+}
+.settings-pane-blurb {
+  margin: 0 0 16px;
+}
+/* Narrow window: sidebar becomes a wrapping row of chips above the pane. */
+@media (max-width: 860px) {
+  .settings-layout {
+    grid-template-columns: 1fr;
+  }
+  .settings-nav {
+    position: static;
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+  .settings-nav-btn {
+    width: auto;
+  }
+  .settings-nav-group {
+    width: 100%;
+    margin-top: 8px;
+  }
+}

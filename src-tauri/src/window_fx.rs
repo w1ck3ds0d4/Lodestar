@@ -2,6 +2,69 @@
 //! discreetly over a call. Commands return `Result<(), String>` to match the rest of
 //! Lodestar's Tauri commands. Opacity is Windows-only; a no-op success elsewhere.
 
+/// Overlay ("always on top") state. `WS_EX_TOPMOST` alone is not enough to be above
+/// EVERYTHING: the topmost band has its own z-order, so any other app that raises a topmost
+/// window (another overlay, a UAC-adjacent prompt, a media/meeting HUD) lands above us and
+/// stays there. The stealth ex-style's hide/show cycle can drop us down the band too. While
+/// this flag is set, a keeper thread re-asserts the FRONT of the topmost band, so "on" really
+/// means on top of everything.
+#[cfg(windows)]
+static ALWAYS_ON_TOP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// Raw HWND of the window overlay mode applies to (0 = not yet known). Stored as an isize so
+/// it can cross the thread boundary without needing `HWND: Send`.
+#[cfg(windows)]
+static TOP_HWND: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
+#[cfg(windows)]
+static KEEPER_STARTED: std::sync::Once = std::sync::Once::new();
+
+/// Raise `hwnd` to the FRONT of the topmost band without activating it (so focus stays on
+/// whatever the user is actually typing into). Cheap enough to run on a short interval.
+#[cfg(windows)]
+fn raise_topmost(hwnd: windows::Win32::Foundation::HWND) {
+    use windows::Win32::UI::WindowsAndMessaging::{
+        SetWindowPos, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+    };
+    unsafe {
+        let _ = SetWindowPos(
+            hwnd,
+            HWND_TOPMOST,
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+        );
+    }
+}
+
+/// Re-assert the top of the topmost band if overlay mode is on. Call after anything that can
+/// restack the window (notably the stealth hide/show cycle).
+#[cfg(windows)]
+pub(crate) fn reassert_topmost_if_on() {
+    use std::sync::atomic::Ordering;
+    if !ALWAYS_ON_TOP.load(Ordering::Relaxed) {
+        return;
+    }
+    let raw = TOP_HWND.load(Ordering::Relaxed);
+    if raw != 0 {
+        raise_topmost(windows::Win32::Foundation::HWND(
+            raw as *mut core::ffi::c_void,
+        ));
+    }
+}
+
+/// Start the single keeper thread (idempotent). It idles on an atomic when overlay mode is
+/// off, so the cost when the user never enables it is one sleeping thread.
+#[cfg(windows)]
+fn start_topmost_keeper() {
+    KEEPER_STARTED.call_once(|| {
+        std::thread::spawn(|| loop {
+            std::thread::sleep(std::time::Duration::from_millis(700));
+            reassert_topmost_if_on();
+        });
+    });
+}
+
 /// Make the webview window translucent. `opacity` is 0.0..=1.0 (1.0 = fully opaque).
 #[tauri::command]
 pub fn set_window_opacity(window: tauri::WebviewWindow, opacity: f64) -> Result<(), String> {
@@ -29,11 +92,15 @@ pub(crate) fn apply_window_opacity(
 pub fn set_window_always_on_top(window: tauri::WebviewWindow, on_top: bool) -> Result<(), String> {
     #[cfg(windows)]
     {
+        use std::sync::atomic::Ordering;
         use windows::Win32::Foundation::HWND;
         use windows::Win32::UI::WindowsAndMessaging::{
             SetWindowPos, HWND_NOTOPMOST, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
         };
-        let hwnd = HWND(window.hwnd().map_err(|e| format!("hwnd: {e}"))?.0);
+        let raw = window.hwnd().map_err(|e| format!("hwnd: {e}"))?.0;
+        let hwnd = HWND(raw);
+        TOP_HWND.store(raw as isize, Ordering::Relaxed);
+        ALWAYS_ON_TOP.store(on_top, Ordering::Relaxed);
         let after = if on_top { HWND_TOPMOST } else { HWND_NOTOPMOST };
         unsafe {
             SetWindowPos(
@@ -46,6 +113,11 @@ pub fn set_window_always_on_top(window: tauri::WebviewWindow, on_top: bool) -> R
                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
             )
             .map_err(|e| format!("SetWindowPos(topmost): {e}"))?;
+        }
+        // Setting the band once only wins until the next app raises its own topmost window,
+        // so keep re-asserting the front of the band for as long as overlay mode is on.
+        if on_top {
+            start_topmost_keeper();
         }
         Ok(())
     }
@@ -215,6 +287,8 @@ fn apply_stealth_exstyle(hwnd: windows::Win32::Foundation::HWND) {
             ex as usize,
             want as usize
         );
+        // The hide/show above restacks the window, which can drop it down the topmost band.
+        reassert_topmost_if_on();
     }
 }
 
@@ -232,6 +306,30 @@ pub(crate) fn reassert_stealth(window: &tauri::WebviewWindow) {
 
 #[cfg(not(windows))]
 pub(crate) fn reassert_stealth(_window: &tauri::WebviewWindow) {}
+
+/// Recall the overlay: show it WITHOUT stealing foreground, restack it to the front of its
+/// band, and re-assert stealth + topmost. Both the mouse gestures and the keyboard shortcut
+/// go through here so they behave identically.
+///
+/// Deliberately no `set_focus()`. `SetForegroundWindow` is refused when another process owns
+/// the foreground (the foreground lock), which is exactly the case while a fullscreen app is
+/// active; Windows then falls back to flashing the taskbar button, and this window has none by
+/// design - so the recall looked like it did nothing at all. Restacking with `SWP_NOACTIVATE`
+/// needs no foreground rights and works over borderless-fullscreen apps.
+pub(crate) fn recall_overlay(window: &tauri::WebviewWindow) {
+    #[cfg(windows)]
+    {
+        if let Ok(h) = window.hwnd() {
+            show_noactivate_keep_stealth(windows::Win32::Foundation::HWND(h.0));
+        }
+        reassert_stealth(window);
+        reassert_topmost_if_on();
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = window.show();
+    }
+}
 
 /// Permanently exclude `window` from BOTH the taskbar and the Alt+Tab switcher by making it an
 /// OWNED top-level window with no `WS_EX_APPWINDOW`. The shell decides taskbar / Alt+Tab membership

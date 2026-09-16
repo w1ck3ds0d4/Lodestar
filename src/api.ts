@@ -1,24 +1,17 @@
 import { Channel, invoke as tauriInvoke } from "@tauri-apps/api/core";
 import type {
-  Alert,
   AssistantSettings,
   AtsScore,
   AudioDevices,
-  Card,
   DeepgramBalance,
   UsageReport,
-  Job,
   MonitorInfo,
   PhoneInfo,
   PhoneNetStatus,
   Profile,
   ScreenAnswer,
   Session,
-  Skill,
-  Source,
-  Stats,
   Story,
-  Tracked,
 } from "./types";
 
 // --- Browser-preview fallback -------------------------------------------------
@@ -30,15 +23,11 @@ import type {
 const HAS_TAURI = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
 const PREVIEW_STUBS: Record<string, unknown> = {
-  search_jobs: [],
-  work_country: "",
-  list_sources: [],
-  list_alerts: [],
-  get_stats: { totalJobs: 0, companies: 0 },
-  list_tracked: [],
-  list_skills: [],
   list_stories: [],
-  list_cards: [],
+  list_profiles: [],
+  active_profile: 0,
+  read_clipboard: "",
+  read_active_page: "",
   list_sessions: [],
   list_ollama_models: [],
   list_audio_devices: { inputs: [], outputs: [] },
@@ -51,7 +40,7 @@ const PREVIEW_STUBS: Record<string, unknown> = {
     sttLanguage: "multi",
     sttDiarize: false,
     captureSource: "system",
-    model: "claude-sonnet-4-6",
+    model: "claude-opus-5",
     inputDevice: "",
     outputDevice: "",
     answerEngine: "claude",
@@ -81,116 +70,28 @@ function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   return Promise.resolve((cmd in PREVIEW_STUBS ? PREVIEW_STUBS[cmd] : undefined) as T);
 }
 
-export const searchJobs = (
-  query: string,
-  workplaces: string[],
-  levels: string[],
-  kinds: string[],
-  relocationOnly = false,
-  remoteEligible = false,
-  postedWithinDays: number | null = null,
-  minSalary: number | null = null,
-  langs: string[] = [],
-  hideScams = false,
-  sort: "default" | "match" = "default",
-  minMatch = 0,
-  limit = 200,
-) =>
-  invoke<Job[]>("search_jobs", {
-    query,
-    workplaces,
-    levels,
-    kinds,
-    relocationOnly,
-    remoteEligible,
-    postedWithinDays,
-    minSalary,
-    langs,
-    hideScams,
-    sort,
-    minMatch,
-    limit,
-  });
 
 // Detected (or stored) ISO country code the user can work from; "" if unknown.
-export const workCountry = () => invoke<string>("work_country");
-export const setWorkCountry = (code: string) => invoke<void>("set_work_country", { code });
 
-export const listSources = () => invoke<Source[]>("list_sources");
 
-export const addSource = (
-  kind: string,
-  label: string,
-  config: Record<string, string>,
-  minIntervalSecs: number,
-) => invoke<number>("add_source", { kind, label, config, minIntervalSecs });
 
-export const updateSource = (
-  id: number,
-  label: string,
-  enabled: boolean,
-  config: Record<string, string>,
-  minIntervalSecs: number,
-) => invoke<void>("update_source", { id, label, enabled, config, minIntervalSecs });
 
-export const removeSource = (id: number) => invoke<void>("remove_source", { id });
 
-export const getStats = () => invoke<Stats>("get_stats");
 
-export const listAlerts = () => invoke<Alert[]>("list_alerts");
 
-export const addAlert = (query: string, remoteOnly: boolean) =>
-  invoke<number>("add_alert", { query, remoteOnly });
 
-export const removeAlert = (id: number) => invoke<void>("remove_alert", { id });
 
-export const syncNow = () => invoke<void>("sync_now");
 
 // Fetch a single source right now; resolves to the job count, rejects with a
 // (redacted) error string. Used by the Sources panel "Test" button.
-export const runSource = (id: number) => invoke<number>("run_source", { id });
 
 // --- Tracker ---
-export const listTracked = (kind?: string) => invoke<Tracked[]>("list_tracked", { kind: kind ?? null });
 
-export const addTracked = (t: {
-  kind: string;
-  title: string;
-  org: string;
-  url: string;
-  status: string;
-  notes: string;
-  deadline: string | null;
-  sourceJobId: number | null;
-}) => invoke<number>("add_tracked", t);
 
-export const updateTracked = (
-  id: number,
-  status: string,
-  notes: string,
-  progress: number,
-  deadline: string | null,
-) => invoke<void>("update_tracked", { id, status, notes, progress, deadline });
 
-export const removeTracked = (id: number) => invoke<void>("remove_tracked", { id });
-export const setTrackedNextAction = (id: number, text: string) =>
-  invoke<void>("set_tracked_next_action", { id, text });
-export const prepApplication = (id: number, title: string, org: string) =>
-  invoke<string>("prep_application", { id, title, org });
 
-export const addMilestone = (trackedId: number, label: string) =>
-  invoke<number>("add_milestone", { trackedId, label });
-export const setMilestone = (id: number, done: boolean) => invoke<void>("set_milestone", { id, done });
-export const removeMilestone = (id: number) => invoke<void>("remove_milestone", { id });
 
 // --- Study / skills ---
-export const listSkills = () => invoke<Skill[]>("list_skills");
-export const addSkill = (name: string, goal: string) => invoke<number>("add_skill", { name, goal });
-export const updateSkill = (id: number, name: string, goal: string, level: number, notes: string) =>
-  invoke<void>("update_skill", { id, name, goal, level, notes });
-export const logStudy = (id: number, hours: number) => invoke<void>("log_study", { id, hours });
-export const removeSkill = (id: number) => invoke<void>("remove_skill", { id });
-export const studyPlan = (skill: string, goal: string) => invoke<string>("study_plan", { skill, goal });
 
 // --- Interview story bank ---
 export const listStories = () => invoke<Story[]>("list_stories");
@@ -216,8 +117,6 @@ export const updateProfile = (
 ) => invoke<void>("update_profile", { id, name, role, company, resume, notes });
 export const deleteProfile = (id: number) => invoke<void>("delete_profile", { id });
 // Per-profile job-search preferences, stored as an opaque JSON string the frontend owns.
-export const getJobPrefs = () => invoke<string>("get_job_prefs");
-export const setJobPrefs = (prefs: string) => invoke<void>("set_job_prefs", { prefs });
 
 // --- Application kit: tailor resume/cover/ATS/thank-you to a job ---
 // kind: "bullets" | "cover" | "ats" | "thanks"; input is the JD (or transcript for "thanks").
@@ -227,15 +126,8 @@ export const applicationDoc = (kind: string, input: string) =>
 export const scoreAts = (jd: string) => invoke<AtsScore>("score_ats", { jd });
 
 // --- Mock interview practice ---
-export const practiceQuestion = (asked: string[]) => invoke<string>("practice_question", { asked });
-export const practiceFeedback = (question: string, answer: string) =>
-  invoke<string>("practice_feedback", { question, answer });
 
 // --- Flashcards (spaced repetition) ---
-export const listCards = () => invoke<Card[]>("list_cards");
-export const generateCards = (source: string) => invoke<number>("generate_cards", { source });
-export const reviewCard = (id: number, good: boolean) => invoke<void>("review_card", { id, good });
-export const removeCard = (id: number) => invoke<void>("remove_card", { id });
 
 // --- Interview session history ---
 export const listSessions = () => invoke<Session[]>("list_sessions");

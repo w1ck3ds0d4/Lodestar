@@ -4,17 +4,14 @@ mod career;
 mod commands;
 mod db;
 mod gpu_tray;
-mod ingest;
 mod listen;
 mod local_stt;
 mod model;
 mod mouse_hook;
 mod netcheck;
 mod phone;
-mod scam;
 mod screen;
 mod secret;
-mod sources;
 mod usage;
 mod util;
 mod winauto;
@@ -22,7 +19,6 @@ mod window_fx;
 
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 use rusqlite::Connection;
 use tauri::Manager;
@@ -99,8 +95,7 @@ pub fn run() {
                             if win.is_visible().unwrap_or(true) {
                                 let _ = win.hide();
                             } else {
-                                let _ = win.show();
-                                let _ = win.set_focus();
+                                window_fx::recall_overlay(&win);
                             }
                         }
                         return;
@@ -342,58 +337,9 @@ pub fn run() {
                 gpu_tray::spawn_updater(tray);
             }
 
-            // Background scheduler: sync due sources, then poll on an interval.
-            let app_handle = app.handle().clone();
-            tauri::async_runtime::spawn(async move {
-                // One-off derived-column backfill (re-derives every existing job). This is
-                // CPU-heavy, so run it on a blocking thread - never in setup(), which runs
-                // on the UI thread and would freeze the launch.
-                let bf = db.clone();
-                let _ = tokio::task::spawn_blocking(move || {
-                    if let Ok(conn) = bf.lock() {
-                        if let Err(e) = db::backfill_if_needed(&conn) {
-                            tracing::warn!("derived backfill failed: {e}");
-                        }
-                    }
-                })
-                .await;
-                tokio::time::sleep(Duration::from_secs(2)).await;
-                loop {
-                    ingest::sync_all(db.clone(), http.clone(), app_handle.clone(), false).await;
-                    tokio::time::sleep(Duration::from_secs(120)).await;
-                }
-            });
-
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            commands::search_jobs,
-            commands::work_country,
-            commands::set_work_country,
-            commands::list_sources,
-            commands::add_source,
-            commands::update_source,
-            commands::remove_source,
-            commands::get_stats,
-            commands::list_alerts,
-            commands::add_alert,
-            commands::remove_alert,
-            commands::sync_now,
-            commands::run_source,
-            commands::list_tracked,
-            commands::add_tracked,
-            commands::update_tracked,
-            commands::remove_tracked,
-            commands::set_tracked_next_action,
-            commands::prep_application,
-            commands::add_milestone,
-            commands::set_milestone,
-            commands::remove_milestone,
-            commands::list_skills,
-            commands::add_skill,
-            commands::update_skill,
-            commands::log_study,
-            commands::remove_skill,
             commands::list_stories,
             commands::add_story,
             commands::update_story,
@@ -405,23 +351,14 @@ pub fn run() {
             commands::create_profile,
             commands::update_profile,
             commands::delete_profile,
-            commands::get_job_prefs,
-            commands::set_job_prefs,
             commands::application_doc,
             commands::score_ats,
-            commands::practice_question,
-            commands::practice_feedback,
             commands::list_sessions,
             commands::save_session,
             commands::remove_session,
             commands::export_session,
             commands::export_all_sessions,
             commands::session_review,
-            commands::list_cards,
-            commands::review_card,
-            commands::remove_card,
-            commands::generate_cards,
-            commands::study_plan,
             commands::set_screen_privacy,
             commands::get_assistant_settings,
             commands::set_api_key,

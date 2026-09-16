@@ -1,133 +1,3 @@
-export interface Job {
-  id: number;
-  sourceKind: string;
-  sourceLabel: string;
-  externalId: string;
-  title: string;
-  company: string;
-  location: string;
-  remote: boolean;
-  workplace: string;
-  experienceLevel: string;
-  employmentType: string | null;
-  description: string;
-  url: string;
-  salary: string | null;
-  postedAt: string | null;
-  relocation: boolean;
-  remoteRegion: string;
-  firstSeenAt: number;
-  lastSeenAt: number;
-  alsoOn: string[];
-  lang: string | null;
-  // Advisory scam score (0-100): >=40 "review", >=75 "likely scam". Never auto-hides.
-  scamScore: number;
-  // The scam check ids that fired, for the "why flagged" tooltip.
-  scamFlags: string[];
-  // Fit to the saved resume (0-100), computed at search time; 0 when no resume is set.
-  matchScore: number;
-}
-
-// Scam-score badge tiers (mirror the Rust thresholds in scam.rs).
-export const SCAM_REVIEW = 40;
-export const SCAM_LIKELY = 75;
-
-// Human labels for the scam check ids stored in Job.scamFlags (for the tooltip).
-export const SCAM_FLAG_LABELS: Record<string, string> = {
-  "harm-upfront-payment-fee": "Asks for an upfront payment or fee",
-  "harm-pii-before-hire": "Wants sensitive personal info before hiring",
-  "harm-payment-handling-mule": "Money-mule / payment-handling duties",
-  "harm-fake-check-overpayment": "Send-a-check / overpayment scheme",
-  "harm-task-deposit-crypto": "Deposit-to-unlock task / crypto scheme",
-  "harm-reshipping-parcel": "Reshipping / parcel-handling scheme",
-  "harm-brand-impersonation-freemail": "Big brand contacting via free webmail",
-  "weak-offplatform-messaging": "Pushes contact to Telegram/WhatsApp",
-  "weak-freemail-apply-contact": "Apply by a free webmail address",
-  "weak-unrealistic-pay-period": "Implausibly high short-term pay",
-  "weak-no-experience-high-pay": "No experience needed + outsized pay",
-  "weak-mlm-recruiting-income": "MLM / recruit-for-income language",
-  "weak-thin-vague-description": "Thin or duties-absent description",
-  "weak-generic-placeholder-company": "Missing or placeholder company",
-  "weak-apply-url-suspicious-host": "Shortened / non-standard apply link",
-  "weak-title-shouting-spam": "Shouting / spammy title",
-  "weak-urgency-no-interview": "Instant-hire / no-interview pressure",
-};
-
-// Languages offered in the search filter (ISO 639-1 -> display name). The detector
-// recognizes more, but these are the ones surfaced as filter chips.
-export const LANG_LABELS: Record<string, string> = {
-  en: "English",
-  pt: "Portuguese",
-  es: "Spanish",
-  fr: "French",
-  de: "German",
-  nl: "Dutch",
-  it: "Italian",
-  pl: "Polish",
-};
-
-export interface Source {
-  id: number;
-  kind: string;
-  label: string;
-  config: Record<string, string>;
-  enabled: boolean;
-  minIntervalSecs: number;
-  lastRunAt: number | null;
-  lastStatus: string | null;
-  lastCount: number | null;
-}
-
-export interface Alert {
-  id: number;
-  query: string;
-  remoteOnly: boolean;
-  lastNotifiedAt: number | null;
-}
-
-export interface Stats {
-  totalJobs: number;
-  companies: number;
-}
-
-export interface Milestone {
-  id: number;
-  trackedId: number;
-  label: string;
-  done: boolean;
-  position: number;
-}
-
-export interface Tracked {
-  id: number;
-  kind: string; // "application" | "program"
-  title: string;
-  org: string;
-  url: string;
-  status: string;
-  notes: string;
-  appliedAt: string | null;
-  deadline: string | null;
-  progress: number;
-  sourceJobId: number | null;
-  nextAction: string | null;
-  prep: string | null;
-  createdAt: number;
-  updatedAt: number;
-  milestones: Milestone[];
-}
-
-export interface Skill {
-  id: number;
-  name: string;
-  goal: string;
-  level: number;
-  hours: number;
-  notes: string;
-  createdAt: number;
-  updatedAt: number;
-}
-
 // A reusable interview story (usually STAR) from the user's real experience.
 export interface Story {
   id: number;
@@ -144,16 +14,6 @@ export interface Session {
   title: string;
   transcript: string;
   answers: string;
-  createdAt: number;
-}
-
-// A spaced-repetition flashcard (Leitner). dueAt is Unix ms.
-export interface Card {
-  id: number;
-  front: string;
-  back: string;
-  box: number;
-  dueAt: number;
   createdAt: number;
 }
 
@@ -209,219 +69,6 @@ export interface CaptureCommand {
   value?: number; // for "opacity" (0..1)
   style?: string; // for "style" (an ANSWER_STYLES id)
 }
-
-export const APP_STATUSES = [
-  "saved",
-  "applied",
-  "screen",
-  "interview",
-  "offer",
-  "accepted",
-  "rejected",
-] as const;
-export const APP_STATUS_LABELS: Record<string, string> = {
-  saved: "Saved",
-  applied: "Applied",
-  screen: "Phone screen",
-  interview: "Interview",
-  offer: "Offer",
-  accepted: "Accepted",
-  rejected: "Rejected",
-};
-
-export const PROGRAM_STATUSES = ["interested", "enrolled", "in_progress", "completed", "dropped"] as const;
-export const PROGRAM_STATUS_LABELS: Record<string, string> = {
-  interested: "Interested",
-  enrolled: "Enrolled",
-  in_progress: "In progress",
-  completed: "Completed",
-  dropped: "Dropped",
-};
-
-export interface CatalogProgram {
-  name: string;
-  org: string;
-  url: string;
-  tag: string;
-}
-
-// Pre-seeded programs/platforms the user can add to their tracker with one click.
-export const PROGRAM_CATALOG: CatalogProgram[] = [
-  { name: "Crossover", org: "Crossover", url: "https://www.crossover.com/", tag: "Remote marketplace" },
-  { name: "Turing", org: "Turing", url: "https://www.turing.com/", tag: "Remote marketplace" },
-  { name: "Andela", org: "Andela", url: "https://www.andela.com/", tag: "Remote marketplace" },
-  { name: "Toptal", org: "Toptal", url: "https://www.toptal.com/", tag: "Remote marketplace" },
-  { name: "Arc.dev", org: "Arc", url: "https://arc.dev/", tag: "Remote marketplace" },
-  {
-    name: "LinkedIn REACH",
-    org: "LinkedIn",
-    url: "https://careers.linkedin.com/reach",
-    tag: "Paid apprenticeship",
-  },
-  {
-    name: "Amazon Technical Academy",
-    org: "Amazon",
-    url: "https://www.amazon.jobs/content/en/teams/amazon-web-services/technical-apprenticeships",
-    tag: "Paid apprenticeship",
-  },
-  {
-    name: "Microsoft LEAP",
-    org: "Microsoft",
-    url: "https://leap.microsoft.com/",
-    tag: "Paid apprenticeship",
-  },
-  { name: "Multiverse", org: "Multiverse", url: "https://www.multiverse.io/", tag: "Apprenticeships" },
-  { name: "Year Up", org: "Year Up United", url: "https://www.yearup.org/", tag: "Free + stipend" },
-  { name: "Per Scholas", org: "Per Scholas", url: "https://perscholas.org/", tag: "Free + stipend" },
-  {
-    name: "apprenticeship.gov",
-    org: "US DOL",
-    url: "https://www.apprenticeship.gov/",
-    tag: "Registered apprenticeships",
-  },
-];
-
-export const SOURCE_KINDS = [
-  "greenhouse",
-  "lever",
-  "ashby",
-  "arbeitnow",
-  "remoteok",
-  "remotive",
-  "jobicy",
-  "himalayas",
-  "weworkremotely",
-  "workingnomads",
-  "workable",
-  "recruitee",
-  "smartrecruiters",
-  "jsonld",
-  "rss",
-  "adzuna",
-  "themuse",
-  "findwork",
-  "reed",
-  "jooble",
-  "usajobs",
-] as const;
-
-export const WORKPLACES = [
-  { key: "remote", label: "Remote" },
-  { key: "hybrid", label: "Hybrid" },
-  { key: "onsite", label: "On-site" },
-] as const;
-
-export const LEVELS = [
-  { key: "entry", label: "Entry / Junior" },
-  { key: "mid", label: "Mid" },
-  { key: "senior", label: "Senior" },
-] as const;
-
-export const WORKPLACE_LABELS: Record<string, string> = {
-  remote: "Remote",
-  hybrid: "Hybrid",
-  onsite: "On-site",
-};
-
-// Best-effort remote-eligibility region shown on the job card.
-export const REMOTE_REGION_LABELS: Record<string, string> = {
-  worldwide: "Remote · Worldwide",
-  eu: "Remote · EU",
-  us: "Remote · US only",
-  uk: "Remote · UK only",
-  other: "Remote · region-locked",
-};
-
-export const LEVEL_LABELS: Record<string, string> = {
-  entry: "Entry level",
-  mid: "Mid level",
-  senior: "Senior",
-};
-
-export const KIND_LABELS: Record<string, string> = {
-  greenhouse: "Greenhouse",
-  lever: "Lever",
-  ashby: "Ashby",
-  arbeitnow: "Arbeitnow",
-  remoteok: "RemoteOK",
-  remotive: "Remotive",
-  jobicy: "Jobicy",
-  himalayas: "Himalayas",
-  weworkremotely: "We Work Remotely",
-  workingnomads: "Working Nomads",
-  workable: "Workable",
-  recruitee: "Recruitee",
-  smartrecruiters: "SmartRecruiters",
-  jsonld: "Career page",
-  rss: "RSS feed",
-  adzuna: "Adzuna",
-  themuse: "The Muse",
-  findwork: "Findwork",
-  reed: "Reed",
-  jooble: "Jooble",
-  usajobs: "USAJOBS",
-};
-
-// Per-kind config fields shown in the Sources panel.
-export const CONFIG_FIELDS: Record<string, { key: string; label: string; placeholder?: string }[]> = {
-  greenhouse: [{ key: "company", label: "Board token", placeholder: "stripe" }],
-  lever: [{ key: "company", label: "Company", placeholder: "company-slug" }],
-  ashby: [
-    { key: "name", label: "Job board name", placeholder: "company" },
-    { key: "company", label: "Company label (optional)" },
-  ],
-  jsonld: [{ key: "url", label: "Careers page URL", placeholder: "https://example.com/careers" }],
-  rss: [
-    { key: "url", label: "Feed URL (RSS or Atom)", placeholder: "https://example.com/jobs.rss" },
-    { key: "company", label: "Company (optional)", placeholder: "overrides the feed author" },
-  ],
-  weworkremotely: [{ key: "category", label: "Category (optional)", placeholder: "remote-programming-jobs" }],
-  adzuna: [
-    { key: "app_id", label: "App ID" },
-    { key: "app_key", label: "App key" },
-    { key: "country", label: "Country", placeholder: "gb" },
-    { key: "what", label: "Keywords (optional)" },
-    { key: "where", label: "Location (optional)" },
-  ],
-  usajobs: [
-    { key: "email", label: "Email (User-Agent)" },
-    { key: "api_key", label: "API key" },
-    { key: "keyword", label: "Keyword (optional)" },
-  ],
-  themuse: [
-    { key: "api_key", label: "API key (optional, raises rate limit)" },
-    { key: "category", label: "Category (optional)", placeholder: "Software Engineering" },
-    { key: "location", label: "Location (optional)", placeholder: "Lisbon, Portugal" },
-    { key: "level", label: "Level (optional)", placeholder: "Senior Level" },
-    { key: "company", label: "Company (optional)" },
-  ],
-  findwork: [
-    { key: "api_key", label: "API key", placeholder: "from findwork.dev/developers" },
-    { key: "search", label: "Keywords (optional)", placeholder: "react developer" },
-    { key: "location", label: "Location (optional)", placeholder: "Lisbon" },
-    { key: "remote", label: "Remote only? (optional)", placeholder: "true" },
-    { key: "auth_scheme", label: "Auth scheme (optional)", placeholder: "Token" },
-  ],
-  reed: [
-    { key: "api_key", label: "API key", placeholder: "from reed.co.uk/developers" },
-    { key: "keywords", label: "Keywords (optional)", placeholder: ".net developer" },
-    { key: "location", label: "Location (optional)", placeholder: "London" },
-  ],
-  jooble: [
-    { key: "api_key", label: "API key", placeholder: "from jooble.org/api/about" },
-    { key: "keywords", label: "Keywords (optional)", placeholder: "software engineer" },
-    { key: "location", label: "Location (optional)", placeholder: "Porto" },
-  ],
-  arbeitnow: [],
-  remoteok: [],
-  remotive: [],
-  jobicy: [],
-  himalayas: [],
-  workingnomads: [],
-  workable: [{ key: "account", label: "Account", placeholder: "your-company (apply.workable.com/...)" }],
-  recruitee: [{ key: "company", label: "Company", placeholder: "your-company (.recruitee.com)" }],
-  smartrecruiters: [{ key: "company", label: "Company ID", placeholder: "CompanyName" }],
-};
 
 export interface AssistantSettings {
   hasKey: boolean;
@@ -511,16 +158,21 @@ export const ASSISTANT_MODELS: {
   inPrice: number;
   outPrice: number;
 }[] = [
+  // Current generation. Prices are Anthropic list rates, USD per 1M tokens.
+  { id: "claude-opus-5", label: "Claude Opus 5", note: "most capable", inPrice: 5, outPrice: 25 },
+  { id: "claude-sonnet-5", label: "Claude Sonnet 5", note: "balanced, fast", inPrice: 2, outPrice: 10 },
+  { id: "claude-haiku-4-5", label: "Claude Haiku 4.5", note: "fastest, cheapest", inPrice: 1, outPrice: 5 },
+  // Deepest reasoning, but turns can run minutes - poor fit for answering live.
   {
-    id: "claude-opus-4-8",
-    label: "Claude Opus 4.8",
-    note: "most capable, slower",
-    inPrice: 15,
-    outPrice: 75,
+    id: "claude-fable-5-1",
+    label: "Claude Fable 5.1",
+    note: "deepest, slowest",
+    inPrice: 10,
+    outPrice: 50,
   },
-  { id: "claude-sonnet-5", label: "Claude Sonnet 5", note: "balanced, near-Opus", inPrice: 3, outPrice: 15 },
+  // Previous generation, kept so saved settings keep working.
+  { id: "claude-opus-4-8", label: "Claude Opus 4.8", note: "previous flagship", inPrice: 5, outPrice: 25 },
   { id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6", note: "balanced (older)", inPrice: 3, outPrice: 15 },
-  { id: "claude-haiku-4-5", label: "Claude Haiku 4.5", note: "fastest", inPrice: 1, outPrice: 5 },
 ];
 
 export interface ClaudeUsageItem {
@@ -564,21 +216,6 @@ export interface Profile {
   notes: string;
   createdAt: number;
   updatedAt: number;
-}
-
-// Per-profile job-search preferences: the saved search filters that travel with a profile.
-export interface JobPrefs {
-  workplaces: string[];
-  levels: string[];
-  selectedKinds: string[];
-  remoteEligible: boolean;
-  relocationOnly: boolean;
-  postedWithin: number | null;
-  minSalary: number | null;
-  langs: string[];
-  hideScams: boolean;
-  sortMode: "default" | "match";
-  minMatch: number | null;
 }
 
 // Result of the networking/firewall pre-flight for the phone server (Windows).

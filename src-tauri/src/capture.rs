@@ -220,7 +220,13 @@ pub fn toggle_visibility(app: &AppHandle) -> bool {
     let show = !any_visible;
     for &(label, ..) in PANELS {
         if let Some(win) = app.get_webview_window(label) {
-            let _ = if show { win.show() } else { win.hide() };
+            if show {
+                // Same restack-without-focus path as the main overlay: a bare show() would
+                // bring the panel back at its old stacking position, under a fullscreen app.
+                crate::window_fx::recall_overlay(&win);
+            } else {
+                let _ = win.hide();
+            }
         }
     }
     show

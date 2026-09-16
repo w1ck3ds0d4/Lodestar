@@ -65,9 +65,14 @@ export function Select({
   const [activeIdx, setActiveIdx] = useState(-1);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
-  const [box, setBox] = useState<{ left: number; top: number; width: number; below: boolean } | null>(
-    null,
-  );
+  const [box, setBox] = useState<{
+    left: number;
+    right: number;
+    top: number;
+    width: number;
+    below: boolean;
+    alignRight: boolean;
+  } | null>(null);
   const listId = useId();
 
   const place = useCallback(() => {
@@ -76,7 +81,18 @@ export function Select({
     const r = el.getBoundingClientRect();
     // Open downward unless there is clearly more room above.
     const below = window.innerHeight - r.bottom > 220 || r.top < 220;
-    setBox({ left: r.left, top: below ? r.bottom + 4 : r.top - 4, width: r.width, below });
+    // Anchor to whichever edge has more room. A trigger near the right edge (the model
+    // picker sits in the top bar) must grow LEFTWARD, otherwise the menu is squeezed into
+    // the last few pixels and every long option ellipsises.
+    const alignRight = r.right > window.innerWidth - r.left;
+    setBox({
+      left: r.left,
+      right: window.innerWidth - r.right,
+      top: below ? r.bottom + 4 : r.top - 4,
+      width: r.width,
+      below,
+      alignRight,
+    });
   }, []);
 
   const openList = useCallback(() => {
@@ -178,8 +194,14 @@ export function Select({
             className="jr-select__list"
             style={{
               position: "fixed",
-              left: box.left,
-              width: box.width,
+              ...(box.alignRight ? { right: box.right } : { left: box.left }),
+              // Grow to fit the longest option rather than clipping it to the trigger, but
+              // never past the viewport edge (the ellipsis in CSS is the last-resort fallback).
+              minWidth: box.width,
+              maxWidth: Math.max(
+                box.width,
+                (box.alignRight ? window.innerWidth - box.right : window.innerWidth - box.left) - 8,
+              ),
               ...(box.below
                 ? { top: box.top }
                 : { bottom: window.innerHeight - box.top }),

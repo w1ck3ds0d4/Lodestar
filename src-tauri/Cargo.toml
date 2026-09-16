@@ -52,12 +52,9 @@ futures-util = { version = "0.3", default-features = false, features = ["sink", 
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "gzip"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
-regex = "1"
 # Pure-Rust XML pull parser for the RSS / We Work Remotely feed sources (handles
 # CDATA + entity decoding properly, unlike a regex).
-quick-xml = "0.40"
 # Offline, pure-Rust language detection (no model downloads) for the language filter.
-whatlang = "0.16"
 cpal = "0.15"
 xcap = "0.0.14"
 base64 = "0.22"

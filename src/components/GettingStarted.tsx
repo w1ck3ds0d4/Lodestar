@@ -1,31 +1,8 @@
-import { Bot, ClipboardList, GraduationCap, Search, X } from "lucide-react";
+import { Bot, X } from "lucide-react";
 
-type View = "search" | "tracker" | "study" | "assistant";
-
-const AREAS: { view: View; icon: typeof Bot; title: string; blurb: string }[] = [
+const AREAS: { key: string; icon: typeof Bot; title: string; blurb: string }[] = [
   {
-    view: "search",
-    icon: Search,
-    title: "Search",
-    blurb:
-      "Aggregate jobs from public boards into a local database. Filter by workplace, level, and what's workable from your location; track any listing with one click.",
-  },
-  {
-    view: "tracker",
-    icon: ClipboardList,
-    title: "Tracker",
-    blurb:
-      "A pipeline board for applications and training programs - deadlines, next actions, and AI interview prep per role.",
-  },
-  {
-    view: "study",
-    icon: GraduationCap,
-    title: "Study",
-    blurb:
-      "AI study plans for skills you're building, plus a Mock interview that asks tailored questions and scores your answers on content and delivery.",
-  },
-  {
-    view: "assistant",
+    key: "assistant",
     icon: Bot,
     title: "Assistant",
     blurb:
@@ -33,8 +10,8 @@ const AREAS: { view: View; icon: typeof Bot; title: string; blurb: string }[] = 
   },
 ];
 
-// First-run guide to the (now sizable) feature set. Re-openable from the top-bar "?".
-export function GettingStarted({ onClose, onGo }: { onClose: () => void; onGo: (v: View) => void }) {
+// First-run guide to the feature set. Re-openable from the top-bar "?".
+export function GettingStarted({ onClose }: { onClose: () => void }) {
   return (
     <div className="intro-overlay" onClick={onClose}>
       <div className="intro-card" onClick={(e) => e.stopPropagation()}>
@@ -43,18 +20,18 @@ export function GettingStarted({ onClose, onGo }: { onClose: () => void; onGo: (
         </button>
         <h2>Welcome to Lodestar</h2>
         <p className="muted">
-          A local-first copilot for the whole journey - find roles, apply, ace the interview, and study to
-          improve. Most of it runs on your machine; cloud is used only when you opt in.
+          A local-first interview copilot: hear the question, get the answer, review it afterwards. Most
+          of it runs on your machine; cloud is used only when you opt in.
         </p>
 
         <div className="intro-grid">
           {AREAS.map((a) => (
-            <button key={a.view} className="intro-area" onClick={() => onGo(a.view)}>
+            <div key={a.key} className="intro-area">
               <span className="intro-area-head">
                 <a.icon size={16} /> {a.title}
               </span>
               <span className="muted sm">{a.blurb}</span>
-            </button>
+            </div>
           ))}
         </div>
 
@@ -62,12 +39,12 @@ export function GettingStarted({ onClose, onGo }: { onClose: () => void; onGo: (
           <strong>Tips</strong>
           <ul>
             <li>
-              In a call: open <em>Assistant</em>, hit <em>Listen to call</em>, set your language, and answers
-              stream in live as questions are asked.
+              In a call: hit <em>Listen to call</em>, set your language, and answers stream in live as
+              questions are asked.
             </li>
             <li>
-              Set up the <em>Interview context</em> and <em>Your stories</em> once - every answer, the
-              application kit, and mock-interview feedback ground in them.
+              Set up the <em>Interview context</em> and <em>Your stories</em> once - every answer and the
+              application kit ground in them.
             </li>
             <li>
               Can't copy a locked page? Press <span className="kbd">Alt+Shift+R</span> to read it via

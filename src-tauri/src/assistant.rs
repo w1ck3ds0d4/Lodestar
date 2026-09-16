@@ -28,7 +28,16 @@ const AUTO_PROMPT: &str = "You monitor a live transcript of a conversation or ca
 /// Models that accept `thinking: {type: "adaptive"}`. Haiku and any unknown model
 /// omit it so a model switch in Settings can never produce a 400.
 fn supports_adaptive_thinking(model: &str) -> bool {
-    model.starts_with("claude-opus-4") || model == "claude-sonnet-4-6" || model == "claude-sonnet-5"
+    // Opus 4.6+ and every Opus 5 / Fable build take adaptive thinking; Sonnet only from 4.6.
+    // Matching is explicit rather than a broad prefix so an older id (e.g. claude-opus-4-5,
+    // claude-sonnet-4-5) still falls through and omits the field instead of 400-ing.
+    model.starts_with("claude-opus-5")
+        || model.starts_with("claude-fable-")
+        || matches!(
+            model,
+            "claude-opus-4-6" | "claude-opus-4-7" | "claude-opus-4-8"
+        )
+        || matches!(model, "claude-sonnet-5" | "claude-sonnet-4-6")
 }
 
 /// Output-format directive appended to the answer prompts per the user's chosen style.
@@ -359,78 +368,6 @@ pub async fn ask_image(
     }
 }
 
-/// System prompt for the Tracker's per-application interview prep.
-const PREP_PROMPT: &str = "You are an interview coach. Given a role and company the user is interviewing for \
-(plus their profile if provided), produce concise prep in GitHub-flavored Markdown: likely interview \
-questions grouped by type (behavioral, role/technical, and about the company), strong talking points or \
-angles the candidate can lean on, and a short 'research before the interview' checklist. Be specific to the \
-role and company. When a job description is provided, ground the questions and talking points in its actual \
-requirements and responsibilities. Note where you are unsure - you may not have current data about this company.";
-
-/// Generate interview prep for a tracked application (role + company), tailored to
-/// the user's profile. When the application came from a saved posting, its job
-/// description is passed in `jd` so the prep is grounded in the real requirements.
-pub async fn interview_prep(
-    http: &reqwest::Client,
-    engine: &Engine,
-    title: &str,
-    org: &str,
-    jd: Option<&str>,
-    profile: Option<&str>,
-) -> Result<String> {
-    let mut user_text = if org.trim().is_empty() {
-        format!("Role: {title}")
-    } else {
-        format!("Role: {title}\nCompany: {org}")
-    };
-    if let Some(jd) = jd.map(str::trim).filter(|s| !s.is_empty()) {
-        // Cap the JD so a very long posting doesn't blow up the input.
-        let jd: String = jd.chars().take(6000).collect();
-        user_text.push_str(&format!("\n\nJob description:\n{jd}"));
-    }
-    let system = with_profile(PREP_PROMPT, profile);
-    match engine {
-        Engine::Claude { api_key, model } => {
-            complete(http, api_key, model, &system, user_text, None).await
-        }
-        Engine::Ollama { url, model } => {
-            ollama_chat(http, url, model, &system, user_text, None, None).await
-        }
-    }
-}
-
-/// System prompt for the Study tab's plan generator.
-const STUDY_PROMPT: &str = "You are a practical learning coach. Given a skill the user wants to build (and \
-their goal and role context if provided), produce a focused study plan in GitHub-flavored Markdown: a one- \
-or two-line overview, a phased roadmap (Foundations -> Core -> Advanced) with concrete topics under each, a \
-short list of recommended resources (docs, courses, books), 3-5 hands-on project ideas, and how to prepare \
-for interviews on this skill. Be concrete and ordered; keep it skimmable with headings and bullet lists. Do \
-not invent specific URLs you are unsure about.";
-
-/// Generate a study plan for a skill, tailored to the user's goal + profile.
-pub async fn study_plan(
-    http: &reqwest::Client,
-    engine: &Engine,
-    skill: &str,
-    goal: &str,
-    profile: Option<&str>,
-) -> Result<String> {
-    let user_text = if goal.trim().is_empty() {
-        format!("Skill to learn: {skill}")
-    } else {
-        format!("Skill to learn: {skill}\nGoal: {goal}")
-    };
-    let system = with_profile(STUDY_PROMPT, profile);
-    match engine {
-        Engine::Claude { api_key, model } => {
-            complete(http, api_key, model, &system, user_text, None).await
-        }
-        Engine::Ollama { url, model } => {
-            ollama_chat(http, url, model, &system, user_text, None, None).await
-        }
-    }
-}
-
 /// System prompt for drafting a reusable STAR story from the user's rough notes.
 const STORY_PROMPT: &str = "You help a candidate turn rough notes about a real experience into a reusable \
 interview story. Write a tight first-person STAR story with four short labelled paragraphs - Situation, \
@@ -614,68 +551,6 @@ fn parse_ats_json(raw: &str) -> Result<AtsScore> {
     })
 }
 
-/// System prompt for the mock-interviewer: ask one realistic question at a time.
-const PRACTICE_Q_PROMPT: &str = "You are running a realistic mock interview for the candidate's target role \
-and company (see their profile). Ask exactly ONE interview question. Across a session, vary the type - \
-behavioral, role/technical, and company/role fit. Do NOT repeat or closely paraphrase anything in the \
-'Already asked' list. Output ONLY the question itself - no numbering, preamble, or commentary.";
-
-/// System prompt for scoring a mock-interview answer.
-const PRACTICE_FB_PROMPT: &str = "You are an interview coach reviewing one answer in a mock interview. \
-Given the question and the candidate's answer (with any delivery stats), give concise feedback in \
-GitHub-flavored Markdown: a '**Score: N/5**' line, a 'What worked' list, a 'To improve' list \
-(structure, specificity, relevance), brief 'Delivery' notes when the stats suggest filler words or \
-rambling, and a tighter '**Model answer**' grounded in the candidate's profile/stories where relevant. \
-Be direct and specific - no fluff or flattery.";
-
-/// Ask the next mock-interview question, avoiding the ones already asked.
-pub async fn practice_question(
-    http: &reqwest::Client,
-    engine: &Engine,
-    asked: &[String],
-    profile: Option<&str>,
-) -> Result<String> {
-    let asked_list = if asked.is_empty() {
-        "(none yet)".to_string()
-    } else {
-        asked
-            .iter()
-            .map(|q| format!("- {q}"))
-            .collect::<Vec<_>>()
-            .join("\n")
-    };
-    let user_text = format!("Already asked:\n{asked_list}\n\nAsk the next question.");
-    let system = with_profile(PRACTICE_Q_PROMPT, profile);
-    match engine {
-        Engine::Claude { api_key, model } => {
-            complete(http, api_key, model, &system, user_text, None).await
-        }
-        Engine::Ollama { url, model } => {
-            ollama_chat(http, url, model, &system, user_text, None, None).await
-        }
-    }
-}
-
-/// Score a mock-interview answer and return coaching feedback + a model answer.
-pub async fn practice_feedback(
-    http: &reqwest::Client,
-    engine: &Engine,
-    question: &str,
-    answer: &str,
-    profile: Option<&str>,
-) -> Result<String> {
-    let user_text = format!("Question:\n{question}\n\nCandidate's answer:\n{answer}");
-    let system = with_profile(PRACTICE_FB_PROMPT, profile);
-    match engine {
-        Engine::Claude { api_key, model } => {
-            complete(http, api_key, model, &system, user_text, None).await
-        }
-        Engine::Ollama { url, model } => {
-            ollama_chat(http, url, model, &system, user_text, None, None).await
-        }
-    }
-}
-
 /// System prompt for reviewing a whole interview session and surfacing what to study.
 const REVIEW_PROMPT: &str = "You are an interview coach reviewing a full interview session - the \
 conversation transcript and the answers the candidate gave. In GitHub-flavored Markdown, produce: a \
@@ -702,69 +577,6 @@ pub async fn session_review(
             ollama_chat(http, url, model, &system, user_text, None, None).await
         }
     }
-}
-
-/// System prompt for turning material into spaced-repetition flashcards.
-const CARDS_PROMPT: &str = "Turn the material into spaced-repetition flashcards. Output ONLY a JSON array \
-of objects, each exactly {\"front\": \"<question or prompt>\", \"back\": \"<concise answer>\"} - between 6 \
-and 12 cards, focused on the weak areas or the key facts/concepts. No prose, no Markdown, no code fences - \
-just the raw JSON array.";
-
-/// Generate flashcards (front/back pairs) from arbitrary study material.
-pub async fn generate_cards(
-    http: &reqwest::Client,
-    engine: &Engine,
-    source: &str,
-    profile: Option<&str>,
-) -> Result<Vec<(String, String)>> {
-    let user_text = format!("Material:\n{source}");
-    let system = with_profile(CARDS_PROMPT, profile);
-    let raw = match engine {
-        Engine::Claude { api_key, model } => {
-            complete(http, api_key, model, &system, user_text, None).await?
-        }
-        Engine::Ollama { url, model } => {
-            ollama_chat(http, url, model, &system, user_text, None, None).await?
-        }
-    };
-    parse_cards_json(&raw)
-}
-
-/// Parse flashcards from a model response, tolerating code fences and surrounding
-/// prose: strip a leading ```/```json fence, then take the outermost `[ ... ]` and
-/// keep objects with non-empty `front`/`back`. Errors when nothing usable is found.
-fn parse_cards_json(raw: &str) -> Result<Vec<(String, String)>> {
-    let cleaned = raw.trim();
-    let cleaned = cleaned
-        .strip_prefix("```json")
-        .or_else(|| cleaned.strip_prefix("```"))
-        .unwrap_or(cleaned)
-        .trim_end_matches("```")
-        .trim();
-    let start = cleaned.find('[');
-    let end = cleaned.rfind(']');
-    let slice = match (start, end) {
-        (Some(s), Some(e)) if e > s => &cleaned[s..=e],
-        _ => return Err(anyhow!("The model did not return flashcards.")),
-    };
-    let value: Value =
-        serde_json::from_str(slice).map_err(|e| anyhow!("Could not parse flashcards: {e}"))?;
-    let cards: Vec<(String, String)> = value
-        .as_array()
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|c| {
-                    let f = c.get("front")?.as_str()?.trim().to_string();
-                    let b = c.get("back")?.as_str()?.trim().to_string();
-                    (!f.is_empty() && !b.is_empty()).then_some((f, b))
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-    if cards.is_empty() {
-        return Err(anyhow!("No usable flashcards were produced."));
-    }
-    Ok(cards)
 }
 
 /// Auto-answer: given the recent transcript and the newest segment, answer it if it
@@ -1058,8 +870,7 @@ fn api_error_message(status: u16, payload: &Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        parse_ats_json, parse_cards_json, style_directive, supports_adaptive_thinking,
-        with_profile, AUTO_PROMPT,
+        parse_ats_json, style_directive, supports_adaptive_thinking, with_profile, AUTO_PROMPT,
     };
 
     #[test]
@@ -1135,9 +946,13 @@ mod tests {
 
     #[test]
     fn adaptive_thinking_covers_opus_and_current_sonnets() {
+        assert!(supports_adaptive_thinking("claude-opus-5"));
+        assert!(supports_adaptive_thinking("claude-fable-5-1"));
         assert!(supports_adaptive_thinking("claude-opus-4-8"));
         assert!(supports_adaptive_thinking("claude-sonnet-5"));
         assert!(supports_adaptive_thinking("claude-sonnet-4-6"));
+        // Older ids must still fall through rather than force the field on.
+        assert!(!supports_adaptive_thinking("claude-sonnet-4-5"));
         // Models without adaptive thinking must not have it forced on (would 400 on some).
         assert!(!supports_adaptive_thinking("claude-haiku-4-5"));
     }
@@ -1201,45 +1016,5 @@ mod tests {
             out.contains("technical"),
             "technical questions should not force the profile in"
         );
-    }
-
-    #[test]
-    fn parses_a_plain_json_array() {
-        let cards =
-            parse_cards_json(r#"[{"front":"Q1","back":"A1"},{"front":"Q2","back":"A2"}]"#).unwrap();
-        assert_eq!(
-            cards,
-            vec![("Q1".into(), "A1".into()), ("Q2".into(), "A2".into())]
-        );
-    }
-
-    #[test]
-    fn tolerates_code_fences_and_prose() {
-        let raw =
-            "Sure! Here are your cards:\n```json\n[{\"front\":\"a\",\"back\":\"b\"}]\n```\nEnjoy.";
-        assert_eq!(
-            parse_cards_json(raw).unwrap(),
-            vec![("a".into(), "b".into())]
-        );
-    }
-
-    #[test]
-    fn skips_cards_missing_a_side() {
-        let raw = r#"[{"front":"keep","back":"yes"},{"front":"  ","back":"x"},{"front":"only"}]"#;
-        assert_eq!(
-            parse_cards_json(raw).unwrap(),
-            vec![("keep".into(), "yes".into())]
-        );
-    }
-
-    #[test]
-    fn errors_when_no_array_present() {
-        assert!(parse_cards_json("I could not make any flashcards.").is_err());
-    }
-
-    #[test]
-    fn errors_on_empty_or_all_invalid_array() {
-        assert!(parse_cards_json("[]").is_err());
-        assert!(parse_cards_json(r#"[{"front":"","back":""}]"#).is_err());
     }
 }

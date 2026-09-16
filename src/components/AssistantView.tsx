@@ -5,7 +5,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type ChangeEvent,
   type CSSProperties,
 } from "react";
 import { Channel } from "@tauri-apps/api/core";
@@ -13,12 +12,12 @@ import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   Bot,
-  Briefcase,
   Building2,
   Camera,
   ChevronDown,
   ChevronRight,
   ClipboardPaste,
+  Cpu,
   Crop,
   Ear,
   FileText,
@@ -28,6 +27,7 @@ import {
   KeyRound,
   LayoutDashboard,
   MessageSquare,
+  Mic,
   Monitor,
   Pin,
   ScanSearch,
@@ -38,7 +38,6 @@ import {
   Smartphone,
   Sparkles,
   Square,
-  Upload,
   X,
 } from "lucide-react";
 import * as api from "../api";
@@ -57,16 +56,13 @@ import {
   type MonitorInfo,
   type PhoneInfo,
   type PhoneNetStatus,
-  type Profile,
   type UsageReport,
 } from "../types";
 import { isBackchannel, isNoneAnswer, looksNone } from "../lib/answer";
-import { extractResumeText } from "../lib/extractText";
 import { ApplicationKit } from "./ApplicationKit";
 import { Answer } from "./MarkdownAnswer";
 import { Select } from "./Select";
 import { SessionsPanel } from "./SessionsPanel";
-import { StoriesPanel } from "./StoriesPanel";
 
 interface QA {
   id: number;
@@ -320,7 +316,10 @@ const QaCard = memo(function QaCard({ e }: { e: QA }) {
   );
 });
 
-export function AssistantView() {
+type SettingsTab = "audio" | "phone" | "local" | "company" | "sessions" | "usage" | "activity";
+
+export function AssistantView({ view }: { view: "assistant" | "settings" }) {
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>("audio");
   const [loaded, setLoaded] = useState(false);
   // Which panel is shown when the window is too narrow for all three columns; the
   // tab bar that switches this only appears below the responsive breakpoint (CSS).
@@ -344,7 +343,7 @@ export function AssistantView() {
   const [devices, setDevices] = useState<AudioDevices>({ inputs: [], outputs: [] });
   const [inputDevice, setInputDevice] = useState("");
   const [outputDevice, setOutputDevice] = useState("");
-  const [model, setModel] = useState("claude-opus-4-8");
+  const [model, setModel] = useState("claude-opus-5");
   const [answerEngine, setAnswerEngine] = useState("claude");
   const [answerStyle, setAnswerStyle] = useState("auto");
   const [ollamaModel, setOllamaModel] = useState("");
@@ -420,11 +419,6 @@ export function AssistantView() {
   const [contextCompany, setContextCompany] = useState("");
   const [contextResume, setContextResume] = useState("");
   const [contextNotes, setContextNotes] = useState("");
-  const [contextSaved, setContextSaved] = useState(false);
-  const [profiles, setProfiles] = useState<Profile[]>([]);
-  const [activeProfileId, setActiveProfileId] = useState<number | null>(null);
-  const [resumeMsg, setResumeMsg] = useState("");
-  const resumeFileRef = useRef<HTMLInputElement>(null);
 
   const [usage, setUsage] = useState<UsageReport | null>(null);
   const [claudeCreditInput, setClaudeCreditInput] = useState("");
@@ -657,62 +651,13 @@ export function AssistantView() {
     }
   }, []);
 
-  const saveContext = async () => {
-    await api.setInterviewContext(contextRole, contextCompany, contextResume, contextNotes);
-    setContextSaved(true);
-    setTimeout(() => setContextSaved(false), 1500);
-  };
 
-  // Import a resume file (PDF/DOCX/TXT/MD) into the resume field; the user reviews
-  // and then hits Save context.
-  const onResumeFile = async (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = ""; // let the same file be re-picked later
-    if (!file) return;
-    setResumeMsg("Reading...");
-    try {
-      const text = await extractResumeText(file);
-      if (!text.trim()) {
-        setResumeMsg("No selectable text found in that file (a scanned PDF has none).");
-        return;
-      }
-      setContextResume(text);
-      setResumeMsg(
-        `Imported ${text.length.toLocaleString()} chars from ${file.name} - review and Save context.`,
-      );
-    } catch (err) {
-      setResumeMsg(String(err));
-    }
-  };
   const refreshOllamaModels = useCallback(() => {
     void api
       .listOllamaModels()
       .then(setOllamaModels)
       .catch(() => setOllamaModels([]));
   }, []);
-  const loadProfiles = useCallback(() => {
-    void Promise.all([api.listProfiles(), api.activeProfile()])
-      .then(([list, active]) => {
-        setProfiles(list);
-        setActiveProfileId(active);
-      })
-      .catch(() => {});
-  }, []);
-  // Switch the active profile from the assistant: persist it, then reload the context
-  // fields (read from the active profile via the mirror) and the profile list.
-  const switchProfile = useCallback(
-    async (id: number) => {
-      setActiveProfileId(id);
-      try {
-        await api.setActiveProfile(id);
-        await loadSettings();
-        loadProfiles();
-      } catch {
-        /* ignore */
-      }
-    },
-    [loadSettings, loadProfiles],
-  );
   useEffect(() => {
     void loadSettings();
     void api
@@ -724,8 +669,7 @@ export function AssistantView() {
       .then(setMonitors)
       .catch(() => {});
     refreshOllamaModels();
-    loadProfiles();
-  }, [loadSettings, refreshOllamaModels, loadProfiles]);
+  }, [loadSettings, refreshOllamaModels]);
 
   // Capture the chosen screen and append any answer to the Q&A feed. `force`
   // answers even an unchanged screen (manual button); auto-watch passes false so
@@ -1682,7 +1626,8 @@ export function AssistantView() {
   const opacityPct = Math.round(((opacity - 0.3) / 0.7) * 100);
 
   return (
-    <div className="assistant three-col">
+    <>
+    <div className="assistant three-col" hidden={view !== "assistant"}>
       <div className="assistant-bar">
         <div className="assistant-title">
           <Bot size={18} /> Assistant
@@ -2012,170 +1957,6 @@ export function AssistantView() {
                     </Select>
                   </div>
 
-                  {answerEngine === "ollama" && (
-                    <div className="setup-row">
-                      <span className="setup-label">Ollama model</span>
-                      {ollamaModels.length > 0 ? (
-                        <Select
-                          value={ollamaModel}
-                          onChange={(v) => void changeOllamaModel(v)}
-                          ariaLabel="Local model used to answer (run `ollama pull <model>` to add more)"
-                        >
-                          <option value="">Select a model…</option>
-                          {ollamaModels.map((m) => (
-                            <option key={m} value={m}>
-                              {m}
-                            </option>
-                          ))}
-                        </Select>
-                      ) : (
-                        <span className="muted sm">
-                          No models found - start Ollama, then <code>ollama pull llama3.1</code>.
-                        </span>
-                      )}
-                    </div>
-                  )}
-
-                  <div className="setup-divider" />
-
-                  <div className="setup-row">
-                    <span className="setup-label">Transcription</span>
-                    <div className="seg" role="group" aria-label="Transcription engine">
-                      <button
-                        className={"seg-btn" + (sttEngine === "deepgram" ? " on" : "")}
-                        aria-pressed={sttEngine === "deepgram"}
-                        disabled={listening}
-                        title="Cloud (Deepgram) - captured audio is sent to Deepgram to transcribe"
-                        onClick={() => void changeEngine("deepgram")}
-                      >
-                        Cloud
-                      </button>
-                      <button
-                        className={"seg-btn" + (sttEngine === "local" ? " on" : "")}
-                        aria-pressed={sttEngine === "local"}
-                        disabled={listening}
-                        title="Local (Whisper) - runs on-device, audio never leaves your machine"
-                        onClick={() => void changeEngine("local")}
-                      >
-                        Local
-                      </button>
-                    </div>
-                  </div>
-
-                  {sttEngine === "deepgram" && (
-                    <>
-                      <div className="setup-row">
-                        <span className="setup-label">Language</span>
-                        <Select
-                          value={sttLanguage}
-                          disabled={listening}
-                          ariaLabel="Spoken language for Deepgram. Streaming can't auto-detect, so pick the language of the call (or Multilingual)."
-                          onChange={(v) => void changeLanguage(v)}
-                        >
-                          {STT_LANGUAGES.map((l) => (
-                            <option key={l.code} value={l.code}>
-                              {l.label}
-                            </option>
-                          ))}
-                        </Select>
-                      </div>
-                      <div className="setup-row">
-                        <label
-                          className="switch"
-                          title="Splits only the other side (your system/loopback audio) into Speaker 1/2/... for calls with several people on the far end. It can't tell you apart from them - that's set by the capture source (your mic is always 'You'). Leave off for 1-on-1 calls; it tends to mislabel one person as several."
-                        >
-                          <input
-                            type="checkbox"
-                            checked={sttDiarize}
-                            disabled={listening}
-                            onChange={(e) => void changeDiarize(e.target.checked)}
-                          />
-                          Separate speakers
-                        </label>
-                      </div>
-                      {sttDiarize && (
-                        <div className="setup-row diarize-hint muted sm">
-                          Only splits the other side into Speaker 1/2 (for 3+ people). You vs. them is set by
-                          the capture source - your mic is always &quot;You&quot;. If your own voice also
-                          shows up here as a speaker, it's leaking into the system audio: use headphones (so
-                          it isn't re-captured) and turn off any mic monitoring / &quot;Stereo Mix&quot;.
-                        </div>
-                      )}
-                    </>
-                  )}
-
-                  <div className="setup-row">
-                    <span className="setup-label">Capture</span>
-                    <div className="seg" role="group" aria-label="Capture source">
-                      <button
-                        className={"seg-btn" + (captureSource === "system" ? " on" : "")}
-                        aria-pressed={captureSource === "system"}
-                        disabled={listening}
-                        title="System audio - the other side of the call/video (via loopback)"
-                        onClick={() => void changeCaptureSource("system")}
-                      >
-                        System
-                      </button>
-                      <button
-                        className={"seg-btn" + (captureSource === "mic" ? " on" : "")}
-                        aria-pressed={captureSource === "mic"}
-                        disabled={listening}
-                        title="Microphone - your voice"
-                        onClick={() => void changeCaptureSource("mic")}
-                      >
-                        Mic
-                      </button>
-                      <button
-                        className={"seg-btn" + (captureSource === "both" ? " on" : "")}
-                        aria-pressed={captureSource === "both"}
-                        disabled={listening}
-                        title="System + Mic - both sides of the call"
-                        onClick={() => void changeCaptureSource("both")}
-                      >
-                        Both
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="setup-divider" />
-
-                  {captureSource !== "mic" && (
-                    <div className="setup-row">
-                      <span className="setup-label">Output device</span>
-                      <Select
-                        value={outputDevice}
-                        onChange={(v) => void changeOutputDevice(v)}
-                        disabled={listening}
-                        ariaLabel="Which speaker/output to capture (its sound is recorded via loopback)"
-                      >
-                        <option value="">Default output</option>
-                        {devices.outputs.map((d) => (
-                          <option key={d} value={d}>
-                            {d}
-                          </option>
-                        ))}
-                      </Select>
-                    </div>
-                  )}
-
-                  {captureSource !== "system" && (
-                    <div className="setup-row">
-                      <span className="setup-label">Input device</span>
-                      <Select
-                        value={inputDevice}
-                        onChange={(v) => void changeInputDevice(v)}
-                        disabled={listening}
-                        ariaLabel="Which microphone to capture"
-                      >
-                        <option value="">Default microphone</option>
-                        {devices.inputs.map((d) => (
-                          <option key={d} value={d}>
-                            {d}
-                          </option>
-                        ))}
-                      </Select>
-                    </div>
-                  )}
                 </div>
               </details>
 
@@ -2226,215 +2007,11 @@ export function AssistantView() {
                 </div>
               </details>
 
-              <details className="acc">
-                <summary>
-                  <ScrollText size={15} /> Activity log
-                </summary>
-                <div className="acc-body">
-                  <div className="muted sm">
-                    What each shortcut/action did. Watch = re-reads the screen and answers; Read page / window
-                    = attaches the page text as context (no answer).
-                  </div>
-                  {logEntries.length === 0 ? (
-                    <div className="muted sm">No activity yet - try a shortcut or screen action.</div>
-                  ) : (
-                    <>
-                      <div className="act-log">
-                        {logEntries.map((l) => (
-                          <div className={"act-log-row k-" + l.kind} key={l.id}>
-                            <span className="act-log-time">{fmtLogClock(l.ts)}</span>
-                            <span className="act-log-kind">{l.kind}</span>
-                            <span className="act-log-msg">{l.msg}</span>
-                          </div>
-                        ))}
-                      </div>
-                      <button className="btn-ghost sm" onClick={() => setLogEntries([])}>
-                        Clear log
-                      </button>
-                    </>
-                  )}
-                </div>
-              </details>
 
-              <details className="acc">
-                <summary>
-                  <Smartphone size={15} /> Phone control
-                </summary>
-                <div className="acc-body">
-                  {!phone ? (
-                    <>
-                      <div className="muted sm">
-                        Run a server on your Wi-Fi so your phone can watch the transcript and answers and
-                        drive listening - a discreet second screen during a call.
-                      </div>
-                      <button className="btn-ghost" onClick={() => void startPhone()} disabled={phoneBusy}>
-                        <Smartphone size={14} /> {phoneBusy ? "Starting…" : "Start phone server"}
-                      </button>
-                    </>
-                  ) : (
-                    <div className="phone-conn">
-                      {phone.qr && (
-                        <img
-                          className="phone-qr"
-                          src={phone.qr}
-                          alt="Scan to connect"
-                          width={150}
-                          height={150}
-                        />
-                      )}
-                      <div className="phone-conn-info">
-                        <div className="phone-row">
-                          <span className="setup-label">Open</span>
-                          <code className="phone-url">{phone.url}</code>
-                        </div>
-                        <div className="phone-row">
-                          <span className="setup-label">PIN</span>
-                          <span className="phone-pin">{phone.pin}</span>
-                        </div>
-                        <button className="btn-ghost" onClick={() => void stopPhone()}>
-                          <Square size={14} /> Stop server
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                  {phone && phoneNet && !phoneNet.ok && (
-                    <div className="phone-fw-warn">
-                      <div className="muted sm">{phoneNet.message}</div>
-                      {phoneNet.canFix && (
-                        <button
-                          className="btn-ghost"
-                          onClick={() => void allowFirewall()}
-                          disabled={fixingFw}
-                        >
-                          <ShieldCheck size={14} /> {fixingFw ? "Allowing…" : "Allow through firewall"}
-                        </button>
-                      )}
-                    </div>
-                  )}
-                  {phoneErr && <div className="assistant-error">{phoneErr}</div>}
-                  <div className="muted sm">
-                    Scan the code to connect instantly, or open the URL and type the PIN. Same Wi-Fi only; the
-                    code carries the PIN and traffic is unencrypted, so use a network you trust.
-                  </div>
-                </div>
-              </details>
 
-              <details className="acc">
-                <summary>
-                  <Briefcase size={15} /> Interview context
-                </summary>
-                <div className="acc-body">
-                  <p className="muted sm">Fed to the assistant so answers fit you and the role.</p>
-                  {profiles.length > 0 && (
-                    <div className="setup-field">
-                      <span className="setup-label">Active profile</span>
-                      <Select
-                        value={activeProfileId ?? ""}
-                        onChange={(v) => void switchProfile(Number(v))}
-                        ariaLabel="Active profile"
-                      >
-                        {profiles.map((p) => (
-                          <option key={p.id} value={p.id}>
-                            {p.name || "Untitled"}
-                          </option>
-                        ))}
-                      </Select>
-                      <div className="muted sm">Manage all profiles from the person icon in the top bar.</div>
-                    </div>
-                  )}
-                  <div className="setup-field">
-                    <span className="setup-label">Target role / focus</span>
-                    <input
-                      value={contextRole}
-                      onChange={(e) => setContextRole(e.target.value)}
-                      placeholder="e.g. Senior Backend Engineer"
-                    />
-                  </div>
-                  <div className="setup-field">
-                    <span className="setup-label">Resume / background</span>
-                    <textarea
-                      rows={4}
-                      value={contextResume}
-                      onChange={(e) => setContextResume(e.target.value)}
-                      placeholder="Paste your resume, or import a file below…"
-                    />
-                    <div className="resume-import">
-                      <input
-                        ref={resumeFileRef}
-                        type="file"
-                        accept=".pdf,.docx,.txt,.md"
-                        className="hidden-file"
-                        onChange={(e) => void onResumeFile(e)}
-                      />
-                      <button className="link-btn" onClick={() => resumeFileRef.current?.click()}>
-                        <Upload size={13} /> Import PDF / DOCX / text
-                      </button>
-                      {resumeMsg && <span className="muted sm">{resumeMsg}</span>}
-                    </div>
-                  </div>
-                  <div className="setup-field">
-                    <span className="setup-label">Notes / materials</span>
-                    <textarea
-                      rows={3}
-                      value={contextNotes}
-                      onChange={(e) => setContextNotes(e.target.value)}
-                      placeholder="Job description, talking points, anything to tailor answers…"
-                    />
-                  </div>
-                  <button className="btn-open" onClick={() => void saveContext()}>
-                    {contextSaved ? "Saved ✓" : "Save context"}
-                  </button>
-                </div>
-              </details>
 
-              <details className="acc">
-                <summary>
-                  <MessageSquare size={15} /> Your stories
-                </summary>
-                <div className="acc-body">
-                  <StoriesPanel key={activeProfileId ?? "none"} />
-                </div>
-              </details>
 
-              <details className="acc">
-                <summary>
-                  <History size={15} /> Past sessions
-                </summary>
-                <div className="acc-body">
-                  <SessionsPanel reload={sessionsReload} />
-                </div>
-              </details>
 
-              <details className="acc">
-                <summary>
-                  <Building2 size={15} /> Company information
-                </summary>
-                <div className="acc-body">
-                  <p className="muted sm">
-                    Add the company you're interviewing at - answers become company-aware, and you can
-                    generate a briefing + questions to ask.
-                  </p>
-                  <div className="setup-field">
-                    <span className="setup-label">Company (name, site, or notes)</span>
-                    <textarea
-                      rows={3}
-                      value={contextCompany}
-                      onChange={(e) => setContextCompany(e.target.value)}
-                      placeholder="e.g. Stripe - payments infrastructure. Anything you know: products, team, JD…"
-                    />
-                  </div>
-                  <button
-                    className="btn-sync"
-                    onClick={() => void generateCompanyBrief()}
-                    disabled={!contextCompany.trim()}
-                  >
-                    <Send size={15} /> Generate briefing &amp; questions
-                  </button>
-                  <div className="muted sm">
-                    Uses the model's own knowledge + what you enter (no live web lookup), so verify specifics.
-                  </div>
-                </div>
-              </details>
 
               <details className="acc">
                 <summary>
@@ -2445,155 +2022,6 @@ export function AssistantView() {
                 </div>
               </details>
 
-              <details
-                className="acc"
-                onToggle={(e) => {
-                  if ((e.target as HTMLDetailsElement).open) void refreshUsage();
-                }}
-              >
-                <summary>
-                  <Gauge size={15} /> Usage &amp; cost
-                </summary>
-                <div className="acc-body">
-                  {/* Claude: token-based spend estimate, optional credit -> remaining. */}
-                  <div className="usage-row">
-                    <span className="usage-name">Claude</span>
-                    <span className="usage-val">
-                      {usage && usage.claudeCredit > 0
-                        ? `$${Math.max(0, usage.claudeCredit - claudeUsed).toFixed(2)} left`
-                        : `$${claudeUsed.toFixed(2)} used`}
-                    </span>
-                  </div>
-                  <div className="muted sm">
-                    {usage?.since
-                      ? `~$${claudeCost.toFixed(2)} est. (${(claudeTokens / 1000).toFixed(0)}k tokens) since ${new Date(
-                          usage.since * 1000,
-                        ).toLocaleDateString()}`
-                      : "No Claude usage tracked yet."}
-                  </div>
-                  {(usage?.claudeItems ?? []).map((it) => (
-                    <div key={it.model} className="muted sm usage-line">
-                      {modelLabel(it.model)}: {(it.input / 1000).toFixed(0)}k in /{" "}
-                      {(it.output / 1000).toFixed(0)}k out
-                    </div>
-                  ))}
-                  <label className="usage-credit">
-                    <span className="setup-label">Credit added ($)</span>
-                    <input
-                      type="number"
-                      min={0}
-                      step="0.01"
-                      placeholder="e.g. 20"
-                      value={claudeCreditInput}
-                      onChange={(e) => setClaudeCreditInput(e.target.value)}
-                      onBlur={() => void saveCredit("claude", claudeCreditInput)}
-                    />
-                  </label>
-                  <label className="usage-credit">
-                    <span className="setup-label">Actual spent ($)</span>
-                    <input
-                      type="number"
-                      min={0}
-                      step="0.01"
-                      placeholder="sync to console"
-                      title="Override the estimate with the real spend from your Anthropic console. Leave blank to use the estimate."
-                      value={claudeSpentInput}
-                      onChange={(e) => setClaudeSpentInput(e.target.value)}
-                      onBlur={() => void saveSpent("claude", claudeSpentInput)}
-                    />
-                  </label>
-                  <div className="usage-actions">
-                    <button className="link-btn" onClick={() => void resetUsage()}>
-                      Reset spend
-                    </button>
-                    <button
-                      className="link-btn"
-                      onClick={() => void openUrl("https://console.anthropic.com/settings/usage")}
-                    >
-                      Open Anthropic console
-                    </button>
-                  </div>
-                  <div className="muted sm">
-                    Spend is estimated from token counts and list prices, then subtracted from the credit you
-                    enter - the exact balance lives in the Anthropic console.
-                  </div>
-
-                  <hr className="usage-sep" />
-
-                  {/* Deepgram: live balance when the key allows it; otherwise a minute-based estimate. */}
-                  <div className="usage-row">
-                    <span className="usage-name">Deepgram</span>
-                    <span className="usage-val">
-                      {dgLoading
-                        ? "…"
-                        : dgBalance
-                          ? `$${dgBalance.amount.toFixed(2)} left`
-                          : usage && usage.deepgramCredit > 0
-                            ? `$${Math.max(0, usage.deepgramCredit - dgUsed).toFixed(2)} left`
-                            : `$${dgUsed.toFixed(2)} used`}
-                    </span>
-                  </div>
-                  {dgBalance ? (
-                    <div className="muted sm">
-                      Live balance{dgBalance.project ? ` · ${dgBalance.project}` : ""}
-                    </div>
-                  ) : (
-                    <div className="muted sm">
-                      {`~$${dgCost.toFixed(2)} est. (${dgMinutes.toFixed(1)} min streamed)`}
-                      {dgError ? " · live balance unavailable for this key" : ""}
-                    </div>
-                  )}
-                  {!dgBalance && (
-                    <>
-                      <label className="usage-credit">
-                        <span className="setup-label">Credit added ($)</span>
-                        <input
-                          type="number"
-                          min={0}
-                          step="0.01"
-                          placeholder="e.g. 25"
-                          value={dgCreditInput}
-                          onChange={(e) => setDgCreditInput(e.target.value)}
-                          onBlur={() => void saveCredit("deepgram", dgCreditInput)}
-                        />
-                      </label>
-                      <label className="usage-credit">
-                        <span className="setup-label">Actual spent ($)</span>
-                        <input
-                          type="number"
-                          min={0}
-                          step="0.01"
-                          placeholder="sync to console"
-                          title="Override the estimate with the real spend from your Deepgram console. Leave blank to use the estimate."
-                          value={dgSpentInput}
-                          onChange={(e) => setDgSpentInput(e.target.value)}
-                          onBlur={() => void saveSpent("deepgram", dgSpentInput)}
-                        />
-                      </label>
-                    </>
-                  )}
-                  <div className="usage-actions">
-                    <button className="link-btn" onClick={() => void refreshUsage()} disabled={dgLoading}>
-                      Refresh
-                    </button>
-                    <button
-                      className="link-btn"
-                      onClick={() => void openUrl("https://console.deepgram.com/")}
-                    >
-                      Open Deepgram console
-                    </button>
-                  </div>
-                  {dgError && (
-                    <div className="muted sm">
-                      Live balance needs an Owner/Admin Deepgram key; a transcription key can't read it. Enter
-                      your credit above for an estimate, or check the console.
-                    </div>
-                  )}
-
-                  <hr className="usage-sep" />
-                  <div className="muted sm">Local (Ollama / Whisper): free - runs on your machine.</div>
-                </div>
-              </details>
             </section>
 
             <section className="assistant-col col-dialog">
@@ -2901,5 +2329,528 @@ export function AssistantView() {
 
       {snipSrc && <SnipOverlay src={snipSrc} onCancel={() => setSnipSrc(null)} onSelect={onSnipSelect} />}
     </div>
+
+    <div className="settings-page" hidden={view !== "settings"}>
+      <header className="settings-head">
+        <h1>Settings</h1>
+        <p className="muted sm">
+          Set-once configuration and review. Everything you touch mid-call stays on the Assistant tab.
+        </p>
+      </header>
+      <div className="settings-layout">
+        <nav className="settings-nav" aria-label="Settings sections">
+          <div className="settings-nav-group">Capture</div>
+          <button
+            type="button"
+            className={"settings-nav-btn" + (settingsTab === "audio" ? " active" : "")}
+            onClick={() => { setSettingsTab("audio"); }}
+          >
+            <Mic size={15} /> <span>Audio &amp; transcription</span>
+          </button>
+          <button
+            type="button"
+            className={"settings-nav-btn" + (settingsTab === "phone" ? " active" : "")}
+            onClick={() => { setSettingsTab("phone"); }}
+          >
+            <Smartphone size={15} /> <span>Phone control</span>
+          </button>
+          <div className="settings-nav-group">Answers</div>
+          <button
+            type="button"
+            className={"settings-nav-btn" + (settingsTab === "local" ? " active" : "")}
+            onClick={() => { setSettingsTab("local"); }}
+          >
+            <Cpu size={15} /> <span>Local model</span>
+          </button>
+          <button
+            type="button"
+            className={"settings-nav-btn" + (settingsTab === "company" ? " active" : "")}
+            onClick={() => { setSettingsTab("company"); }}
+          >
+            <Building2 size={15} /> <span>Company information</span>
+          </button>
+          <div className="settings-nav-group">Review</div>
+          <button
+            type="button"
+            className={"settings-nav-btn" + (settingsTab === "sessions" ? " active" : "")}
+            onClick={() => { setSettingsTab("sessions"); }}
+          >
+            <History size={15} /> <span>Past sessions</span>
+          </button>
+          <button
+            type="button"
+            className={"settings-nav-btn" + (settingsTab === "usage" ? " active" : "")}
+            onClick={() => { setSettingsTab("usage"); void refreshUsage(); }}
+          >
+            <Gauge size={15} /> <span>Usage &amp; cost</span>
+          </button>
+          <button
+            type="button"
+            className={"settings-nav-btn" + (settingsTab === "activity" ? " active" : "")}
+            onClick={() => { setSettingsTab("activity"); }}
+          >
+            <ScrollText size={15} /> <span>Activity log</span>
+          </button>
+        </nav>
+        <section className="settings-pane">
+          {settingsTab === "audio" && (
+            <>
+              <h2 className="settings-pane-title">
+                <Mic size={16} /> Audio &amp; transcription
+              </h2>
+              <p className="settings-pane-blurb muted sm">How Lodestar hears the call: transcription engine, language, and which device it listens to.</p>
+      <div className="setup-row">
+        <span className="setup-label">Transcription</span>
+        <div className="seg" role="group" aria-label="Transcription engine">
+          <button
+            className={"seg-btn" + (sttEngine === "deepgram" ? " on" : "")}
+            aria-pressed={sttEngine === "deepgram"}
+            disabled={listening}
+            title="Cloud (Deepgram) - captured audio is sent to Deepgram to transcribe"
+            onClick={() => void changeEngine("deepgram")}
+          >
+            Cloud
+          </button>
+          <button
+            className={"seg-btn" + (sttEngine === "local" ? " on" : "")}
+            aria-pressed={sttEngine === "local"}
+            disabled={listening}
+            title="Local (Whisper) - runs on-device, audio never leaves your machine"
+            onClick={() => void changeEngine("local")}
+          >
+            Local
+          </button>
+        </div>
+      </div>
+
+      {sttEngine === "deepgram" && (
+        <>
+          <div className="setup-row">
+            <span className="setup-label">Language</span>
+            <Select
+              value={sttLanguage}
+              disabled={listening}
+              ariaLabel="Spoken language for Deepgram. Streaming can't auto-detect, so pick the language of the call (or Multilingual)."
+              onChange={(v) => void changeLanguage(v)}
+            >
+              {STT_LANGUAGES.map((l) => (
+                <option key={l.code} value={l.code}>
+                  {l.label}
+                </option>
+              ))}
+            </Select>
+          </div>
+          <div className="setup-row">
+            <label
+              className="switch"
+              title="Splits only the other side (your system/loopback audio) into Speaker 1/2/... for calls with several people on the far end. It can't tell you apart from them - that's set by the capture source (your mic is always 'You'). Leave off for 1-on-1 calls; it tends to mislabel one person as several."
+            >
+              <input
+                type="checkbox"
+                checked={sttDiarize}
+                disabled={listening}
+                onChange={(e) => void changeDiarize(e.target.checked)}
+              />
+              Separate speakers
+            </label>
+          </div>
+          {sttDiarize && (
+            <div className="setup-row diarize-hint muted sm">
+              Only splits the other side into Speaker 1/2 (for 3+ people). You vs. them is set by
+              the capture source - your mic is always &quot;You&quot;. If your own voice also
+              shows up here as a speaker, it's leaking into the system audio: use headphones (so
+              it isn't re-captured) and turn off any mic monitoring / &quot;Stereo Mix&quot;.
+            </div>
+          )}
+        </>
+      )}
+
+      <div className="setup-row">
+        <span className="setup-label">Capture</span>
+        <div className="seg" role="group" aria-label="Capture source">
+          <button
+            className={"seg-btn" + (captureSource === "system" ? " on" : "")}
+            aria-pressed={captureSource === "system"}
+            disabled={listening}
+            title="System audio - the other side of the call/video (via loopback)"
+            onClick={() => void changeCaptureSource("system")}
+          >
+            System
+          </button>
+          <button
+            className={"seg-btn" + (captureSource === "mic" ? " on" : "")}
+            aria-pressed={captureSource === "mic"}
+            disabled={listening}
+            title="Microphone - your voice"
+            onClick={() => void changeCaptureSource("mic")}
+          >
+            Mic
+          </button>
+          <button
+            className={"seg-btn" + (captureSource === "both" ? " on" : "")}
+            aria-pressed={captureSource === "both"}
+            disabled={listening}
+            title="System + Mic - both sides of the call"
+            onClick={() => void changeCaptureSource("both")}
+          >
+            Both
+          </button>
+        </div>
+      </div>
+
+      <div className="setup-divider" />
+
+      {captureSource !== "mic" && (
+        <div className="setup-row">
+          <span className="setup-label">Output device</span>
+          <Select
+            value={outputDevice}
+            onChange={(v) => void changeOutputDevice(v)}
+            disabled={listening}
+            ariaLabel="Which speaker/output to capture (its sound is recorded via loopback)"
+          >
+            <option value="">Default output</option>
+            {devices.outputs.map((d) => (
+              <option key={d} value={d}>
+                {d}
+              </option>
+            ))}
+          </Select>
+        </div>
+      )}
+
+      {captureSource !== "system" && (
+        <div className="setup-row">
+          <span className="setup-label">Input device</span>
+          <Select
+            value={inputDevice}
+            onChange={(v) => void changeInputDevice(v)}
+            disabled={listening}
+            ariaLabel="Which microphone to capture"
+          >
+            <option value="">Default microphone</option>
+            {devices.inputs.map((d) => (
+              <option key={d} value={d}>
+                {d}
+              </option>
+            ))}
+          </Select>
+        </div>
+      )}
+            </>
+          )}
+          {settingsTab === "phone" && (
+            <>
+              <h2 className="settings-pane-title">
+                <Smartphone size={16} /> Phone control
+              </h2>
+              <p className="settings-pane-blurb muted sm">Drive the assistant from your phone over the local network.</p>
+            {!phone ? (
+              <>
+                <div className="muted sm">
+                  Run a server on your Wi-Fi so your phone can watch the transcript and answers and
+                  drive listening - a discreet second screen during a call.
+                </div>
+                <button className="btn-ghost" onClick={() => void startPhone()} disabled={phoneBusy}>
+                  <Smartphone size={14} /> {phoneBusy ? "Starting…" : "Start phone server"}
+                </button>
+              </>
+            ) : (
+              <div className="phone-conn">
+                {phone.qr && (
+                  <img
+                    className="phone-qr"
+                    src={phone.qr}
+                    alt="Scan to connect"
+                    width={150}
+                    height={150}
+                  />
+                )}
+                <div className="phone-conn-info">
+                  <div className="phone-row">
+                    <span className="setup-label">Open</span>
+                    <code className="phone-url">{phone.url}</code>
+                  </div>
+                  <div className="phone-row">
+                    <span className="setup-label">PIN</span>
+                    <span className="phone-pin">{phone.pin}</span>
+                  </div>
+                  <button className="btn-ghost" onClick={() => void stopPhone()}>
+                    <Square size={14} /> Stop server
+                  </button>
+                </div>
+              </div>
+            )}
+            {phone && phoneNet && !phoneNet.ok && (
+              <div className="phone-fw-warn">
+                <div className="muted sm">{phoneNet.message}</div>
+                {phoneNet.canFix && (
+                  <button
+                    className="btn-ghost"
+                    onClick={() => void allowFirewall()}
+                    disabled={fixingFw}
+                  >
+                    <ShieldCheck size={14} /> {fixingFw ? "Allowing…" : "Allow through firewall"}
+                  </button>
+                )}
+              </div>
+            )}
+            {phoneErr && <div className="assistant-error">{phoneErr}</div>}
+            <div className="muted sm">
+              Scan the code to connect instantly, or open the URL and type the PIN. Same Wi-Fi only; the
+              code carries the PIN and traffic is unencrypted, so use a network you trust.
+            </div>
+            </>
+          )}
+          {settingsTab === "local" && (
+            <>
+              <h2 className="settings-pane-title">
+                <Cpu size={16} /> Local model
+              </h2>
+              <p className="settings-pane-blurb muted sm">Answer on-device with Ollama instead of the cloud.</p>
+      {answerEngine === "ollama" && (
+        <div className="setup-row">
+          <span className="setup-label">Ollama model</span>
+          {ollamaModels.length > 0 ? (
+            <Select
+              value={ollamaModel}
+              onChange={(v) => void changeOllamaModel(v)}
+              ariaLabel="Local model used to answer (run `ollama pull <model>` to add more)"
+            >
+              <option value="">Select a model…</option>
+              {ollamaModels.map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
+            </Select>
+          ) : (
+            <span className="muted sm">
+              No models found - start Ollama, then <code>ollama pull llama3.1</code>.
+            </span>
+          )}
+        </div>
+      )}
+            </>
+          )}
+          {settingsTab === "company" && (
+            <>
+              <h2 className="settings-pane-title">
+                <Building2 size={16} /> Company information
+              </h2>
+              <p className="settings-pane-blurb muted sm">Company context for the interview, plus a generated briefing.</p>
+            <p className="muted sm">
+              Add the company you're interviewing at - answers become company-aware, and you can
+              generate a briefing + questions to ask.
+            </p>
+            <div className="setup-field">
+              <span className="setup-label">Company (name, site, or notes)</span>
+              <textarea
+                rows={3}
+                value={contextCompany}
+                onChange={(e) => setContextCompany(e.target.value)}
+                placeholder="e.g. Stripe - payments infrastructure. Anything you know: products, team, JD…"
+              />
+            </div>
+            <button
+              className="btn-sync"
+              onClick={() => void generateCompanyBrief()}
+              disabled={!contextCompany.trim()}
+            >
+              <Send size={15} /> Generate briefing &amp; questions
+            </button>
+            <div className="muted sm">
+              Uses the model's own knowledge + what you enter (no live web lookup), so verify specifics.
+            </div>
+            </>
+          )}
+          {settingsTab === "sessions" && (
+            <>
+              <h2 className="settings-pane-title">
+                <History size={16} /> Past sessions
+              </h2>
+              <p className="settings-pane-blurb muted sm">Saved transcripts and answers from previous calls.</p>
+            <SessionsPanel reload={sessionsReload} />
+            </>
+          )}
+          {settingsTab === "usage" && (
+            <>
+              <h2 className="settings-pane-title">
+                <Gauge size={16} /> Usage &amp; cost
+              </h2>
+              <p className="settings-pane-blurb muted sm">Token spend estimate and your remaining credit.</p>
+            {/* Claude: token-based spend estimate, optional credit -> remaining. */}
+            <div className="usage-row">
+              <span className="usage-name">Claude</span>
+              <span className="usage-val">
+                {usage && usage.claudeCredit > 0
+                  ? `$${Math.max(0, usage.claudeCredit - claudeUsed).toFixed(2)} left`
+                  : `$${claudeUsed.toFixed(2)} used`}
+              </span>
+            </div>
+            <div className="muted sm">
+              {usage?.since
+                ? `~$${claudeCost.toFixed(2)} est. (${(claudeTokens / 1000).toFixed(0)}k tokens) since ${new Date(
+                    usage.since * 1000,
+                  ).toLocaleDateString()}`
+                : "No Claude usage tracked yet."}
+            </div>
+            {(usage?.claudeItems ?? []).map((it) => (
+              <div key={it.model} className="muted sm usage-line">
+                {modelLabel(it.model)}: {(it.input / 1000).toFixed(0)}k in /{" "}
+                {(it.output / 1000).toFixed(0)}k out
+              </div>
+            ))}
+            <label className="usage-credit">
+              <span className="setup-label">Credit added ($)</span>
+              <input
+                type="number"
+                min={0}
+                step="0.01"
+                placeholder="e.g. 20"
+                value={claudeCreditInput}
+                onChange={(e) => setClaudeCreditInput(e.target.value)}
+                onBlur={() => void saveCredit("claude", claudeCreditInput)}
+              />
+            </label>
+            <label className="usage-credit">
+              <span className="setup-label">Actual spent ($)</span>
+              <input
+                type="number"
+                min={0}
+                step="0.01"
+                placeholder="sync to console"
+                title="Override the estimate with the real spend from your Anthropic console. Leave blank to use the estimate."
+                value={claudeSpentInput}
+                onChange={(e) => setClaudeSpentInput(e.target.value)}
+                onBlur={() => void saveSpent("claude", claudeSpentInput)}
+              />
+            </label>
+            <div className="usage-actions">
+              <button className="link-btn" onClick={() => void resetUsage()}>
+                Reset spend
+              </button>
+              <button
+                className="link-btn"
+                onClick={() => void openUrl("https://console.anthropic.com/settings/usage")}
+              >
+                Open Anthropic console
+              </button>
+            </div>
+            <div className="muted sm">
+              Spend is estimated from token counts and list prices, then subtracted from the credit you
+              enter - the exact balance lives in the Anthropic console.
+            </div>
+
+            <hr className="usage-sep" />
+
+            {/* Deepgram: live balance when the key allows it; otherwise a minute-based estimate. */}
+            <div className="usage-row">
+              <span className="usage-name">Deepgram</span>
+              <span className="usage-val">
+                {dgLoading
+                  ? "…"
+                  : dgBalance
+                    ? `$${dgBalance.amount.toFixed(2)} left`
+                    : usage && usage.deepgramCredit > 0
+                      ? `$${Math.max(0, usage.deepgramCredit - dgUsed).toFixed(2)} left`
+                      : `$${dgUsed.toFixed(2)} used`}
+              </span>
+            </div>
+            {dgBalance ? (
+              <div className="muted sm">
+                Live balance{dgBalance.project ? ` · ${dgBalance.project}` : ""}
+              </div>
+            ) : (
+              <div className="muted sm">
+                {`~$${dgCost.toFixed(2)} est. (${dgMinutes.toFixed(1)} min streamed)`}
+                {dgError ? " · live balance unavailable for this key" : ""}
+              </div>
+            )}
+            {!dgBalance && (
+              <>
+                <label className="usage-credit">
+                  <span className="setup-label">Credit added ($)</span>
+                  <input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    placeholder="e.g. 25"
+                    value={dgCreditInput}
+                    onChange={(e) => setDgCreditInput(e.target.value)}
+                    onBlur={() => void saveCredit("deepgram", dgCreditInput)}
+                  />
+                </label>
+                <label className="usage-credit">
+                  <span className="setup-label">Actual spent ($)</span>
+                  <input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    placeholder="sync to console"
+                    title="Override the estimate with the real spend from your Deepgram console. Leave blank to use the estimate."
+                    value={dgSpentInput}
+                    onChange={(e) => setDgSpentInput(e.target.value)}
+                    onBlur={() => void saveSpent("deepgram", dgSpentInput)}
+                  />
+                </label>
+              </>
+            )}
+            <div className="usage-actions">
+              <button className="link-btn" onClick={() => void refreshUsage()} disabled={dgLoading}>
+                Refresh
+              </button>
+              <button
+                className="link-btn"
+                onClick={() => void openUrl("https://console.deepgram.com/")}
+              >
+                Open Deepgram console
+              </button>
+            </div>
+            {dgError && (
+              <div className="muted sm">
+                Live balance needs an Owner/Admin Deepgram key; a transcription key can't read it. Enter
+                your credit above for an estimate, or check the console.
+              </div>
+            )}
+
+            <hr className="usage-sep" />
+            <div className="muted sm">Local (Ollama / Whisper): free - runs on your machine.</div>
+            </>
+          )}
+          {settingsTab === "activity" && (
+            <>
+              <h2 className="settings-pane-title">
+                <ScrollText size={16} /> Activity log
+              </h2>
+              <p className="settings-pane-blurb muted sm">Recent internal events - useful when something misbehaves.</p>
+            <div className="muted sm">
+              What each shortcut/action did. Watch = re-reads the screen and answers; Read page / window
+              = attaches the page text as context (no answer).
+            </div>
+            {logEntries.length === 0 ? (
+              <div className="muted sm">No activity yet - try a shortcut or screen action.</div>
+            ) : (
+              <>
+                <div className="act-log">
+                  {logEntries.map((l) => (
+                    <div className={"act-log-row k-" + l.kind} key={l.id}>
+                      <span className="act-log-time">{fmtLogClock(l.ts)}</span>
+                      <span className="act-log-kind">{l.kind}</span>
+                      <span className="act-log-msg">{l.msg}</span>
+                    </div>
+                  ))}
+                </div>
+                <button className="btn-ghost sm" onClick={() => setLogEntries([])}>
+                  Clear log
+                </button>
+              </>
+            )}
+            </>
+          )}
+        </section>
+      </div>
+    </div>
+    </>
   );
 }
