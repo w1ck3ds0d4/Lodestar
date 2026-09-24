@@ -27,7 +27,7 @@ fn raise_topmost(hwnd: windows::Win32::Foundation::HWND) {
     unsafe {
         let _ = SetWindowPos(
             hwnd,
-            HWND_TOPMOST,
+            Some(HWND_TOPMOST),
             0,
             0,
             0,
@@ -105,7 +105,7 @@ pub fn set_window_always_on_top(window: tauri::WebviewWindow, on_top: bool) -> R
         unsafe {
             SetWindowPos(
                 hwnd,
-                after,
+                Some(after),
                 0,
                 0,
                 0,
@@ -175,7 +175,7 @@ pub(crate) fn show_noactivate_keep_stealth(hwnd: windows::Win32::Foundation::HWN
         let after = if topmost { HWND_TOPMOST } else { HWND_TOP };
         let _ = SetWindowPos(
             hwnd,
-            after,
+            Some(after),
             0,
             0,
             0,
@@ -391,7 +391,7 @@ pub(crate) fn make_owned_stealth(window: &tauri::WebviewWindow) -> Result<isize,
                 0,
                 None,
                 None,
-                Some(&hinst),
+                Some(hinst),
                 None,
             )
             .map_err(|e| format!("create owner: {e}"))?;

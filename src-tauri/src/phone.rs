@@ -69,7 +69,7 @@ pub fn start(app: AppHandle) -> Result<PhoneServer, String> {
     let ip =
         local_ip_address::local_ip().map_err(|e| format!("Could not find your LAN IP: {e}"))?;
     let url = format!("http://{ip}:{PORT}");
-    let pin = format!("{:06}", rand::thread_rng().gen_range(0..1_000_000));
+    let pin = format!("{:06}", rand::rng().random_range(0..1_000_000));
 
     // Bind synchronously so a port-in-use error is reported to the caller now.
     let std_listener = std::net::TcpListener::bind(("0.0.0.0", PORT))
@@ -142,7 +142,7 @@ async fn handle_socket(mut socket: WebSocket, st: ServerState) {
     } else {
         r#"{"type":"auth","ok":false}"#
     };
-    let _ = socket.send(Message::Text(ack.to_string())).await;
+    let _ = socket.send(Message::Text(ack.to_string().into())).await;
     if !authed {
         return;
     }
@@ -152,7 +152,7 @@ async fn handle_socket(mut socket: WebSocket, st: ServerState) {
         tokio::select! {
             outbound = rx.recv() => match outbound {
                 Ok(msg) => {
-                    if socket.send(Message::Text(msg)).await.is_err() {
+                    if socket.send(Message::Text(msg.into())).await.is_err() {
                         break;
                     }
                 }
@@ -162,7 +162,7 @@ async fn handle_socket(mut socket: WebSocket, st: ServerState) {
             inbound = socket.recv() => match inbound {
                 // Phone commands are relayed to the desktop UI, which executes them.
                 Some(Ok(Message::Text(t))) => {
-                    let _ = st.app.emit("phone-command", t);
+                    let _ = st.app.emit("phone-command", t.to_string());
                 }
                 Some(Ok(Message::Close(_))) | None => break,
                 Some(Err(_)) => break,

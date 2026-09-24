@@ -36,7 +36,7 @@ pub fn protect(plain: &str) -> String {
         {
             let bytes = std::slice::from_raw_parts(out.pbData, out.cbData as usize);
             let encoded = STANDARD.encode(bytes);
-            let _ = LocalFree(HLOCAL(out.pbData as *mut core::ffi::c_void));
+            let _ = LocalFree(Some(HLOCAL(out.pbData as *mut core::ffi::c_void)));
             format!("{PREFIX}{encoded}")
         } else {
             plain.to_string()
@@ -70,7 +70,7 @@ pub fn unprotect(stored: &str) -> String {
         {
             let plain = std::slice::from_raw_parts(out.pbData, out.cbData as usize);
             let s = String::from_utf8_lossy(plain).into_owned();
-            let _ = LocalFree(HLOCAL(out.pbData as *mut core::ffi::c_void));
+            let _ = LocalFree(Some(HLOCAL(out.pbData as *mut core::ffi::c_void)));
             s
         } else {
             stored.to_string()

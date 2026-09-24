@@ -81,10 +81,16 @@ pub fn bounds_physical(index: usize) -> Result<(f64, f64, f64, f64, f64)> {
         .get(index)
         .ok_or_else(|| anyhow!("That monitor is no longer connected."))?;
     Ok((
-        m.x() as f64,
-        m.y() as f64,
-        m.width() as f64,
-        m.height() as f64,
-        (m.scale_factor() as f64).max(0.1),
+        m.x()
+            .map_err(|e| anyhow!("Could not read the monitor position: {e}"))? as f64,
+        m.y()
+            .map_err(|e| anyhow!("Could not read the monitor position: {e}"))? as f64,
+        m.width()
+            .map_err(|e| anyhow!("Could not read the monitor size: {e}"))? as f64,
+        m.height()
+            .map_err(|e| anyhow!("Could not read the monitor size: {e}"))? as f64,
+        (m.scale_factor()
+            .map_err(|e| anyhow!("Could not read the monitor scale: {e}"))? as f64)
+            .max(0.1),
     ))
 }

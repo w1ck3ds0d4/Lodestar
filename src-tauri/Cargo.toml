@@ -40,37 +40,37 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync", "net"] }
-tokio-tungstenite = { version = "0.23", features = ["rustls-tls-webpki-roots"] }
+tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
 # Local LAN companion server (phone control): tiny axum HTTP+WebSocket server.
-axum = { version = "0.7", features = ["ws"] }
+axum = { version = "0.8", features = ["ws"] }
 local-ip-address = "0.6"
 qrcode = "0.14"
-rand = "0.8"
+rand = "0.9"
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
 # Pull in the ring CryptoProvider so we can install it as the process default before
 # tokio-tungstenite opens its wss:// socket (rustls 0.23 panics without one).
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "gzip"] }
-rusqlite = { version = "0.32", features = ["bundled"] }
+rusqlite = { version = "0.40", features = ["bundled"] }
 # Pure-Rust XML pull parser for the RSS / We Work Remotely feed sources (handles
 # CDATA + entity decoding properly, unlike a regex).
 # Offline, pure-Rust language detection (no model downloads) for the language filter.
-cpal = "0.15"
-xcap = "0.0.14"
-base64 = "0.22"
-sha2 = "0.10"
+cpal = "0.18"
+xcap = "0.9.6"
+base64 = "0.23"
+sha2 = "0.11"
 arboard = "3"
-candle-core = "0.10.2"
-candle-nn = "0.10.2"
-candle-transformers = "0.10.2"
+candle-core = "0.11.0"
+candle-nn = "0.11.0"
+candle-transformers = "0.11.0"
 tokenizers = "0.23.1"
-nvml-wrapper = "0.12.1"
+nvml-wrapper = "0.13.0"
 
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.58", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_UI_Accessibility", "Win32_System_Com", "Win32_System_Threading", "Win32_System_LibraryLoader", "Win32_Security_Cryptography"] }
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_UI_Accessibility", "Win32_System_Com", "Win32_System_Threading", "Win32_System_LibraryLoader", "Win32_Security_Cryptography"] }
 # High-level Windows UI Automation wrapper used to read the focused window's text
 # (problem statement + editor) when a page disables copy/select.
-uiautomation = "0.16"
+uiautomation = "0.25"
 
 [profile.release]
 opt-level = "z"

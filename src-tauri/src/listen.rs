@@ -97,11 +97,11 @@ pub fn list_devices() -> (Vec<String>, Vec<String>) {
     let host = cpal::default_host();
     let inputs = host
         .input_devices()
-        .map(|ds| ds.filter_map(|d| d.name().ok()).collect())
+        .map(|ds| ds.map(|d| d.to_string()).collect())
         .unwrap_or_default();
     let outputs = host
         .output_devices()
-        .map(|ds| ds.filter_map(|d| d.name().ok()).collect())
+        .map(|ds| ds.map(|d| d.to_string()).collect())
         .unwrap_or_default();
     (inputs, outputs)
 }
@@ -116,7 +116,7 @@ fn pick_device(host: &cpal::Host, name: Option<&str>, input: bool) -> Option<Dev
             host.output_devices()
         };
         if let Ok(mut devs) = listed {
-            if let Some(d) = devs.find(|d| d.name().map(|n| n == name).unwrap_or(false)) {
+            if let Some(d) = devs.find(|d| d.to_string() == name) {
                 return Some(d);
             }
         }
@@ -150,7 +150,7 @@ impl Source {
     }
 }
 
-fn on_stream_error(err: cpal::StreamError) {
+fn on_stream_error(err: cpal::Error) {
     tracing::warn!("audio capture stream error: {err}");
 }
 
@@ -168,7 +168,7 @@ fn capture_stream(
     let config: cpal::StreamConfig = supported.config();
     let stream = match supported.sample_format() {
         cpal::SampleFormat::F32 => device.build_input_stream(
-            &config,
+            config,
             move |data: &[f32], _: &cpal::InputCallbackInfo| {
                 buffer.lock().unwrap().extend_from_slice(data);
             },
@@ -176,7 +176,7 @@ fn capture_stream(
             None,
         ),
         cpal::SampleFormat::I16 => device.build_input_stream(
-            &config,
+            config,
             move |data: &[i16], _: &cpal::InputCallbackInfo| {
                 buffer
                     .lock()
@@ -214,11 +214,11 @@ pub fn run(
     if capture.system() {
         let device = pick_device(&host, devices.output.as_deref(), false)
             .ok_or_else(|| anyhow!("No audio output device found to capture."))?;
-        let name = device.name().unwrap_or_else(|_| "Default output".into());
+        let name = device.to_string();
         let supported = device
             .default_output_config()
             .map_err(|e| anyhow!("Could not read the output device format: {e}"))?;
-        let rate = supported.sample_rate().0;
+        let rate = supported.sample_rate();
         let channels = supported.config().channels.max(1) as usize;
         let buffer = Arc::new(Mutex::new(Vec::new()));
         streams.push(capture_stream(&device, &supported, buffer.clone())?);
@@ -234,13 +234,11 @@ pub fn run(
     if capture.mic() {
         let device = pick_device(&host, devices.input.as_deref(), true)
             .ok_or_else(|| anyhow!("No microphone found to capture."))?;
-        let name = device
-            .name()
-            .unwrap_or_else(|_| "Default microphone".into());
+        let name = device.to_string();
         let supported = device
             .default_input_config()
             .map_err(|e| anyhow!("Could not read the microphone format: {e}"))?;
-        let rate = supported.sample_rate().0;
+        let rate = supported.sample_rate();
         let channels = supported.config().channels.max(1) as usize;
         let buffer = Arc::new(Mutex::new(Vec::new()));
         streams.push(capture_stream(&device, &supported, buffer.clone())?);

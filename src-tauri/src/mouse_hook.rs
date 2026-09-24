@@ -302,7 +302,7 @@ mod imp {
             let _hook = match SetWindowsHookExW(
                 WH_MOUSE_LL,
                 Some(low_level_mouse_proc),
-                HINSTANCE::default(), // ignored for a low-level hook
+                Some(HINSTANCE::default()), // ignored for a low-level hook
                 0,
             ) {
                 Ok(h) => h,
