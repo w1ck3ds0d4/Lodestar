@@ -1,9 +1,12 @@
 name: CI
 
 on:
-  push:
-    branches: [main]
   pull_request:
+    # docs-only changes skip this to save Actions minutes
+    paths-ignore: ['*.md', 'docs/**', '.claude/**', 'LICENSE*']
+  # weekly on main: keeps the Rust cache warm for pull requests and catches toolchain drift
+  schedule:
+    - cron: '30 5 * * 1' # Monday 05:30 UTC
   workflow_dispatch:
 
 permissions:
@@ -15,9 +18,56 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  check:
+  changes:
+    # Windows minutes cost double, so the Windows job only runs when a pull request touches the
+    # Rust side (src-tauri) or this workflow. Scheduled and manual runs always build it.
+    runs-on: ubuntu-latest
+    outputs:
+      rust: ${{ steps.diff.outputs.rust }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - id: diff
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          # On a pull request HEAD is the merge commit, so HEAD^1..HEAD is exactly the PR's change.
+          if [ "$EVENT" != "pull_request" ] || git diff --name-only HEAD^1 HEAD | grep -qE '^(src-tauri/|\.github/workflows/ci\.yml$)'; then
+            echo "rust=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "rust=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Type-check and build frontend
+        run: pnpm build
+
+      - name: Frontend unit tests
+        run: pnpm test
+
+  rust:
     # Windows: the app depends on Windows-only crates (UI Automation, screen
     # capture, window effects), so the Rust side only compiles here.
+    needs: [changes]
+    if: needs.changes.outputs.rust == 'true'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -34,13 +84,10 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # Type-checks (tsc) and builds the frontend into dist/, which the Rust build
-      # (generate_context!) needs before clippy/test will compile.
-      - name: Type-check and build frontend
+      # Builds the frontend into dist/, which the Rust build (generate_context!)
+      # needs before clippy/test will compile.
+      - name: Build frontend
         run: pnpm build
-
-      - name: Frontend unit tests
-        run: pnpm test
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -64,8 +111,11 @@ jobs:
 
   automerge:
     name: Auto-merge Dependabot patch updates
-    needs: [check]
-    if: github.event_name == 'pull_request' && github.event.pull_request.user.login == 'dependabot[bot]'
+    needs: [frontend, rust]
+    # always() so a skipped Windows job (no Rust change) still lets a passing frontend merge
+    if: >-
+      always() && github.event_name == 'pull_request' && github.event.pull_request.user.login == 'dependabot[bot]'
+      && needs.frontend.result == 'success' && contains(fromJSON('["success", "skipped"]'), needs.rust.result)
     runs-on: ubuntu-latest
     permissions:
       contents: write

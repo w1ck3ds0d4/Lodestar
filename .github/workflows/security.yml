@@ -1,9 +1,11 @@
 name: Security Scan
 
 on:
-  push:
-    branches: [main]
+  schedule:
+    - cron: '0 6 * * 1' # weekly, Monday 06:00 UTC
   pull_request:
+    # docs-only changes skip this to save Actions minutes
+    paths-ignore: ['*.md', 'docs/**', '.claude/**', 'LICENSE*']
   workflow_dispatch:
 
 permissions:
