@@ -2,8 +2,9 @@
 
 ## Posture
 
-Lodestar is a personal, local-first desktop app. It is not published or distributed to
-anyone else; it runs only on the maintainer's own machine.
+Lodestar is a personal, local-first desktop app. It is not distributed to anyone else: CI
+attaches the installers to this private repository's Releases, and it runs only on the
+maintainer's own machine.
 
 What it touches:
 

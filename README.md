@@ -45,7 +45,7 @@ Built with Tauri v2 (Rust) + React + Vite. The Rust core owns audio capture, scr
 
 ## Install
 
-Download the latest Windows installer from the [Releases page](https://github.com/w1ck3ds0d4/Lodestar/releases/latest):
+Download the latest Windows installer from this private repository's [Releases page](https://github.com/w1ck3ds0d4/Lodestar/releases/latest):
 
 - `Lodestar_<version>_x64-setup.exe` - per-user install, no admin required (recommended)
 - `Lodestar_<version>_x64_en-US.msi` - MSI package
@@ -133,7 +133,7 @@ The database is created at the OS-standard app-data directory on first launch.
 ### Local-first and privacy
 
 - SQLite (bundled) for profiles, stories, saved sessions, and settings; the database lives in the OS-standard app-data directory
-- API keys (Anthropic, Deepgram) are stored only in your local database
+- API keys (Anthropic, Deepgram) are stored only in your local database, encrypted at rest with Windows DPAPI (`secret.rs`)
 - The cloud paths send data to their services when used: Claude receives your question/context (and screenshots for the vision features); Deepgram receives captured audio. For a fully on-device setup, use the Ollama answer engine and the local Whisper transcription engine
 
 ## Using Lodestar
@@ -145,7 +145,7 @@ In **Settings** (Capture and Answers):
 - **Capture source**: `System` (the other side of the call, via WASAPI loopback), `Mic` (you), or `Both`. Pick the **output device** the call app plays to and your **input device**. The two-bar level meter (You / Them) confirms both sides are being captured; a flat "Them" bar usually means the call app is playing to a different output device than the one selected.
 - **Transcription engine**: Deepgram (cloud, realtime, per-language, optional speaker diarization) or on-device Whisper (local, no key, slower on CPU).
 - **Answer engine**: Claude (cloud, default) or a local Ollama model.
-- Add your **Anthropic** and/or **Deepgram** API keys in Settings. Keys are stored in the local database only.
+- Add your **Anthropic** and/or **Deepgram** API keys in Settings. Keys are stored in the local database only, encrypted with Windows DPAPI.
 
 ### 2. Pick a profile
 
@@ -207,7 +207,7 @@ This build is intended for personal, local use: the data stays on your machine a
 
 - Real-time streaming transcription (the current pipeline transcribes in ~4s chunks; cross-chunk speaker numbering is therefore not stable)
 - Live web lookup for the company briefing (currently uses the model's own knowledge plus what you enter)
-- An auto-updater and code-signed releases (the published installers are currently unsigned)
+- An auto-updater and code-signed releases (the release installers are currently unsigned)
 
 ## License
 
