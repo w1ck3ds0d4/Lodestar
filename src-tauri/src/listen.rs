@@ -484,7 +484,9 @@ async fn connect_and_stream(
             if !flag.load(Ordering::SeqCst) {
                 crate::usage::record_deepgram_seconds(pending_secs);
                 let _ = write
-                    .send(Message::Text("{\"type\":\"CloseStream\"}".to_string()))
+                    .send(Message::Text(
+                        "{\"type\":\"CloseStream\"}".to_string().into(),
+                    ))
                     .await;
                 break;
             }
@@ -499,7 +501,7 @@ async fn connect_and_stream(
                 idle += 1;
                 if idle >= 40 {
                     let _ = write
-                        .send(Message::Text("{\"type\":\"KeepAlive\"}".to_string()))
+                        .send(Message::Text("{\"type\":\"KeepAlive\"}".to_string().into()))
                         .await;
                     idle = 0;
                 }
@@ -516,7 +518,7 @@ async fn connect_and_stream(
                 pending_secs = 0.0;
             }
             if write
-                .send(Message::Binary(mono_to_linear16(&resampled)))
+                .send(Message::Binary(mono_to_linear16(&resampled).into()))
                 .await
                 .is_err()
             {

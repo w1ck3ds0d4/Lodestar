@@ -16,7 +16,7 @@ use axum::response::{Html, IntoResponse};
 use axum::routing::get;
 use axum::Router;
 use base64::Engine;
-use rand::Rng;
+use rand::RngExt;
 use tauri::{AppHandle, Emitter};
 use tokio::sync::{broadcast, oneshot};
 
