@@ -79,8 +79,9 @@ this on the real app.
       (keys decrypt correctly).
 - [ ] In `jobradar.db` (the `settings` table), secret values are stored as
       `dpapi:...` ciphertext, **not** plaintext.
-      DB path (Windows): `%APPDATA%\<app identifier>\jobradar.db`.
-- [ ] Keys entered **before** this update still work without re-entry (legacy
+      DB path (Windows): `%APPDATA%\<app identifier>\jobradar.db` (the legacy file name is
+      kept so existing installs keep their data).
+- [ ] Keys saved as plaintext by older builds still work without re-entry (legacy
       plaintext is tolerated and re-encrypted on the next save).
 
 ## Phone remote (if used)

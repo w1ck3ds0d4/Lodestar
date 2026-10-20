@@ -14,13 +14,13 @@ performance getting better session over session while the app stays stable and d
 - [ ] **Clear the failing Dependabot alerts**: 22 open alerts, including a currently-failing
       `glib` bump that blocks CI on its own PR. Done when: the `glib` bump PR is green and the
       open alert count is meaningfully down.
-- [ ] **Add ARCHITECTURE.md and HOW_IT_WORKS.md**: a plain-words account of the Rust core
+- [x] **Add ARCHITECTURE.md and HOW_IT_WORKS.md**: a plain-words account of the Rust core
       (capture, transcription, model calls, storage) and the main call-to-answer path, so a
       roadmap thread has the same grounding CRADesk gets. Done when: both files exist and describe
-      the code as it stands today.
-- [ ] **Add SECURITY.md**: a real posture write-up for an app that captures audio/screen and
+      the code as it stands today. (#118)
+- [x] **Add SECURITY.md**: a real posture write-up for an app that captures audio/screen and
       calls external model APIs (Claude, Deepgram). Done when: the file covers what the app
-      touches, how keys are stored (`secret.rs`), and how to report a problem.
+      touches, how keys are stored (`secret.rs`), and how to report a problem. (#118)
 - [ ] **Rotate stored cloud API keys**: confirm `secret.rs` storage is still sound after the
       2026-07 credential-rotation incident, and that no key has ever been logged or committed.
       Done when: a manual check is done and, if anything is stale, keys are rotated.
