@@ -3,13 +3,13 @@
   "private": true,
   "version": "0.3.0",
   "type": "module",
-  "description": "Local-first desktop app that searches the job market.",
+  "description": "Local-first, real-time interview copilot for the desktop.",
   "keywords": [
-    "job-search",
-    "jobs",
+    "interview",
+    "copilot",
     "tauri",
     "desktop",
-    "aggregator"
+    "transcription"
   ],
   "author": "w1ck3ds0d4 <support@wickitlab.com>",
   "license": "AGPL-3.0-or-later",

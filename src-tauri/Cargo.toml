@@ -1,14 +1,14 @@
 [package]
 name = "lodestar"
 version = "0.3.0"
-description = "Lodestar - a local-first desktop app that searches the job market"
+description = "Lodestar - a local-first, real-time interview copilot for the desktop"
 authors = ["w1ck3ds0d4 <support@wickitlab.com>"]
 edition = "2021"
 license = "AGPL-3.0-or-later"
 repository = "https://github.com/w1ck3ds0d4/Lodestar"
 homepage = "https://github.com/w1ck3ds0d4/Lodestar"
 readme = "../README.md"
-keywords = ["job-search", "jobs", "tauri", "aggregator", "desktop"]
+keywords = ["interview", "copilot", "tauri", "desktop", "transcription"]
 categories = ["gui"]
 
 [lib]
