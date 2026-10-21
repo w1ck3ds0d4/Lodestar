@@ -4,10 +4,10 @@
 
 Lodestar is a private, personal interview copilot: it listens to a call, transcribes both
 sides, and answers questions on the spot as short spoken lines. It is not for sale or
-publication. "Done" for this status is not a fixed release, it is WickIT's own interview
+publication. "Done" for this status is not a fixed release, it is the maintainer's own interview
 performance getting better session over session while the app stays stable and dependency-clean.
 
-> How this file is used: Claude Project threads build the first unticked item under **Now**, one item per branch and pull request, and tick it in that same PR as `- [x] ... (#PR)`. WickIT owns the order and the lists; threads never add to Now, Next or Later themselves, they propose under **Ideas**.
+> How this file is used: Claude Project threads build the first unticked item under **Now**, one item per branch and pull request, and tick it in that same PR as `- [x] ... (#PR)`. The maintainer owns the order and the lists; threads never add to Now, Next or Later themselves, they propose under **Ideas**.
 
 ## Now
 
@@ -28,10 +28,10 @@ performance getting better session over session while the app stays stable and d
 ## Next
 
 - [ ] **Extend the delivery-coach / fast-mode line**: this is the feature line that most
-      directly moves interview outcomes. Done when: the next concrete improvement (WickIT to
+      directly moves interview outcomes. Done when: the next concrete improvement (the maintainer to
       specify) ships behind a test.
 - [ ] **Phone companion polish**: `phone.rs`/`phone.html` drive the second-screen mode; fix
-      the rough edges WickIT hits in real interview use. Done when: a named rough edge is fixed
+      the rough edges the maintainer hits in real interview use. Done when: a named rough edge is fixed
       and confirmed in a live or rehearsed session.
 
 ## Later

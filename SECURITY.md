@@ -3,7 +3,7 @@
 ## Posture
 
 Lodestar is a personal, local-first desktop app. It is not published or distributed to
-anyone else; it runs only on WickIT's own machine.
+anyone else; it runs only on the maintainer's own machine.
 
 What it touches:
 
