@@ -12,9 +12,78 @@ Built with Tauri v2 (Rust) + React + Vite. The Rust core owns audio capture, scr
 
 > Lodestar began as a local-first job-market search tool. As of v0.3.0 it is focused entirely on the live interview copilot; the job-search, tracker, and study features were removed.
 
----
+## Contents
 
-## Features (Built)
+- [Tech stack](#tech-stack)
+- [Install](#install)
+- [Prerequisites](#prerequisites)
+- [Getting started](#getting-started)
+- [Features (built)](#features-built)
+- [Using Lodestar](#using-lodestar)
+- [Personal use and terms](#personal-use-and-terms)
+- [What's not yet built](#whats-not-yet-built)
+- [License](#license)
+
+## Tech stack
+
+| Layer           | Technology                                          |
+| --------------- | --------------------------------------------------- |
+| Desktop         | Tauri v2 (Rust)                                     |
+| Frontend        | React 19 + TypeScript + Vite                        |
+| Storage         | SQLite (rusqlite, bundled)                          |
+| HTTP            | reqwest (rustls, no OpenSSL)                        |
+| Async runtime   | tokio                                               |
+| Audio capture   | cpal (WASAPI loopback + microphone)                 |
+| Local STT       | Candle (pure-Rust Whisper), tokenizers              |
+| Cloud STT       | Deepgram (optional)                                 |
+| Answer models   | Claude Messages API (streaming) and/or local Ollama |
+| Screen capture  | xcap                                                |
+| Screen reading  | UI Automation (uiautomation)                        |
+| Markdown / math | react-markdown, remark-gfm, remark-math, KaTeX      |
+| Icons           | lucide-react                                        |
+| Package manager | pnpm                                                |
+
+## Install
+
+Download the latest Windows installer from the [Releases page](https://github.com/w1ck3ds0d4/Lodestar/releases/latest):
+
+- `Lodestar_<version>_x64-setup.exe` - per-user install, no admin required (recommended)
+- `Lodestar_<version>_x64_en-US.msi` - MSI package
+
+The releases are currently unsigned, so on first launch Windows SmartScreen may warn ("Windows protected your PC"); click **More info**, then **Run anyway**. To build from source instead, follow the steps below.
+
+## Prerequisites
+
+- [Rust stable toolchain](https://rustup.rs/)
+- [Node.js](https://nodejs.org/) 20+
+- [pnpm](https://pnpm.io/installation)
+- Windows 10 / 11 with [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/) (preinstalled on most modern installs), plus Visual Studio 2022 Build Tools with the "Desktop development with C++" workload. The overlay stealth, loopback capture, and screen reader are Windows-specific.
+
+Optional, for cloud or local answering:
+
+- An Anthropic API key for Claude answers, or [Ollama](https://ollama.com/) running locally (`ollama serve` + a pulled model, e.g. `ollama pull llama3.1`; a vision model such as `llama3.2-vision` for the screen features)
+- A Deepgram API key for cloud transcription, or use the local Whisper engine (downloads a model on first run, slower on CPU)
+
+## Getting started
+
+```bash
+# 1. Clone and install
+git clone https://github.com/w1ck3ds0d4/Lodestar.git
+cd Lodestar
+pnpm install
+
+# 2. Run the app (boots and creates the local DB on first launch)
+pnpm tauri dev
+
+# 3. Build an installer (output under src-tauri/target/release/bundle/)
+pnpm tauri build
+```
+
+The database is created at the OS-standard app-data directory on first launch.
+
+> Note: a development build (`pnpm tauri dev`) runs an unoptimized Rust binary, so on-device Whisper transcription is much slower than the release installer. Cloud transcription (Deepgram) runs at the same speed either way.
+
+## Features (built)
 
 ### The live copilot
 
@@ -66,75 +135,6 @@ Built with Tauri v2 (Rust) + React + Vite. The Rust core owns audio capture, scr
 - SQLite (bundled) for profiles, stories, saved sessions, and settings; the database lives in the OS-standard app-data directory
 - API keys (Anthropic, Deepgram) are stored only in your local database
 - The cloud paths send data to their services when used: Claude receives your question/context (and screenshots for the vision features); Deepgram receives captured audio. For a fully on-device setup, use the Ollama answer engine and the local Whisper transcription engine
-
----
-
-## Tech Stack
-
-| Layer           | Technology                                          |
-| --------------- | --------------------------------------------------- |
-| Desktop         | Tauri v2 (Rust)                                     |
-| Frontend        | React 19 + TypeScript + Vite                        |
-| Storage         | SQLite (rusqlite, bundled)                          |
-| HTTP            | reqwest (rustls, no OpenSSL)                        |
-| Async runtime   | tokio                                               |
-| Audio capture   | cpal (WASAPI loopback + microphone)                 |
-| Local STT       | Candle (pure-Rust Whisper), tokenizers              |
-| Cloud STT       | Deepgram (optional)                                 |
-| Answer models   | Claude Messages API (streaming) and/or local Ollama |
-| Screen capture  | xcap                                                |
-| Screen reading  | UI Automation (uiautomation)                        |
-| Markdown / math | react-markdown, remark-gfm, remark-math, KaTeX      |
-| Icons           | lucide-react                                        |
-| Package manager | pnpm                                                |
-
----
-
-## Install
-
-Download the latest Windows installer from the [Releases page](https://github.com/w1ck3ds0d4/Lodestar/releases/latest):
-
-- `Lodestar_<version>_x64-setup.exe` - per-user install, no admin required (recommended)
-- `Lodestar_<version>_x64_en-US.msi` - MSI package
-
-The releases are currently unsigned, so on first launch Windows SmartScreen may warn ("Windows protected your PC"); click **More info**, then **Run anyway**. To build from source instead, follow the steps below.
-
----
-
-## Prerequisites
-
-- [Rust stable toolchain](https://rustup.rs/)
-- [Node.js](https://nodejs.org/) 20+
-- [pnpm](https://pnpm.io/installation)
-- Windows 10 / 11 with [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/) (preinstalled on most modern installs), plus Visual Studio 2022 Build Tools with the "Desktop development with C++" workload. The overlay stealth, loopback capture, and screen reader are Windows-specific.
-
-Optional, for cloud or local answering:
-
-- An Anthropic API key for Claude answers, or [Ollama](https://ollama.com/) running locally (`ollama serve` + a pulled model, e.g. `ollama pull llama3.1`; a vision model such as `llama3.2-vision` for the screen features)
-- A Deepgram API key for cloud transcription, or use the local Whisper engine (downloads a model on first run, slower on CPU)
-
----
-
-## Getting Started
-
-```bash
-# 1. Clone and install
-git clone https://github.com/w1ck3ds0d4/Lodestar.git
-cd Lodestar
-pnpm install
-
-# 2. Run the app (boots and creates the local DB on first launch)
-pnpm tauri dev
-
-# 3. Build an installer (output under src-tauri/target/release/bundle/)
-pnpm tauri build
-```
-
-The database is created at the OS-standard app-data directory on first launch.
-
-> Note: a development build (`pnpm tauri dev`) runs an unoptimized Rust binary, so on-device Whisper transcription is much slower than the release installer. Cloud transcription (Deepgram) runs at the same speed either way.
-
----
 
 ## Using Lodestar
 
@@ -199,21 +199,15 @@ Note that content protection hides the _window_ from capture, but your mouse cur
 
 In **Settings → Phone control**, start the LAN server and scan the QR (or enter the PIN) on your phone; no app to install. The phone shows the live transcript and answers and gives an 8-tile remote: Listen, Screen Capture, Opacity +/-, Read & Answer (with a monitor chooser for multiple displays), Watch, Panels, Ask, and Read full page. The phone stays on your own Wi-Fi; the server is PIN-gated and scoped to the local subnet.
 
----
-
-## Personal Use & Terms
+## Personal use and terms
 
 This build is intended for personal, local use: the data stays on your machine and is not redistributed. The copilot features are study/interview-prep aids; use them in line with the policies of whatever calls or platforms you are on.
 
----
-
-## What's Not Yet Built
+## What's not yet built
 
 - Real-time streaming transcription (the current pipeline transcribes in ~4s chunks; cross-chunk speaker numbering is therefore not stable)
 - Live web lookup for the company briefing (currently uses the model's own knowledge plus what you enter)
 - An auto-updater and code-signed releases (the published installers are currently unsigned)
-
----
 
 ## License
 
