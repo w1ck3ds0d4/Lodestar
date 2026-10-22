@@ -1,6 +1,10 @@
 // Extract plain text from a resume file (PDF / DOCX / TXT / MD), in the webview.
 // The heavy parsers are dynamically imported so they only load when a file is picked.
 
+/**
+ * Extract plain text from a resume file in the webview. Supports .txt, .md, .docx and .pdf;
+ * any other extension throws. All results pass through {@link cleanImportedText}.
+ */
 export async function extractResumeText(file: File): Promise<string> {
   const name = file.name.toLowerCase();
 
@@ -22,14 +26,20 @@ export async function extractResumeText(file: File): Promise<string> {
     pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
 
     const data = new Uint8Array(await file.arrayBuffer());
-    const pdf = await pdfjs.getDocument({ data }).promise;
-    const pages: string[] = [];
-    for (let i = 1; i <= pdf.numPages; i++) {
-      const page = await pdf.getPage(i);
-      const content = await page.getTextContent();
-      pages.push(content.items.map((it) => ("str" in it ? it.str : "")).join(" "));
+    const loadingTask = pdfjs.getDocument({ data });
+    const pdf = await loadingTask.promise;
+    try {
+      const pages: string[] = [];
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i);
+        const content = await page.getTextContent();
+        pages.push(content.items.map((it) => ("str" in it ? it.str : "")).join(" "));
+      }
+      return cleanImportedText(pages.join("\n"));
+    } finally {
+      // Release the pdf.js document and its worker once extraction is done.
+      void loadingTask.destroy();
     }
-    return cleanImportedText(pages.join("\n"));
   }
 
   throw new Error("Unsupported file - use PDF, DOCX, TXT, or MD.");
