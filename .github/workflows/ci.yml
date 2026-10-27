@@ -19,8 +19,9 @@ concurrency:
 
 jobs:
   changes:
-    # Windows minutes cost double, so the Windows job only runs when a pull request touches the
-    # Rust side (src-tauri) or this workflow. Scheduled and manual runs always build it.
+    if: github.event.pull_request.user.login != 'dependabot[bot]'
+    # Windows minutes count double on the free plan, so since 2026-10-27 the Windows job never runs
+    # on a pull request, only on the Monday schedule or by hand. This job only feeds those runs.
     runs-on: ubuntu-latest
     outputs:
       rust: ${{ steps.diff.outputs.rust }}
@@ -41,6 +42,7 @@ jobs:
           fi
 
   frontend:
+    if: github.event.pull_request.user.login != 'dependabot[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -67,7 +69,8 @@ jobs:
     # Windows: the app depends on Windows-only crates (UI Automation, screen
     # capture, window effects), so the Rust side only compiles here.
     needs: [changes]
-    if: needs.changes.outputs.rust == 'true'
+    # Windows minutes count double on the free plan: run on the Monday schedule or by hand, never on a PR.
+    if: github.event_name != 'pull_request'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
@@ -109,6 +112,8 @@ jobs:
         working-directory: src-tauri
         run: cargo test
 
+  # Dormant since 2026-10-27: Dependabot PRs skip CI to save minutes, so this never fires.
+  # They are checked locally once a week and merged by hand.
   automerge:
     name: Auto-merge Dependabot patch updates
     needs: [frontend, rust]
