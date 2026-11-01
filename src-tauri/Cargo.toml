@@ -2,7 +2,7 @@
 name = "lodestar"
 version = "0.3.0"
 description = "Lodestar - a local-first, real-time interview copilot for the desktop"
-authors = ["w1ck3ds0d4 <support@wickitlab.com>"]
+authors = ["WickIT Lab <support@wickitlab.com>"]
 edition = "2021"
 license = "AGPL-3.0-or-later"
 repository = "https://github.com/w1ck3ds0d4/Lodestar"

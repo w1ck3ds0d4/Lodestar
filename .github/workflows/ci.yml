@@ -3,7 +3,7 @@ name: CI
 on:
   pull_request:
     # docs-only changes skip this to save Actions minutes
-    paths-ignore: ['*.md', 'docs/**', '.claude/**', 'LICENSE*']
+    paths-ignore: ['*.md', 'docs/**', 'LICENSE*']
   # weekly on main: keeps the Rust cache warm for pull requests and catches toolchain drift
   schedule:
     - cron: '30 5 * * 1' # Monday 05:30 UTC

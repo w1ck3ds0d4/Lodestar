@@ -2,7 +2,7 @@
  * Tauri's event bridge, made safe outside the desktop shell.
  *
  * `listen`/`emit` reach through `window.__TAURI_INTERNALS__`, which only exists inside the
- * Tauri webview. In a plain browser (the Vite dev server / Claude Code preview) the real
+ * Tauri webview. In a plain browser (the Vite dev server / dev preview) the real
  * calls reject with "Cannot read properties of undefined (reading 'transformCallback')" -
  * once per listener, on every mount, which buried genuine errors in the console.
  *

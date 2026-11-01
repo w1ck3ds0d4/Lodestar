@@ -4,7 +4,7 @@
 
 Lodestar is a personal, local-first desktop app. It is not distributed to anyone else: CI
 attaches the installers to this private repository's Releases, and it runs only on the
-maintainer's own machine.
+WickIT's own machine.
 
 What it touches:
 

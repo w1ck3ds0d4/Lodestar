@@ -16,7 +16,7 @@ import type {
 } from "./types";
 
 // --- Browser-preview fallback -------------------------------------------------
-// Outside Tauri (the Vite dev server in a plain browser, e.g. the Claude Code
+// Outside Tauri (the Vite dev server in a plain browser, e.g. a dev
 // preview) there is no Rust backend, so a real `invoke` would hang and the app
 // would stick on the launch splash. This shim returns type-shaped empty defaults
 // so the UI boots and renders its empty states for styling work. It is inert in
