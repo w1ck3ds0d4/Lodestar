@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/banner.svg" alt="Lodestar - Local-first interview copilot for your desktop" width="100%" />
+  <img src="assets/banner.png" alt="Lodestar banner" />
 </p>
 
 **Local-first, real-time interview copilot for your desktop**
