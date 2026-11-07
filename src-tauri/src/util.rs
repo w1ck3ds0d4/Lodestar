@@ -1,5 +1,5 @@
-//! Small shared helpers: time, hashing, HTML cleanup, date conversion, and
-//! lenient JSON field extraction used across the source adapters.
+//! Small shared helpers. Currently just the epoch-millisecond clock used
+//! across the backend; the source-adapter helpers were removed in v0.3.0.
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
