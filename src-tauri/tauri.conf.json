@@ -33,12 +33,12 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "publisher": "w1ck3ds0d4",
+    "publisher": "WickIT Lab",
     "category": "Business",
     "shortDescription": "Local-first, real-time interview copilot for your desktop.",
     "longDescription": "Lodestar is a local-first desktop interview copilot. It listens to a call, transcribes both sides with speaker attribution, and answers questions on the spot as short spoken lines, from a discreet overlay. Cloud answering and transcription are opt-in, and a fully on-device mode is available.",
     "homepage": "https://github.com/w1ck3ds0d4/Lodestar",
-    "copyright": "Copyright (c) 2026 w1ck3ds0d4",
+    "copyright": "Copyright (c) 2026 WickIT Lab",
     "license": "AGPL-3.0-or-later",
     "icon": [
       "icons/32x32.png",

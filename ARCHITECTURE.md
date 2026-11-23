@@ -32,7 +32,7 @@ Rust backend (`src-tauri/src/`):
 - `career.rs`: per-profile data, interview profiles, STAR story bank, saved sessions.
 - `commands.rs`: the Tauri command surface exposed to the frontend via `invoke`.
 - `db.rs`: SQLite schema and the key-value settings table.
-- `secret.rs`: DPAPI-protected at-rest storage for API keys, with tolerant fallback for
+- `secret.rs`: DPAPI-protected at-rest storage for API keys, with a tolerant read of
   legacy plaintext values (re-encrypted on next write).
 - `usage.rs`: local token tally from Claude's per-response usage reporting, since the API
   exposes no balance endpoint.

@@ -1,13 +1,13 @@
 # Roadmap
 
-**Status:** continue. **Last reviewed:** 2026-09-24.
+**Status:** continue. **Last reviewed:** 2026-11-22.
 
-Lodestar is a private, personal interview copilot: it listens to a call, transcribes both
-sides, and answers questions on the spot as short spoken lines. It is not for sale or
-publication. "Done" for this status is not a fixed release, it is WickIT's own interview
-performance getting better session over session while the app stays stable and dependency-clean.
+Lodestar is an open-source, local-first interview copilot: it listens to a call, transcribes both
+sides, and answers questions on the spot as short spoken lines. It is released under the
+AGPL-3.0-or-later, with a commercial license available (see [COMMERCIAL.md](COMMERCIAL.md)).
+The aim is a stable app that is dependency-clean and gets better at what it already does.
 
-> How this file is used: Each work session builds the first unticked item under **Now**, one item per branch and pull request, and ticks it in that same PR as `- [x] ... (#PR)`. WickIT owns the order and the lists; sessions never add to Now, Next or Later themselves, they propose under **Ideas**.
+> How this file is used: the maintainers own the order and the lists. Each work session builds the first unticked item under **Now**, one item per branch and pull request, and ticks it in that same PR as `- [x] ... (#PR)`. Contributors and sessions do not add to Now, Next or Later themselves: propose changes in an issue or under **Ideas**.
 
 ## Now
 
@@ -28,10 +28,10 @@ performance getting better session over session while the app stays stable and d
 ## Next
 
 - [ ] **Extend the delivery-coach / fast-mode line**: this is the feature line that most
-      directly moves interview outcomes. Done when: the next concrete improvement (WickIT to
-      specify) ships behind a test.
+      directly moves interview outcomes. Done when: the next concrete improvement (the
+      maintainers to specify) ships behind a test.
 - [ ] **Phone companion polish**: `phone.rs`/`phone.html` drive the second-screen mode; fix
-      the rough edges WickIT hits in real interview use. Done when: a named rough edge is fixed
+      the rough edges found in real interview use. Done when: a named rough edge is fixed
       and confirmed in a live or rehearsed session.
 
 ## Later
@@ -42,7 +42,7 @@ performance getting better session over session while the app stays stable and d
 
 ## Ideas
 
-(empty to start; sessions add proposals here)
+(empty to start; proposals go here)
 
 ## Done
 
