@@ -1,0 +1,181 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to release, for example v0.4.0"
+        required: true
+        type: string
+
+# Least privilege: the build job runs install scripts and build code from dependencies, so it
+# only gets read access. Publishing is a separate job that runs no repository code.
+permissions:
+  contents: read
+
+# Third-party actions are pinned to commit SHAs (the comment names the release).
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: refs/tags/${{ inputs.tag || github.ref_name }}
+          persist-credentials: false
+
+      # A release is only ever cut from a commit that is on main.
+      - name: Check the tag is on main
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          status=$(gh api "repos/$GITHUB_REPOSITORY/compare/main...$TAG" --jq .status)
+          case "$status" in
+            identical|behind) ;;
+            *)
+              echo "Tag $TAG is not on main (compare status: $status)" >&2
+              exit 1
+              ;;
+          esac
+
+      - name: Check the tag matches the app version
+        shell: bash
+        run: |
+          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Tag $TAG is not of the form vX.Y.Z" >&2
+            exit 1
+          fi
+          VERSION="${TAG#v}"
+          for f in package.json src-tauri/tauri.conf.json; do
+            v=$(node -p "require('./$f').version")
+            if [ "$v" != "$VERSION" ]; then
+              echo "$f is at $v but the tag is $TAG" >&2
+              exit 1
+            fi
+          done
+          c=$(sed -n 's/^version = "\(.*\)"/\1/p' src-tauri/Cargo.toml | head -n 1)
+          if [ "$c" != "$VERSION" ]; then
+            echo "src-tauri/Cargo.toml is at $c but the tag is $TAG" >&2
+            exit 1
+          fi
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6
+        with:
+          version: 9
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 20
+          cache: pnpm
+
+      # Pinned to a commit of the stable branch, so the toolchain is named explicitly.
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+        with:
+          toolchain: stable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # The same checks CI runs, so a broken tag is never published. The frontend build also
+      # produces dist/, which the Rust tests need.
+      - name: Build the frontend and run its tests
+        run: |
+          pnpm build
+          pnpm test
+
+      - name: Rust tests
+        working-directory: src-tauri
+        run: cargo test
+
+      # Keeps the runner's directories out of the binaries: cargo registry sources, the Rust
+      # toolchain and the checkout would otherwise appear in panic and debug strings.
+      - name: Remap build paths
+        shell: pwsh
+        run: |
+          $cargoHome = if ($env:CARGO_HOME) { $env:CARGO_HOME } else { Join-Path $env:USERPROFILE '.cargo' }
+          $rustupHome = if ($env:RUSTUP_HOME) { $env:RUSTUP_HOME } else { Join-Path $env:USERPROFILE '.rustup' }
+          $flags = @(
+            "--remap-path-prefix=$cargoHome=/cargo",
+            "--remap-path-prefix=$rustupHome=/rustup",
+            "--remap-path-prefix=$env:GITHUB_WORKSPACE=/src"
+          ) -join ' '
+          if ($env:RUSTFLAGS) { $flags = "$env:RUSTFLAGS $flags" }
+          "RUSTFLAGS=$flags" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Build the installers
+        run: pnpm tauri build --bundles nsis,msi
+
+      - name: Collect the installers and write checksums
+        shell: bash
+        run: |
+          mkdir dist-release
+          setup=$(ls src-tauri/target/release/bundle/nsis/*-setup.exe)
+          msi=$(ls src-tauri/target/release/bundle/msi/*.msi)
+          if [ "$(echo "$setup" | wc -l)" -ne 1 ] || [ "$(echo "$msi" | wc -l)" -ne 1 ]; then
+            echo "Expected exactly one setup.exe and one msi" >&2
+            exit 1
+          fi
+          cp "$setup" "$msi" dist-release/
+          cd dist-release
+          sha256sum *.exe *.msi > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      # Notes are the CHANGELOG section whose heading names this version.
+      - name: Extract the release notes
+        shell: bash
+        run: |
+          # The heading must contain exactly this version (0.4.0 must not match 10.4.0 or 0.4.01).
+          awk -v v="$VERSION" '
+            BEGIN { re = v; gsub(/[.]/, "[.]", re); re = "^## ([^0-9]*[^0-9.])?" re "([^0-9.]|$)" }
+            /^## / { if (found) exit; if ($0 ~ re) { found = 1; next } }
+            found { print }
+          ' CHANGELOG.md > dist-release/release-notes.md
+          if ! grep -q '[^[:space:]]' dist-release/release-notes.md; then
+            echo "No CHANGELOG section found for $VERSION" >&2
+            exit 1
+          fi
+          cat dist-release/release-notes.md
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-files
+          path: dist-release/
+          if-no-files-found: error
+          retention-days: 7
+
+  # Publishing only: it gets write access but runs none of the repository's code and does not
+  # check it out, so build scripts never see a token that can write.
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-files
+          path: dist-release
+
+      - name: Create the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$TAG" \
+            dist-release/*-setup.exe dist-release/*.msi dist-release/SHA256SUMS.txt \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Lodestar ${TAG#v}" \
+            --notes-file dist-release/release-notes.md \
+            --verify-tag

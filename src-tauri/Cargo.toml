@@ -1,6 +1,6 @@
 [package]
 name = "lodestar"
-version = "0.3.0"
+version = "0.4.0"
 description = "Lodestar - a local-first, real-time interview copilot for the desktop"
 authors = ["WickIT Lab <support@wickitlab.com>"]
 edition = "2021"
