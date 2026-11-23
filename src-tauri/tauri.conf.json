@@ -2,8 +2,8 @@
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Lodestar",
   "mainBinaryName": "mcp_lodestar",
-  "version": "0.3.0",
-  "identifier": "com.w1ck3ds0d4.jobradar",
+  "version": "0.4.0",
+  "identifier": "com.wickitlab.lodestar",
   "build": {
     "beforeDevCommand": "pnpm dev",
     "devUrl": "http://localhost:1420",

@@ -6,6 +6,7 @@ mod db;
 mod gpu_tray;
 mod listen;
 mod local_stt;
+mod migrate;
 mod model;
 mod mouse_hook;
 mod netcheck;
@@ -66,6 +67,10 @@ pub fn run() {
                 .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("lodestar_lib=info,warn")),
         )
         .try_init();
+
+    // Copy data from the old app identifier once, before any window or the database exists.
+    let context = tauri::generate_context!();
+    migrate::run_startup(&context.config().identifier);
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -145,7 +150,7 @@ pub fn run() {
         .setup(|app| {
             let dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&dir)?;
-            let db_path = dir.join("jobradar.db");
+            let db_path = dir.join("lodestar.db");
             let conn = db::init(&db_path).expect("failed to initialize database");
             let db = Arc::new(Mutex::new(conn));
             // Make the DB reachable from the deep Claude call site for token tallying.
@@ -415,6 +420,6 @@ pub fn run() {
             window_fx::set_window_skip_taskbar,
             window_fx::apply_window_stealth,
         ])
-        .run(tauri::generate_context!())
+        .run(context)
         .expect("error while running tauri application");
 }

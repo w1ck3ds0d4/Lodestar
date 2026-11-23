@@ -77,12 +77,18 @@ this on the real app.
 
 - [ ] After setting Claude / Deepgram keys, the assistant and listening still work
       (keys decrypt correctly).
-- [ ] In `jobradar.db` (the `settings` table), secret values are stored as
+- [ ] In `lodestar.db` (the `settings` table), secret values are stored as
       `dpapi:...` ciphertext, **not** plaintext.
-      DB path (Windows): `%APPDATA%\<app identifier>\jobradar.db` (the legacy file name is
-      kept so existing installs keep their data).
+      DB path (Windows): `%APPDATA%\com.wickitlab.lodestar\lodestar.db`.
 - [ ] Keys saved as plaintext by older builds still work without re-entry (legacy
       plaintext is tolerated and re-encrypted on the next save).
+
+## Data from the old app identifier
+
+- [ ] With data in `%APPDATA%\com.w1ck3ds0d4.jobradar` and no `lodestar.db` in
+      `%APPDATA%\com.wickitlab.lodestar`, the first launch copies it: the profile, sessions
+      and settings are all there, and the old folder is unchanged.
+- [ ] A second launch does not copy again.
 
 ## Phone remote (if used)
 
