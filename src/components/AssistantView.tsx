@@ -389,6 +389,8 @@ export function AssistantView({ view }: { view: "assistant" | "settings" }) {
   const [ollamaModel, setOllamaModel] = useState("");
   const [ollamaModels, setOllamaModels] = useState<string[]>([]);
   const [keyInput, setKeyInput] = useState("");
+  // Set when a key could not be saved (the store refuses to keep a key unencrypted).
+  const [keyErr, setKeyErr] = useState("");
   const [sttKeyInput, setSttKeyInput] = useState("");
   const [savingKey, setSavingKey] = useState(false);
   const [savingStt, setSavingStt] = useState(false);
@@ -487,6 +489,8 @@ export function AssistantView({ view }: { view: "assistant" | "settings" }) {
   // Phone companion: LAN server connection details (null while stopped).
   const [phone, setPhone] = useState<PhoneInfo | null>(null);
   const [phoneErr, setPhoneErr] = useState("");
+  // Shown after the server replaced the PIN because of repeated wrong attempts.
+  const [phoneNote, setPhoneNote] = useState("");
   const [phoneBusy, setPhoneBusy] = useState(false);
   const [phoneNet, setPhoneNet] = useState<PhoneNetStatus | null>(null);
   const [fixingFw, setFixingFw] = useState(false);
@@ -1187,10 +1191,13 @@ export function AssistantView({ view }: { view: "assistant" | "settings" }) {
   const saveKey = async () => {
     if (!keyInput.trim()) return;
     setSavingKey(true);
+    setKeyErr("");
     try {
       await api.setApiKey(keyInput.trim());
       setKeyInput("");
       await loadSettings();
+    } catch (e) {
+      setKeyErr(String(e));
     } finally {
       setSavingKey(false);
     }
@@ -1199,10 +1206,13 @@ export function AssistantView({ view }: { view: "assistant" | "settings" }) {
   const saveSttKey = async () => {
     if (!sttKeyInput.trim()) return;
     setSavingStt(true);
+    setKeyErr("");
     try {
       await api.setDeepgramKey(sttKeyInput.trim());
       setSttKeyInput("");
       await loadSettings();
+    } catch (e) {
+      setKeyErr(String(e));
     } finally {
       setSavingStt(false);
     }
@@ -1493,6 +1503,7 @@ export function AssistantView({ view }: { view: "assistant" | "settings" }) {
   const startPhone = async () => {
     setPhoneBusy(true);
     setPhoneErr("");
+    setPhoneNote("");
     try {
       setPhone(await api.startPhoneServer());
       // Surface a firewall/network warning up front, rather than after the user fails to
@@ -1515,6 +1526,7 @@ export function AssistantView({ view }: { view: "assistant" | "settings" }) {
     }
     setPhone(null);
     setPhoneNet(null);
+    setPhoneNote("");
   };
   // Marks the network Private and opens the companion port to the local subnet only.
   // Triggers a Windows UAC prompt; on success the refreshed status clears the warning.
@@ -1585,10 +1597,11 @@ export function AssistantView({ view }: { view: "assistant" | "settings" }) {
         setWatchingScreen((v) => !v);
         break;
       case "protect":
-        // Gate on captureOn so a stray phone tap can't flip the persisted
-        // screen-capture-protection default while no panels are open (which would make
-        // the next capture session open exposed to a screen share).
-        if (captureOn) void changeCaptureProtect(!captureProtect);
+        // A phone may only switch screen-share protection ON. Turning it off is done at
+        // the computer: a paired phone (or anything that gets past the PIN) must not be
+        // able to expose the panels to a screen share. Gate on captureOn so a stray tap
+        // can't change the persisted default while no panels are open.
+        if (captureOn && !captureProtect) void changeCaptureProtect(true);
         break;
     }
   };
@@ -1713,6 +1726,21 @@ export function AssistantView({ view }: { view: "assistant" | "settings" }) {
       }),
     );
     add(listen<CaptureCommand>("capture-command", (e) => captureCmdRef.current(e.payload)));
+    // The phone server replaced its PIN after repeated wrong attempts, or shut down.
+    add(
+      listen<PhoneInfo>("phone-rotated", (e) => {
+        setPhone(e.payload);
+        setPhoneNote("The PIN was changed after too many wrong attempts. Use the new one.");
+      }),
+    );
+    add(
+      listen<string>("phone-stopped", (e) => {
+        setPhone(null);
+        setPhoneNet(null);
+        setPhoneNote("");
+        setPhoneErr(String(e.payload));
+      }),
+    );
     return () => {
       cancelled = true;
       uns.forEach((u) => u());
@@ -1827,6 +1855,7 @@ export function AssistantView({ view }: { view: "assistant" | "settings" }) {
               {savingKey ? "Saving..." : "Save key"}
             </button>
           </div>
+          {keyErr && <div className="assistant-error">{keyErr}</div>}
           <p className="muted sm">
             No key?{" "}
             <button className="link-btn" onClick={() => void changeAnswerEngine("ollama")}>
@@ -1908,6 +1937,7 @@ export function AssistantView({ view }: { view: "assistant" | "settings" }) {
                       {savingStt ? "Saving..." : "Save key"}
                     </button>
                   </div>
+                  {keyErr && <div className="assistant-error">{keyErr}</div>}
                 </div>
               ) : (
                 <div className="listen-bar">
@@ -2779,6 +2809,7 @@ export function AssistantView({ view }: { view: "assistant" | "settings" }) {
               </div>
             )}
             {phoneErr && <div className="assistant-error">{phoneErr}</div>}
+            {phone && phoneNote && <div className="muted sm">{phoneNote}</div>}
             <div className="muted sm">
               Scan the code to connect instantly, or open the URL and type the PIN. Same Wi-Fi only; the
               code carries the PIN and traffic is unencrypted, so use a network you trust.

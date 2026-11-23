@@ -1140,8 +1140,12 @@ pub fn set_api_key(state: State<'_, AppState>, key: String) -> Result<(), String
     if trimmed.is_empty() {
         db::delete_setting(&conn, "anthropic_api_key").map_err(|e| e.to_string())
     } else {
-        db::set_setting(&conn, "anthropic_api_key", &crate::secret::protect(trimmed))
-            .map_err(|e| e.to_string())
+        db::set_setting(
+            &conn,
+            "anthropic_api_key",
+            &crate::secret::protect(trimmed)?,
+        )
+        .map_err(|e| e.to_string())
     }
 }
 
@@ -1551,7 +1555,7 @@ pub fn set_deepgram_key(state: State<'_, AppState>, key: String) -> Result<(), S
     if trimmed.is_empty() {
         db::delete_setting(&conn, "deepgram_api_key").map_err(|e| e.to_string())
     } else {
-        db::set_setting(&conn, "deepgram_api_key", &crate::secret::protect(trimmed))
+        db::set_setting(&conn, "deepgram_api_key", &crate::secret::protect(trimmed)?)
             .map_err(|e| e.to_string())
     }
 }
@@ -1586,18 +1590,24 @@ pub struct PhoneInfo {
 #[tauri::command]
 pub fn start_phone_server(state: State<'_, AppState>, app: AppHandle) -> Result<PhoneInfo, String> {
     let mut guard = state.phone.lock().map_err(|_| "phone lock poisoned")?;
+    // A server that shut itself down after too many wrong PINs is replaced, not reused.
+    if guard.as_ref().is_some_and(|s| s.is_stopped()) {
+        guard.take();
+    }
     if let Some(server) = guard.as_ref() {
+        let pin = server.pin();
         return Ok(PhoneInfo {
             url: server.url.clone(),
-            pin: server.pin.clone(),
-            qr: crate::phone::qr_for(&server.url, &server.pin),
+            qr: crate::phone::qr_for(&server.url, &pin),
+            pin,
         });
     }
     let server = crate::phone::start(app)?;
+    let pin = server.pin();
     let info = PhoneInfo {
         url: server.url.clone(),
-        pin: server.pin.clone(),
-        qr: crate::phone::qr_for(&server.url, &server.pin),
+        qr: crate::phone::qr_for(&server.url, &pin),
+        pin,
     };
     *guard = Some(server);
     Ok(info)

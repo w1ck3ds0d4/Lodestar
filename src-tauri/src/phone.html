@@ -205,7 +205,14 @@
           try { msg = JSON.parse(ev.data); } catch (e) { return; }
           if (msg.type === "auth") {
             if (msg.ok) { connected = true; show($("gate"), false); show($("app"), true); }
-            else { $("gateErr").textContent = "Wrong PIN."; ws.close(); }
+            else {
+              $("gateErr").textContent = msg.locked
+                ? "Too many wrong PINs. The server stopped; start it again on your computer."
+                : msg.rotated
+                  ? "Wrong PIN, and it was changed. Use the new PIN shown on your computer."
+                  : "Wrong PIN.";
+              ws.close();
+            }
           } else if (msg.type === "state") {
             setOn($("listen"), $("listenSt"), msg.listening);
             setOn($("capture"), $("captureSt"), msg.capture);
