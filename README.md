@@ -322,7 +322,3 @@ This project is dual-licensed:
 
 - [AGPL-3.0-or-later](LICENSE) for everyone. You may use it personally, study it, modify it and redistribute it under the AGPL. If you distribute a modified version or run one as a network service, you must offer its source under the AGPL.
 - [Commercial license](COMMERCIAL.md) for proprietary redistribution or a hosted service that does not want to comply with the AGPL. Personal use needs no license.
-
-Copyright (c) 2026 WickIT Lab.
-
-Contributions are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md).
